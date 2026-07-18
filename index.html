@@ -202,11 +202,11 @@ td{padding:10px 12px;vertical-align:middle;}
   <div class="form-panel">
     <div class="form-title">Log New Activation</div>
     <div class="form-grid">
-      <div class="field"><label>Phone # *</label><input class="phone-f" id="act-phone" type="text" placeholder="(516) 000-0000"></div>
-      <div class="field"><label>Order #</label><input id="act-order" type="text" placeholder="347742386"></div>
-      <div class="field"><label>Customer Name</label><input id="act-name" type="text" placeholder="John Smith"></div>
-      <div class="field"><label>PIN</label><input id="act-pin" type="text" placeholder="1234" maxlength="6"></div>
-      <div class="field"><label>IMEI — Auto-links rebate 🔗</label><input class="imei-f" id="act-imei" type="text" placeholder="356938035643809" oninput="checkImei(this.value)"></div>
+      <div class="field"><label>Phone # *</label><input class="phone-f" id="act-phone" type="text" placeholder="phone number"></div>
+      <div class="field"><label>Order #</label><input id="act-order" type="text" placeholder="order #"></div>
+      <div class="field"><label>Customer Name</label><input id="act-name" type="text" placeholder="customer name"></div>
+      <div class="field"><label>PIN</label><input id="act-pin" type="text" placeholder="PIN" maxlength="6"></div>
+      <div class="field"><label>IMEI — Auto-links rebate 🔗</label><input class="imei-f" id="act-imei" type="text" placeholder="IMEI number" oninput="checkImei(this.value)"></div>
       <div class="field"><label>Activation Date</label><input id="act-date" type="date"></div>
       <div class="field"><label>Carrier</label><select id="act-carrier"><option value="">Select...</option><option>Simple Mobile</option><option>Verizon Prepaid</option><option>Postpaid</option></select></div>
       <div class="field"><label>Plan</label><select id="act-plan">
@@ -227,7 +227,7 @@ td{padding:10px 12px;vertical-align:middle;}
         </optgroup>
         <option>Other</option>
       </select></div>
-      <div class="field"><label>MRC $</label><input class="money-f" id="act-mrc" type="number" step="0.01" placeholder="50.00"></div>
+      <div class="field"><label>MRC $</label><input class="money-f" id="act-mrc" type="number" step="0.01" placeholder="0.00"></div>
       <div class="field"><label>Subsidy $ (auto-fills from IMEI)</label><input class="money-f" id="act-subsidy" type="number" step="0.01" placeholder="0.00"></div>
       <div class="field"><label>Instant Spiff $</label><input class="money-f" id="act-spiff" type="number" step="0.01" placeholder="0.00"></div>
     </div>
@@ -252,11 +252,11 @@ td{padding:10px 12px;vertical-align:middle;}
   <div class="form-panel">
     <div class="form-title">Log Refill Payment</div>
     <div class="form-grid">
-      <div class="field"><label>Phone # *</label><input class="phone-f" id="ref-phone" type="text" placeholder="(516) 000-0000" oninput="lookupRefillPhone(this.value)"></div>
-      <div class="field"><label>Order #</label><input id="ref-order" type="text" placeholder="347798630"></div>
+      <div class="field"><label>Phone # *</label><input class="phone-f" id="ref-phone" type="text" placeholder="phone number" oninput="lookupRefillPhone(this.value)"></div>
+      <div class="field"><label>Order #</label><input id="ref-order" type="text" placeholder="order #"></div>
       <div class="field"><label>Date</label><input id="ref-date" type="date"></div>
       <div class="field"><label>Plan</label><select id="ref-plan"><option value="">Select...</option><option>$20 RTR</option><option>$25 RTR</option><option>$30 RTR</option><option>$40 RTR</option><option>$50 RTR</option><option>$60 RTR</option><option>Other</option></select></div>
-      <div class="field"><label>Amount Collected $</label><input class="money-f" id="ref-amount" type="number" step="0.01" placeholder="25.00"></div>
+      <div class="field"><label>Amount Collected $</label><input class="money-f" id="ref-amount" type="number" step="0.01" placeholder="0.00"></div>
     </div>
     <!-- PHONE LOOKUP PANEL -->
     <div id="refLookupPanel" style="display:none;margin-top:12px;border-radius:6px;overflow:hidden;border:1.5px solid var(--border);">
@@ -333,17 +333,22 @@ td{padding:10px 12px;vertical-align:middle;}
   <div class="form-panel">
     <div class="form-title">Log Phone — Inventory & Rebate Tracking</div>
     <div class="form-grid">
-      <div class="field"><label>Customer Phone #</label><input class="phone-f" id="ph-phone" type="text" placeholder="(516) 000-0000"></div>
-      <div class="field"><label>Order #</label><input id="ph-order" type="text" placeholder="347742386"></div>
-      <div class="field"><label>IMEI * (links to activation)</label><input class="imei-f" id="ph-imei" type="text" placeholder="356938035643809"></div>
-      <div class="field"><label>Model</label><input id="ph-model" type="text" placeholder="iPhone 13 128GB"></div>
+      <div class="field"><label>Customer Phone #</label><input class="phone-f" id="ph-phone" type="text" placeholder="phone number"></div>
+      <div class="field"><label>Order #</label><input id="ph-order" type="text" placeholder="order #"></div>
+      <div class="field"><label>IMEI * (links to activation)</label><input class="imei-f" id="ph-imei" type="text" placeholder="IMEI number"></div>
+      <div class="field"><label>Model</label><input id="ph-model" type="text" placeholder="phone model"></div>
       <div class="field"><label>Purchase Date</label><input id="ph-pdate" type="date"></div>
-      <div class="field"><label>Your Cost $</label><input class="money-f" id="ph-cost" type="number" step="0.01" placeholder="259.99"></div>
-      <div class="field"><label>Rebate Expected $ 🔗</label><input class="money-f" id="ph-rebate" type="number" step="0.01" placeholder="259.99"></div>
-      <div class="field"><label>Required Plan for Rebate</label><input id="ph-req-plan" type="text" placeholder="3x $50 or $150 3-Month"></div>
-      <div class="field"><label>Sale Date</label><input id="ph-sdate" type="date"></div>
-      <div class="field"><label>Sale Price $</label><input class="money-f" id="ph-sale" type="number" step="0.01" placeholder="299.99"></div>
-      <div class="field"><label>Subsidy Received $</label><input class="money-f" id="ph-subsidy" type="number" step="0.01" placeholder="259.99"></div>
+      <div class="field"><label>Your Cost $</label><input class="money-f" id="ph-cost" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Rebate Expected $ 🔗</label><input class="money-f" id="ph-rebate" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Required Plan for Rebate</label><input id="ph-req-plan" type="text" placeholder="required plan"></div>
+      <div class="field"><label>Sale Date</label><input id="ph-sdate" type="date" style="background:#fff;border:1.5px solid #e5e7eb;border-radius:6px;padding:9px 10px;font-size:12px;font-family:inherit;width:100%;"></div>
+      <div class="field">
+        <label style="color:var(--red);font-weight:700;">📅 Return By Date</label>
+        <input id="ph-return-date" type="date" style="background:#fff5f5;border:2px solid var(--red);border-radius:6px;padding:9px 10px;font-size:12px;font-family:inherit;width:100%;">
+        <div style="font-size:9px;color:var(--red);margin-top:3px;font-weight:600;">⏰ Countdown shows in inventory</div>
+      </div>
+      <div class="field"><label>Sale Price $</label><input class="money-f" id="ph-sale" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Subsidy Received $</label><input class="money-f" id="ph-subsidy" type="number" step="0.01" placeholder="0.00"></div>
       <div class="field"><label>Status</label><select id="ph-status"><option>In Stock</option><option>Sold — Awaiting Rebate</option><option>Sold — Rebate Received</option><option>Returned</option></select></div>
     </div>
     <div style="margin-top:12px;display:flex;gap:8px;">
@@ -405,15 +410,15 @@ td{padding:10px 12px;vertical-align:middle;}
   <div class="form-panel">
     <div class="form-title">Log VidaPay Invoice</div>
     <div class="form-grid">
-      <div class="field"><label>Invoice #</label><input id="inv-num" type="text" placeholder="347827529"></div>
+      <div class="field"><label>Invoice #</label><input id="inv-num" type="text" placeholder="invoice #"></div>
       <div class="field"><label>Invoice Date</label><input id="inv-date" type="date"></div>
-      <div class="field"><label>Period</label><input id="inv-period" type="text" placeholder="07/09 - 07/12/2026"></div>
-      <div class="field"><label>Activation Orders $</label><input class="money-f" id="inv-act" type="number" step="0.01" placeholder="138.00"></div>
-      <div class="field"><label>Instant Spiff $ (credit)</label><input class="money-f" id="inv-spiff" type="number" step="0.01" placeholder="88.00"></div>
-      <div class="field"><label>Subsidy/Promo $ (credit)</label><input class="money-f" id="inv-sub" type="number" step="0.01" placeholder="259.99"></div>
-      <div class="field"><label>RTR/Refill Orders $</label><input class="money-f" id="inv-rtr" type="number" step="0.01" placeholder="23.00"></div>
-      <div class="field"><label>Invoice Fee $</label><input class="money-f" id="inv-fee" type="number" step="0.01" placeholder="1.50"></div>
-      <div class="field"><label>Notes</label><input id="inv-notes" type="text" placeholder="iPhone 13 + $25 RTR"></div>
+      <div class="field"><label>Period</label><input id="inv-period" type="text" placeholder="e.g. 07/09 - 07/12/2026"></div>
+      <div class="field"><label>Activation Orders $</label><input class="money-f" id="inv-act" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Instant Spiff $ (credit)</label><input class="money-f" id="inv-spiff" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Subsidy/Promo $ (credit)</label><input class="money-f" id="inv-sub" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>RTR/Refill Orders $</label><input class="money-f" id="inv-rtr" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Invoice Fee $</label><input class="money-f" id="inv-fee" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Notes</label><input id="inv-notes" type="text" placeholder="notes (optional)"></div>
     </div>
     <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
       <button class="btn btn-red" onclick="addInvoice()">+ Log Invoice</button>
@@ -1329,7 +1334,24 @@ function cancelPdfImport() {
   document.getElementById('pdfFileInput').value = '';
   pdfExtracted = null;
 }
-async function deleteInvoice(id){if(!confirm('Delete this invoice?'))return;const{error}=await sb.from('invoices').delete().eq('id',id);if(error){alert('Delete failed: '+error.message);return;}invoices=invoices.filter(i=>String(i.id)!==String(id));renderInvoices();showToast();}
+async function deleteInvoice(id){
+  if(!confirm('Delete this invoice?'))return;
+  // Try both numeric and string id
+  const numId=parseInt(id);
+  let error=null;
+  if(!isNaN(numId)){
+    const res=await sb.from('invoices').delete().eq('id',numId);
+    error=res.error;
+  }
+  if(error){
+    // Try string
+    const res2=await sb.from('invoices').delete().eq('id',String(id));
+    if(res2.error){alert('Delete failed: '+res2.error.message);return;}
+  }
+  invoices=invoices.filter(i=>String(i.id)!==String(id));
+  renderInvoices();
+  showToast();
+}
 
 function editInvoice(id) {
   const inv = invoices.find(i => i.id === id);

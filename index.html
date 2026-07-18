@@ -820,29 +820,100 @@ function renderRefills(){
 }
 
 async function addPhone(){
+  const imei=document.getElementById('ph-imei').value.trim();
   const model=document.getElementById('ph-model').value.trim();
-  if(!model){alert('Model required');return;}
+  if(!imei&&!model){alert('IMEI or Model required');return;}
   const{data:newPh,error:phErr}=await sb.from('phones').insert({
-    phone:document.getElementById('ph-phone').value.trim(),
     order_num:document.getElementById('ph-order').value.trim(),
-    imei:document.getElementById('ph-imei').value.trim(),
-    model,
+    imei:imei,
+    model:model,
     purchase_date:document.getElementById('ph-pdate').value||null,
     cost:parseFloat(document.getElementById('ph-cost').value)||0,
     rebate_expected:parseFloat(document.getElementById('ph-rebate').value)||0,
     req_plan:document.getElementById('ph-req-plan').value,
-    sale_date:document.getElementById('ph-sdate').value||null,
-    return_date:document.getElementById('ph-return-date').value||null,
-    sale_price:parseFloat(document.getElementById('ph-sale').value)||0,
-    subsidy:parseFloat(document.getElementById('ph-subsidy').value)||0,
-    status:document.getElementById('ph-status').value,
+    return_date:document.getElementById('ph-return-date')?document.getElementById('ph-return-date').value||null:null,
+    status:'In Stock',
   }).select().single();
   if(phErr){alert('Save Error: '+phErr.message);return;}
   if(newPh) phones.unshift(newPh);
   renderPhones();renderDashboard();
   clearPh();showToast();
 }
-function clearPh(){['ph-phone','ph-order','ph-imei','ph-model','ph-pdate','ph-cost','ph-rebate','ph-sdate','ph-return-date','ph-sale','ph-subsidy'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});const rp=document.getElementById('ph-req-plan');if(rp)rp.selectedIndex=0;document.getElementById('ph-status').value='In Stock';}
+
+async function logPhoneSale(){
+  const custPhone=document.getElementById('sale-phone').value.trim();
+  const imei=document.getElementById('sale-imei').value.trim();
+  if(!custPhone||!imei){alert('Customer phone # and IMEI are required');return;}
+  const salePrice=parseFloat(document.getElementById('sale-price').value)||0;
+  const subsidy=parseFloat(document.getElementById('sale-subsidy').value)||0;
+  const saleDate=document.getElementById('sale-date').value||null;
+
+  // Find matching phone in inventory
+  const invPhone=phones.find(p=>p.imei&&p.imei.replace(/\D/g,'')===imei.replace(/\D/g,''));
+  if(!invPhone){alert('IMEI not found in inventory. Add the phone to inventory first.');return;}
+
+  const cost=parseFloat(invPhone.cost)||0;
+  const saleProfit=salePrice-cost;
+  const totalProfit=saleProfit+subsidy;
+
+  // Update the phone record with sale info
+  const{error}=await sb.from('phones').update({
+    phone:custPhone,
+    sale_date:saleDate,
+    sale_price:salePrice,
+    subsidy:subsidy,
+    status:'Sold — Rebate Received',
+  }).eq('id',invPhone.id);
+
+  if(error){alert('Sale Error: '+error.message);return;}
+
+  // Update local
+  const idx=phones.findIndex(p=>p.id===invPhone.id);
+  if(idx>=0) phones[idx]={...phones[idx],phone:custPhone,sale_date:saleDate,sale_price:salePrice,subsidy,status:'Sold — Rebate Received'};
+
+  renderPhones();renderDashboard();
+  clearSaleForm();showToast();
+}
+
+function lookupSaleImei(imei){
+  const result=document.getElementById('saleLookupResult');
+  if(!imei||imei.length<10){result.style.display='none';return;}
+  const match=phones.find(p=>p.imei&&p.imei.replace(/\D/g,'')===imei.replace(/\D/g,''));
+  if(match){
+    result.style.display='block';
+    result.innerHTML='<span style="color:var(--green);font-weight:700;">✅ Found in inventory:</span> '+
+      (match.model||'Unknown model')+' · Cost: <strong>'+fmt(match.cost)+'</strong>'+
+      (match.rebate_expected?' · Rebate expected: <strong>'+fmt(match.rebate_expected)+'</strong>':'')+
+      (match.req_plan?' · Required plan: <strong>'+match.req_plan+'</strong>':'');
+  } else {
+    result.style.display='block';
+    result.innerHTML='<span style="color:var(--red);">⚠️ IMEI not in inventory — add phone first</span>';
+  }
+}
+
+function lookupSaleCustomer(phone){
+  // Auto-link customer info from activations
+  const act=activations.find(a=>samePhone(a.phone,phone));
+  if(act){
+    const result=document.getElementById('saleLookupResult');
+    result.style.display='block';
+    result.innerHTML='<span style="color:var(--blue);font-weight:700;">📱 Activation found:</span> '+
+      (act.customer_name||phone)+' · '+act.carrier+' '+act.plan;
+  }
+}
+
+function clearSaleForm(){
+  ['sale-phone','sale-imei','sale-date','sale-price','sale-subsidy'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
+  document.getElementById('saleLookupResult').style.display='none';
+}
+function clearPh(){
+  ['ph-order','ph-imei','ph-model','ph-pdate','ph-cost','ph-rebate','ph-return-date'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
+  const rp=document.getElementById('ph-req-plan');if(rp)rp.selectedIndex=0;
+}
 
 // RECEIPT IMAGE READER — 100% local, no API, no credits
 // Uses Tesseract.js for OCR (runs in browser)
@@ -1056,475 +1127,73 @@ function filterPhones(query){
 }
 
 function renderPhones(){
-  const tbody=document.getElementById('phTable');let tp=0;
+  const inStockBody=document.getElementById('inStockTable');
+  const soldBody=document.getElementById('soldTable');
+  const inStockCount=document.getElementById('inStockCount');
+  const soldCount=document.getElementById('soldCount');
+  const totalSaleProfit=document.getElementById('totalSaleProfit');
+  if(!inStockBody)return;
+
+  const inStock=phones.filter(p=>!p.status||p.status==='In Stock');
+  const sold=phones.filter(p=>p.status&&p.status.includes('Sold'));
+
+  if(inStockCount) inStockCount.textContent=inStock.length;
+  if(soldCount) soldCount.textContent=sold.length;
+
+  // IN STOCK TABLE
+  if(!inStock.length){
+    inStockBody.innerHTML='<tr><td colspan="10" class="empty-state">No phones in inventory — add one above</td></tr>';
+  } else {
+    inStockBody.innerHTML=inStock.map(p=>{
+      const cost=parseFloat(p.cost)||0;
+      const reb=parseFloat(p.rebate_expected)||0;
+      const dl=daysLeft(p.purchase_date);
+      const dlC=dl===null?'var(--muted)':dl<0?'var(--red)':dl<7?'var(--orange)':'var(--green)';
+      const dlT=dl===null?'—':dl<0?Math.abs(dl)+'d expired':dl+'d';
+      return`<tr style="background:#eff6ff;">
+        <td style="font-size:10px;color:var(--blue);font-family:monospace;word-break:break-all;">${p.imei||'—'}</td>
+        <td style="font-weight:700;">${p.model||'—'}</td>
+        <td><span class="order-t">${p.order_num||'—'}</span></td>
+        <td>${fmtDate(p.purchase_date)}</td>
+        <td class="money-t" style="color:var(--orange);">${fmt(cost)}</td>
+        <td class="money-t" style="color:var(--purple);">${reb?fmt(reb):'—'}</td>
+        <td style="font-size:11px;color:var(--muted);">${p.req_plan||'—'}</td>
+        <td style="font-size:11px;color:var(--red);font-weight:700;">${p.return_date?fmtDate(p.return_date):'—'}</td>
+        <td style="font-size:11px;">${returnCountdown(p.return_date)}</td>
+        <td><button class="del-btn" onclick="deletePhone(${p.id})">✕</button></td>
+      </tr>`;
+    }).join('');
+  }
+
+  // SOLD TABLE
+  let totalProfit=0;
+  if(!sold.length){
+    soldBody.innerHTML='<tr><td colspan="10" class="empty-state">No sales logged yet</td></tr>';
+  } else {
+    soldBody.innerHTML=sold.map(p=>{
+      const cost=parseFloat(p.cost)||0;
+      const sale=parseFloat(p.sale_price)||0;
+      const sub=parseFloat(p.subsidy)||0;
+      const saleP=sale-cost;
+      const totP=saleP+sub;
+      totalProfit+=totP;
+      return`<tr style="background:#f0fff4;">
+        <td><span class="phone-t">${p.phone||'—'}</span></td>
+        <td style="font-size:10px;color:var(--blue);font-family:monospace;">${p.imei||'—'}</td>
+        <td style="font-weight:700;">${p.model||'—'}</td>
+        <td class="money-t" style="color:var(--orange);">${fmt(cost)}</td>
+        <td class="money-t" style="color:var(--green);">${sale?fmt(sale):'—'}</td>
+        <td class="money-t" style="color:${saleP>=0?'var(--gold)':'var(--red)'};">${fmt(saleP)}</td>
+        <td class="money-t" style="color:var(--purple);">${sub?fmt(sub):'—'}</td>
+        <td class="money-t" style="color:var(--gold);font-weight:900;">${fmt(totP)}</td>
+        <td>${fmtDate(p.sale_date)}</td>
+        <td><button class="del-btn" onclick="deletePhone(${p.id})">✕</button></td>
+      </tr>`;
+    }).join('');
+  }
+
+  if(totalSaleProfit) totalSaleProfit.textContent='Total Profit: '+fmt(totalProfit);
   document.getElementById('phoneCount').textContent=phones.length;
-  if(!phones.length){tbody.innerHTML='<tr><td colspan="17" class="empty-state">No phones logged yet</td></tr>';document.getElementById('phoneTotalProfit').textContent='Total Profit: $0.00';return;}
-  tbody.innerHTML=phones.map(p=>{
-    const cost=parseFloat(p.cost)||0,sale=parseFloat(p.sale_price)||0,sub=parseFloat(p.subsidy)||0,reb=parseFloat(p.rebate_expected)||0;
-    const sp=sale-cost,tot=sp+sub;tp+=tot;
-    const dl=daysLeft(p.purchase_date);
-    const dlC=dl===null?'var(--muted)':dl<0?'var(--red)':dl<7?'var(--orange)':'var(--green)';
-    const dlT=dl===null?'—':dl<0?`${Math.abs(dl)}d expired`:`${dl}d left`;
-    const rd=p.purchase_date?new Date(new Date(p.purchase_date+'T12:00:00').getTime()+30*86400000).toLocaleDateString():'—';
-    const hasAct=activations.find(a=>a.imei&&p.imei&&a.imei===p.imei);
-    const sc={'In Stock':'b-blue','Sold — Awaiting Rebate':'b-orange','Sold — Rebate Received':'b-green',Returned:'b-red'};
-    return`<tr style="${hasAct?'background:#f0fff4;':''}">
-      <td><span class="phone-t">${p.phone||'—'}</span></td>
-      <td><span class="order-t">${p.order_num||'—'}</span></td>
-      <td style="font-size:10px;color:var(--blue);font-family:monospace">${p.imei||'—'}${hasAct?' <span class="badge b-teal" style="font-size:9px">✓ Activated</span>':''}</td>
-      <td style="font-weight:700">${p.model}</td>
-      <td>${fmtDate(p.purchase_date)}</td>
-      <td class="money-t" style="color:var(--orange)">${fmt(cost)}</td>
-      <td class="money-t" style="color:var(--purple)">${reb?fmt(reb)+' 🔗':'—'}</td>
-      <td style="font-size:11px;color:var(--muted)">${p.req_plan||'—'}</td>
-      <td>${fmtDate(p.sale_date)}</td>
-      <td class="money-t" style="color:var(--green)">${sale?fmt(sale):'—'}</td>
-      <td class="money-t" style="color:${sp>=0?'var(--gold)':'var(--red)'}">${fmt(sp)}</td>
-      <td class="money-t" style="color:var(--purple)">${sub?fmt(sub):'—'}</td>
-      <td class="money-t" style="color:var(--gold);font-weight:900">${fmt(tot)}</td>
-      <td style="font-size:11px">${rd}</td>
-      <td style="color:${dlC};font-weight:700;font-size:11px">${dlT}</td>
-      <td><span class="badge ${sc[p.status]||'b-gray'}">${p.status}</span></td>
-      <td><button class="del-btn" onclick="deletePhone(${p.id})">✕</button></td>
-    </tr>`;
-  }).join('');
-  document.getElementById('phoneTotalProfit').textContent='Total Profit: '+fmt(tp);
-}
-
-async function addInvoice(){
-  const num=document.getElementById('inv-num').value.trim();
-  if(!num){alert('Invoice # required');return;}
-  await sb.from('invoices').insert({invoice_num:num,invoice_date:document.getElementById('inv-date').value||null,period:document.getElementById('inv-period').value.trim(),act_orders:parseFloat(document.getElementById('inv-act').value)||0,spiff:parseFloat(document.getElementById('inv-spiff').value)||0,subsidy:parseFloat(document.getElementById('inv-sub').value)||0,rtr:parseFloat(document.getElementById('inv-rtr').value)||0,fee:parseFloat(document.getElementById('inv-fee').value)||0,notes:document.getElementById('inv-notes').value.trim()});
-  clearInv();showToast();
-}
-function clearInv(){['inv-num','inv-date','inv-period','inv-act','inv-spiff','inv-sub','inv-rtr','inv-fee','inv-notes'].forEach(id=>document.getElementById(id).value='');}
-
-// PDF AUTO-IMPORT — uses PDF.js locally, no external API needed
-let pdfExtracted = null;
-
-// Set PDF.js worker
-if (typeof pdfjsLib !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-}
-
-function parsePdfText(rawText) {
-  // Normalize: collapse all whitespace/newlines to single spaces
-  const t = rawText.replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim();
-  const r = {};
-
-  // Invoice number
-  let m = t.match(/Invoice\s*No[:.#\s]+(\d{7,12})/i) ||
-          t.match(/Invoice\s*Number[:\s]+(\d{7,12})/i) ||
-          t.match(/\b(3[3-9]\d{6,8})\b/);
-  r.invoice_num = m ? m[1].trim() : '';
-
-  // Date — find after "Invoice Date:" label
-  m = t.match(/Invoice\s*Date[:\s]+(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/i) ||
-      t.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-  r.invoice_date = m ? (m[3]+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0')) : '';
-
-  // Period
-  m = t.match(/Period[:\s]+([\d\/]+\s*-+\s*[\d\/]+)/i);
-  r.period = m ? m[1].trim() : '';
-
-  // Smart amount grabber — finds dollar amounts after a label
-  function grab(patterns) {
-    for (const pat of patterns) {
-      const x = t.match(pat);
-      if (x) {
-        const val = parseFloat(x[1].replace(/[$,()]/g,''));
-        if (!isNaN(val)) return Math.abs(val);
-      }
-    }
-    return 0;
-  }
-
-  // Branded MarketPlace — phone purchases
-  r.branded_marketplace = grab([
-    /Branded\s*Market\s*?Place\s+\$?([\d,]+\.\d{2})/i,
-    /BrandedMarketPlace\s+\$?([\d,]+\.\d{2})/i,
-  ]);
-
-  // Activation Orders
-  r.act_orders = grab([
-    /Activation\s*Order\s+\$?([\d,]+\.\d{2})/i,
-  ]);
-
-  // Postpaid Instant Spiff — credit
-  r.spiff = grab([
-    /Postpaid\s*Instant\s*Spiff\s+\(?\$?([\d,]+\.\d{2})\)?/i,
-    /Instant\s*Spiff\s+\(?\$?([\d,]+\.\d{2})\)?/i,
-  ]);
-
-  // Promo Order / Subsidy — credit
-  r.subsidy = grab([
-    /Promo\s*Order\s+\(?\$?([\d,]+\.\d{2})\)?/i,
-  ]);
-
-  // Residual Order — credit (shown as negative/in parens)
-  r.residual = grab([
-    /Residual\s*Order\s+\(\$?([\d,]+\.\d{2})\)/i,
-    /Residual\s*Order\s+-?\$?([\d,]+\.\d{2})/i,
-    /Residual\s+\(\$?([\d,]+\.\d{2})\)/i,
-  ]);
-
-  // Sales Order / RTR — the amount charged to you (already at 92%)
-  r.rtr = grab([
-    /Sales\s*Order\s+\$?([\d,]+\.\d{2})/i,
-  ]);
-
-  // Invoice Fee — small amount like $1.50
-  r.fee = grab([
-    /Invoice\s*Fee\s+\$?([\d]+\.\d{2})/i,
-    /\bFee\b\s+\$([0-9]+\.[0-9]{2})\b(?!\s*\$0)/i,
-  ]);
-
-  // Build notes from key line items
-  const parts = [];
-  if (r.branded_marketplace > 0) {
-    const pm = t.match(/Apple\s+i?Phone[^$\d]{0,40}/i);
-    parts.push(pm ? pm[0].trim().replace(/\s+/g,' ').substring(0,50) : 'Phone $'+r.branded_marketplace);
-  }
-  if (r.act_orders > 0) parts.push('Activation $'+r.act_orders);
-  if (r.rtr > 0) {
-    const rm = t.match(/Simple\s+[A-Z\s]*RTR\s*\$?[\d.]+/i) || t.match(/RTR\s*\$[\d.]+/i);
-    parts.push(rm ? rm[0].trim().substring(0,40) : 'RTR $'+r.rtr);
-  }
-  r.notes = parts.join(' - ') || 'VidaPay Invoice';
-  r.total_debits  = r.act_orders + r.branded_marketplace + r.rtr + r.fee;
-  r.total_credits = r.spiff + r.subsidy + r.residual;
-  return r;
-}
-
-async function handlePdfDrop(file) {
-  if (!file) return;
-
-  const zone = document.getElementById('pdfDropZone');
-  const status = document.getElementById('pdfStatus');
-  const preview = document.getElementById('pdfPreview');
-
-  zone.style.display = 'none';
-  status.style.display = 'block';
-  preview.style.display = 'none';
-  document.getElementById('pdfStatusIcon').textContent = '⏳';
-  document.getElementById('pdfStatusMsg').textContent = 'Reading file...';
-
-  try {
-    const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
-    let fullText = '';
-
-    if (isPdf) {
-      // PDF path — use PDF.js
-      document.getElementById('pdfStatusMsg').textContent = 'Reading PDF...';
-      if (typeof pdfjsLib === 'undefined') {
-        await new Promise(resolve => setTimeout(resolve, 1500));
-      }
-      if (typeof pdfjsLib === 'undefined') throw new Error('PDF reader not loaded — please try again');
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        fullText += textContent.items.map(item => item.str).join(' ') + '\n';
-      }
-      if (!fullText.trim()) throw new Error('No text found in PDF');
-
-    } else {
-      // Image path — use Tesseract.js OCR
-      document.getElementById('pdfStatusMsg').textContent = 'Loading OCR engine...';
-      await loadTesseract();
-      document.getElementById('pdfStatusMsg').textContent = 'Reading image (10-15 seconds)...';
-      const result = await Tesseract.recognize(file, 'eng', {
-        logger: m => {
-          if (m.status === 'recognizing text') {
-            document.getElementById('pdfStatusMsg').textContent =
-              'Reading text... ' + Math.round(m.progress * 100) + '%';
-          }
-        }
-      });
-      fullText = result.data.text;
-      if (!fullText.trim()) throw new Error('No text found — try a clearer screenshot');
-    }
-
-    document.getElementById('pdfStatusMsg').textContent = 'Parsing invoice data...';
-    pdfExtracted = parsePdfText(fullText);
-
-    if (!pdfExtracted.invoice_num) throw new Error('Could not find invoice number — is this a VidaPay invoice?');
-
-    // Show success
-    document.getElementById('pdfStatusIcon').textContent = '✅';
-    document.getElementById('pdfStatusMsg').textContent = 'Invoice read successfully!';
-
-    const fmtN = v => '$' + (parseFloat(v)||0).toFixed(2);
-    const totalAct = (parseFloat(pdfExtracted.act_orders)||0) + (parseFloat(pdfExtracted.branded_marketplace)||0);
-    const totalCred = (parseFloat(pdfExtracted.spiff)||0) + (parseFloat(pdfExtracted.subsidy)||0) + (parseFloat(pdfExtracted.residual)||0);
-    const fields = [
-      { label: 'Invoice #',              val: pdfExtracted.invoice_num,   color: 'var(--blue)' },
-      { label: 'Date',                   val: pdfExtracted.invoice_date,  color: 'var(--text)' },
-      { label: 'Period',                 val: pdfExtracted.period||'—',   color: 'var(--text)' },
-      { label: 'Act./Marketplace Debit', val: fmtN(totalAct),             color: 'var(--red)' },
-      { label: 'Instant Spiff (credit)', val: fmtN(pdfExtracted.spiff),   color: 'var(--green)' },
-      { label: 'Subsidy/Promo (credit)', val: fmtN(parseFloat(pdfExtracted.subsidy||0)+parseFloat(pdfExtracted.residual||0)), color: 'var(--purple)' },
-      { label: 'RTR/Refill Orders',      val: fmtN(pdfExtracted.rtr),     color: 'var(--red)' },
-      { label: 'Invoice Fee',            val: fmtN(pdfExtracted.fee),     color: 'var(--muted)' },
-      { label: 'TOTAL DEBITS',           val: fmtN(pdfExtracted.total_debits), color: 'var(--red)' },
-      { label: 'TOTAL CREDITS',          val: fmtN(totalCred),            color: 'var(--green)' },
-      { label: 'Notes',                  val: pdfExtracted.notes,         color: 'var(--text)' },
-    ];
-
-    document.getElementById('pdfExtractedData').innerHTML = fields.map(f => `
-      <div style="background:#fff;padding:8px 10px;border-radius:5px;border:1px solid var(--border)">
-        <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:3px">${f.label}</div>
-        <div style="font-size:13px;font-weight:800;color:${f.color}">${f.val||'—'}</div>
-      </div>
-    `).join('');
-
-    setTimeout(() => { preview.style.display = 'block'; }, 200);
-
-  } catch (err) {
-    console.error('PDF error:', err);
-    document.getElementById('pdfStatusIcon').textContent = '❌';
-    document.getElementById('pdfStatusMsg').textContent = 'Error: ' + (err.message || 'Could not read PDF');
-    setTimeout(() => {
-      zone.style.display = 'block';
-      status.style.display = 'none';
-    }, 3000);
-  }
-}
-
-async function confirmPdfImport() {
-  if (!pdfExtracted) return;
-  const totalActOrders = (parseFloat(pdfExtracted.act_orders)||0) + (parseFloat(pdfExtracted.branded_marketplace)||0);
-  const totalSubsidy   = (parseFloat(pdfExtracted.subsidy)||0) + (parseFloat(pdfExtracted.residual)||0);
-  const { error } = await sb.from('invoices').insert({
-    invoice_num:  pdfExtracted.invoice_num,
-    invoice_date: pdfExtracted.invoice_date || null,
-    period:       pdfExtracted.period || '',
-    act_orders:   totalActOrders,
-    spiff:        parseFloat(pdfExtracted.spiff)||0,
-    subsidy:      totalSubsidy,
-    rtr:          parseFloat(pdfExtracted.rtr)||0,
-    fee:          parseFloat(pdfExtracted.fee)||0,
-    notes:        pdfExtracted.notes || '',
-  });
-  if (error) { alert('Save error: ' + error.message); return; }
-  invoices.unshift({
-    id: Date.now(),
-    invoice_num: pdfExtracted.invoice_num,
-    invoice_date: pdfExtracted.invoice_date,
-    period: pdfExtracted.period,
-    act_orders: totalActOrders,
-    spiff: parseFloat(pdfExtracted.spiff)||0,
-    subsidy: totalSubsidy,
-    rtr: parseFloat(pdfExtracted.rtr)||0,
-    fee: parseFloat(pdfExtracted.fee)||0,
-    notes: pdfExtracted.notes||'',
-  });
-  renderInvoices();
-  cancelPdfImport();
-  showToast();
-  pdfExtracted = null;
-}
-
-function cancelPdfImport() {
-  document.getElementById('pdfDropZone').style.display = 'block';
-  document.getElementById('pdfStatus').style.display = 'none';
-  document.getElementById('pdfPreview').style.display = 'none';
-  document.getElementById('pdfFileInput').value = '';
-  pdfExtracted = null;
-}
-async function deleteInvoice(id){
-  if(!confirm('Delete this invoice?'))return;
-  // Try both numeric and string id
-  const numId=parseInt(id);
-  let error=null;
-  if(!isNaN(numId)){
-    const res=await sb.from('invoices').delete().eq('id',numId);
-    error=res.error;
-  }
-  if(error){
-    // Try string
-    const res2=await sb.from('invoices').delete().eq('id',String(id));
-    if(res2.error){alert('Delete failed: '+res2.error.message);return;}
-  }
-  invoices=invoices.filter(i=>String(i.id)!==String(id));
-  renderInvoices();
-  showToast();
-}
-
-function editInvoice(id) {
-  const inv = invoices.find(i => i.id === id);
-  if (!inv) return;
-  // Scroll to form and pre-fill it
-  showTab('invoices', document.querySelectorAll('.nav-tab')[5]);
-  document.getElementById('inv-num').value    = inv.invoice_num || '';
-  document.getElementById('inv-date').value   = inv.invoice_date || '';
-  document.getElementById('inv-period').value = inv.period || '';
-  document.getElementById('inv-act').value    = inv.act_orders || '';
-  document.getElementById('inv-spiff').value  = inv.spiff || '';
-  document.getElementById('inv-sub').value    = inv.subsidy || '';
-  document.getElementById('inv-rtr').value    = inv.rtr || '';
-  document.getElementById('inv-fee').value    = inv.fee || '';
-  document.getElementById('inv-notes').value  = inv.notes || '';
-  // Change button to Update mode
-  const btn = document.querySelector('#tab-invoices .btn-red');
-  btn.textContent = '💾 Update Invoice';
-  btn.onclick = () => updateInvoice(id);
-  // Add cancel button
-  const cancelBtn = document.getElementById('inv-edit-cancel');
-  if (!cancelBtn) {
-    const cb = document.createElement('button');
-    cb.id = 'inv-edit-cancel';
-    cb.className = 'btn btn-ghost';
-    cb.textContent = 'Cancel Edit';
-    cb.onclick = cancelEditInvoice;
-    btn.parentNode.insertBefore(cb, btn.nextSibling);
-  }
-  // Scroll form into view
-  document.querySelector('#tab-invoices .form-panel').scrollIntoView({behavior:'smooth'});
-  // Highlight the row being edited
-  document.querySelectorAll('#invTable tr').forEach(r => r.style.background='');
-  const row = document.getElementById('inv-row-'+id);
-  if (row) row.style.background = 'var(--blue-l)';
-}
-
-async function updateInvoice(id) {
-  const num = document.getElementById('inv-num').value.trim();
-  if (!num) { alert('Invoice # required'); return; }
-  const { error } = await sb.from('invoices').update({
-    invoice_num:  num,
-    invoice_date: document.getElementById('inv-date').value || null,
-    period:       document.getElementById('inv-period').value.trim(),
-    act_orders:   parseFloat(document.getElementById('inv-act').value)  || 0,
-    spiff:        parseFloat(document.getElementById('inv-spiff').value) || 0,
-    subsidy:      parseFloat(document.getElementById('inv-sub').value)  || 0,
-    rtr:          parseFloat(document.getElementById('inv-rtr').value)  || 0,
-    fee:          parseFloat(document.getElementById('inv-fee').value)  || 0,
-    notes:        document.getElementById('inv-notes').value.trim(),
-  }).eq('id', id);
-  if(error){alert('Update error: '+error.message);return;}
-  // Update local array immediately
-  const idx=invoices.findIndex(i=>String(i.id)===String(id));
-  if(idx>=0) invoices[idx]={...invoices[idx],
-    invoice_num:document.getElementById('inv-num').value.trim(),
-    invoice_date:document.getElementById('inv-date').value||null,
-    period:document.getElementById('inv-period').value.trim(),
-    act_orders:parseFloat(document.getElementById('inv-act').value)||0,
-    spiff:parseFloat(document.getElementById('inv-spiff').value)||0,
-    subsidy:parseFloat(document.getElementById('inv-sub').value)||0,
-    rtr:parseFloat(document.getElementById('inv-rtr').value)||0,
-    fee:parseFloat(document.getElementById('inv-fee').value)||0,
-    notes:document.getElementById('inv-notes').value.trim(),
-  };
-  renderInvoices();
-  cancelEditInvoice();
-  showToast();
-}
-
-function cancelEditInvoice() {
-  clearInv();
-  const btn = document.querySelector('#tab-invoices .btn-red');
-  btn.textContent = '+ Log Invoice';
-  btn.onclick = addInvoice;
-  const cb = document.getElementById('inv-edit-cancel');
-  if (cb) cb.remove();
-  document.querySelectorAll('#invTable tr').forEach(r => r.style.background = '');
-}
-
-function renderInvoices(){
-  const tbody=document.getElementById('invTable');let td=0,tc=0;
-  if(!invoices.length){
-    tbody.innerHTML='<tr><td colspan="13" class="empty-state">No invoices logged yet</td></tr>';
-    document.getElementById('invDebits').textContent='$0.00';
-    document.getElementById('invCredits').textContent='$0.00';
-    const ne=document.getElementById('invNet');ne.textContent='$0.00';ne.style.color='var(--gold)';
-    return;
-  }
-  else tbody.innerHTML=invoices.map(inv=>{
-    const deb=(parseFloat(inv.act_orders)||0)+(parseFloat(inv.rtr)||0)+(parseFloat(inv.fee)||0);
-    const cred=(parseFloat(inv.spiff)||0)+(parseFloat(inv.subsidy)||0);
-    const net=deb-cred;td+=deb;tc+=cred;
-    const nc=net<0?'var(--green)':net>0?'var(--red)':'var(--muted)';
-    return`<tr id="inv-row-${inv.id}">
-      <td style="font-size:11px;color:var(--blue);font-family:monospace">${inv.invoice_num}</td>
-      <td>${fmtDate(inv.invoice_date)}</td>
-      <td style="font-size:11px;color:var(--muted)">${inv.period||'—'}</td>
-      <td class="money-t" style="color:var(--red)">${fmt(inv.act_orders)}</td>
-      <td class="money-t" style="color:var(--green)">${inv.spiff?fmt(inv.spiff):'—'}</td>
-      <td class="money-t" style="color:var(--purple)">${inv.subsidy?fmt(inv.subsidy):'—'}</td>
-      <td class="money-t" style="color:var(--gold)">${inv.rtr?fmt(inv.rtr):'—'}</td>
-      <td class="money-t" style="color:var(--muted)">${fmt(inv.fee)}</td>
-      <td class="money-t" style="color:var(--red)">${fmt(deb)}</td>
-      <td class="money-t" style="color:var(--green)">${fmt(cred)}</td>
-      <td class="money-t" style="color:${nc};font-weight:900">${fmt(net)}</td>
-      <td style="font-size:11px;color:var(--muted)">${inv.notes||'—'}</td>
-      <td style="display:flex;gap:4px;">
-        <button class="del-btn" title="Edit" onclick="editInvoice(${inv.id})" style="color:var(--blue)">✏️</button>
-        <button class="del-btn" title="Delete" onclick="deleteInvoice(${inv.id})">✕</button>
-      </td>
-    </tr>`;
-  }).join('');
-  const na=td-tc;
-  document.getElementById('invDebits').textContent=fmt(td);
-  document.getElementById('invCredits').textContent=fmt(tc);
-  const ne=document.getElementById('invNet');ne.textContent=fmt(na);
-  ne.style.color=na<0?'var(--green)':na>0?'var(--red)':'var(--gold)';
-}
-
-async function updateGoal(month,val){await sb.from('goals').upsert({month,target:parseInt(val)||10},{onConflict:'month'});showToast();}
-function renderGoals(){
-  const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
-  const now=new Date();
-  document.getElementById('goalGrid').innerHTML=months.map((month,idx)=>{
-    const m=idx+1,done=activations.filter(a=>{if(!a.act_date)return false;const d=new Date(a.act_date+'T12:00:00');return d.getMonth()+1===m&&d.getFullYear()===2027;}).length;
-    const goal=goals[month]||10,pv=Math.min((done/goal)*100,100),isCur=now.getMonth()+1===m;
-    const status=done>=goal?'✅ Goal Hit — 400% MRC!':done>=goal*0.8?'⚡ Almost':'Behind';
-    const sc=done>=goal?'var(--green)':done>=goal*0.8?'var(--gold)':'var(--red)';
-    const bc=done>=goal?'var(--green)':done>=goal*0.8?'var(--gold)':'var(--blue)';
-    return`<div class="goal-card${isCur?' current':''}">
-      <div class="goal-month">${month}${isCur?' — Current':''}</div>
-      <div class="goal-row">
-        <div style="font-size:11px;color:var(--muted)">Goal: <input class="goal-input" value="${goal}" onchange="updateGoal('${month}',this.value)" type="number" min="1" max="99"></div>
-        <div style="font-size:20px;font-weight:900;color:var(--green)">${done}</div>
-      </div>
-      <div class="goal-bar-track"><div class="goal-bar-fill" style="width:${pv}%;background:${bc}"></div></div>
-      <div style="display:flex;justify-content:space-between;margin-top:8px">
-        <div class="goal-status" style="color:${sc}">${status}</div>
-        <div style="font-size:10px;color:var(--muted);font-weight:700">${Math.round(pv)}%</div>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function renderDashboard(){
-  const tc=activations.reduce((a,x)=>a+spiff(parseFloat(x.mrc)||0),0);
-  const ts=activations.reduce((a,x)=>a+(parseFloat(x.subsidy)||0),0);
-  const rp=refills.reduce((a,r)=>a+((parseFloat(r.amount)||0)*0.08),0);
-  const pp=phones.reduce((a,p)=>a+((parseFloat(p.sale_price)||0)-(parseFloat(p.cost)||0)+(parseFloat(p.subsidy)||0)),0);
-  const net=tc+ts+rp+pp;
-  document.getElementById('netTotal').textContent=fmt(net);
-  document.getElementById('dashCommission').textContent=fmt(tc);
-  document.getElementById('dashSubsidy').textContent=fmt(ts);
-  document.getElementById('dashRefillProfit').textContent=fmt(rp);
-  document.getElementById('dashPhoneProfit').textContent=fmt(pp);
-  const inStock=phones.filter(p=>p.status==='In Stock').length;
-  const sold=phones.filter(p=>p.status&&p.status.includes('Sold')).length;
-  document.getElementById('kpiActivations').textContent=activations.length;
-  document.getElementById('kpiCommission').textContent='$'+Math.round(tc);
-  document.getElementById('kpiSubsidy').textContent='$'+Math.round(ts);
-  document.getElementById('kpiRefills').textContent=refills.length;
-  document.getElementById('kpiRefillProfit').textContent='$'+Math.round(rp);
-  document.getElementById('kpiPhoneProfit').textContent='$'+Math.round(pp);
-  document.getElementById('kpiInStock').textContent=inStock;
-  document.getElementById('kpiSold').textContent=sold;
-}
-
-function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPL();}
-
-function togglePL(){
-  const el=document.getElementById('plTable');
-  el.style.display=el.style.display==='none'?'block':'none';
 }
 
 function renderPL(){
@@ -1891,7 +1560,12 @@ function runLookup(query) {
   results.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:12px;">${totalFound} result${totalFound!==1?'s':''} found for "${query}"</div>` + html + invHtml;
 }
 document.getElementById('headerDate').textContent=new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
-document.querySelectorAll('input[type="date"]').forEach(el=>{el.value=new Date().toISOString().split('T')[0];});
+document.querySelectorAll('input[type="date"]').forEach(el=>{
+  // Only auto-set dates that make sense as today
+  if(['act-date','ref-date','inv-date','sale-date'].includes(el.id)){
+    el.value=new Date().toISOString().split('T')[0];
+  }
+});
 renderPlans();
 loadAll();
 setupRealtime();

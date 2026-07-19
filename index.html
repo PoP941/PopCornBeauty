@@ -1168,78 +1168,221 @@ async function handleAuditDrop(file){
       if(typeof pdfjsLib==='undefined')await new Promise(r=>setTimeout(r,1500));
       pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
       const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
-      for(let i=1;i<=pdf.numPages;i++){const page=await pdf.getPage(i);const c=await page.getTextContent();text+=c.items.map(x=>x.str).join(' ')+'\n';}
+      for(let i=1;i<=pdf.numPages;i++){
+        const page=await pdf.getPage(i);
+        const c=await page.getTextContent();
+        text+=c.items.map(x=>x.str).join(' ')+'\n';
+      }
     } else {
       await loadTesseract();
-      const r=await Tesseract.recognize(file,'eng',{logger:m=>{if(m.status==='recognizing text')document.getElementById('auditStatusMsg').textContent='Reading... '+Math.round(m.progress*100)+'%';}});
+      const r=await Tesseract.recognize(file,'eng',{logger:m=>{
+        if(m.status==='recognizing text')
+          document.getElementById('auditStatusMsg').textContent='Reading... '+Math.round(m.progress*100)+'%';
+      }});
       text=r.data.text;
     }
-    document.getElementById('auditStatusMsg').textContent='Checking order numbers...';
+
+    document.getElementById('auditStatusMsg').textContent='Parsing invoice detail...';
     const flat=text.replace(/[\r\n]+/g,' ').replace(/\s+/g,' ');
-    // Extract VidaPay order numbers (9-10 digits, 3xx,xxx,xxx range)
-    const orderNums=[...new Set([...flat.matchAll(/\b(3\d{8,9})\b/g)].map(m=>m[1]))];
+
+    // ── SMART PARSING: Extract invoice detail line by line ──
+    // Each line has: Date | Order# | Type | Product | Price | Fee | Total
+    // We parse each line item and categorize by type
+
     const invoiceNum=(flat.match(/Invoice\s*No[:.\s]+(\d{7,12})/i)||[])[1]||'';
     const period=(flat.match(/Period[:\s]+([\d\/]+ ?-+ ?[\d\/]+)/i)||[])[1]||'';
-    const actAmt=Math.abs(parseFloat((flat.match(/Activation\s*Order[^\d$]*\$?([\d,]+\.\d{2})/i)||[])[1])||0);
-    const rtrAmt=Math.abs(parseFloat((flat.match(/Sales\s*Order\s+\$?([\d,]+\.\d{2})/i)||[])[1])||0);
-    const feeAmt=Math.abs(parseFloat((flat.match(/(?:Invoice\s*)?Fee\s+\$?([\d]+\.\d{2})(?!\s*\$0)/i)||[])[1])||0);
-    const spiffAmt=Math.abs(parseFloat((flat.match(/(?:Retroactive|Additional|Postpaid\s*Instant)\s*Spiff[^\d$]*\$?([\d,]+\.\d{2})/i)||[])[1])||0);
 
-    const matched=[];const notInDash=[];
-    orderNums.forEach(ord=>{
-      const act=activations.find(a=>a.order_num===ord);
-      const ref=refills.find(r=>r.order_num===ord);
-      if(act||ref) matched.push({order:ord,rec:act||ref,type:act?'activation':'refill'});
-      else notInDash.push(ord);
+    // Extract structured line items from invoice detail section
+    const lineItems=[];
+    // Pattern: order_number then type then product info then prices
+    const linePattern=/\b(3[3-5]\d{7,8})\b\s+(Activation Order|Sales Order|Residual Order|Postpaid Instant Spiff|Additional Spiff|Retroactive Spiff|Fee)[^\d$]*(\(?\$?[\d,.]+\)?)/gi;
+    let lm;
+    while((lm=linePattern.exec(flat))!==null){
+      const orderNum=lm[1];
+      const type=lm[2].trim();
+      const amt=Math.abs(parseFloat(lm[3].replace(/[$,()]/g,'')));
+      lineItems.push({orderNum,type,amt});
+    }
+
+    // Also try a simpler approach - find all order numbers with their context
+    // by looking at the raw text positions
+    if(lineItems.length===0){
+      // Fallback: extract all order numbers with surrounding text
+      const allOrders=[...flat.matchAll(/\b(3[3-5]\d{7,8})\b/g)];
+      allOrders.forEach(m=>{
+        const ctx=flat.substring(Math.max(0,m.index-5),m.index+200);
+        let type='Unknown';
+        if(/Activation Order/i.test(ctx)) type='Activation Order';
+        else if(/Sales Order/i.test(ctx)) type='Sales Order';
+        else if(/Residual Order/i.test(ctx)) type='Residual Order';
+        else if(/Instant Spiff/i.test(ctx)) type='Postpaid Instant Spiff';
+        else if(/Additional Spiff/i.test(ctx)) type='Additional Spiff';
+        else if(/Retroactive Spiff/i.test(ctx)) type='Retroactive Spiff';
+        else if(/\bFee\b/i.test(ctx)) type='Fee';
+        lineItems.push({orderNum:m[1], type, amt:0});
+      });
+    }
+
+    // Remove duplicates (same order# + same type)
+    const seen=new Set();
+    const uniqueItems=lineItems.filter(item=>{
+      const key=item.orderNum+item.type;
+      if(seen.has(key))return false;
+      seen.add(key);
+      return true;
     });
 
+    // ── CATEGORIZE ──
+    const activationOrders=uniqueItems.filter(i=>i.type==='Activation Order');
+    const rtrOrders=uniqueItems.filter(i=>i.type==='Sales Order');
+    const spiffCredits=uniqueItems.filter(i=>i.type.includes('Spiff'));
+    const residuals=uniqueItems.filter(i=>i.type==='Residual Order');
+    const fees=uniqueItems.filter(i=>i.type==='Fee');
+
+    // ── CROSS-CHECK ACTIVATIONS ──
+    const actMatched=[];const actMissing=[];
+    activationOrders.forEach(item=>{
+      const found=activations.find(a=>a.order_num===item.orderNum);
+      if(found) actMatched.push({...item, act:found});
+      else actMissing.push(item);
+    });
+
+    // ── CROSS-CHECK RTR/REFILLS ──
+    const rtrMatched=[];const rtrMissing=[];
+    rtrOrders.forEach(item=>{
+      const found=refills.find(r=>r.order_num===item.orderNum);
+      if(found) rtrMatched.push({...item, ref:found});
+      else rtrMissing.push(item);
+    });
+
+    // ── INVOICE TOTALS FROM SUMMARY SECTION ──
+    const actAmt=Math.abs(parseFloat((flat.match(/Activation\s*Order[^\d$]*\$?([\d,]+\.\d{2})/i)||[])[1])||0);
+    const rtrAmt=Math.abs(parseFloat((flat.match(/Sales\s*Order[^\d$]*\$?([\d,]+\.\d{2})/i)||[])[1])||0);
+    const feeAmt=Math.abs(parseFloat((flat.match(/(?:Invoice\s*)?Fee[^\d$]*\$?([\d]+\.\d{2})(?!\s*\$0)/i)||[])[1])||0);
+    const spiffAmt=Math.abs(parseFloat((flat.match(/Total\s*Credits[^\d$]*\$?([\d,]+\.\d{2})/i)||[])[1])||0);
+    const grandTotal=Math.abs(parseFloat((flat.match(/Grand\s*Total[^\d$]*\$?([\d,]+\.\d{2})/i)||[])[1])||0);
+
+    const allOk=actMissing.length===0&&rtrMissing.length===0&&actMatched.length>0;
+    const hasIssues=actMissing.length>0||rtrMissing.length>0;
+    const hColor=allOk?'var(--green)':hasIssues?'var(--red)':'var(--gold)';
+
     status.style.display='none';results.style.display='block';
-    const allOk=notInDash.length===0&&matched.length>0;
-    const hColor=allOk?'var(--green)':notInDash.length?'var(--red)':'var(--gold)';
 
     results.innerHTML=`<div style="border-radius:8px;overflow:hidden;border:2px solid ${hColor};">
-      <div style="background:${hColor};color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;">
-        <div style="font-weight:800;font-size:13px;">${allOk?'✅ All Orders Verified':'⚠️ Issues Found — Review Below'}</div>
-        <div style="font-size:11px;opacity:.9;">${invoiceNum?'Invoice #'+invoiceNum:''} ${period}</div>
+      <div style="background:${hColor};color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div>
+          <div style="font-weight:900;font-size:14px;">${allOk?'✅ Audit Passed — All Orders Verified':hasIssues?'⚠️ Issues Found — Action Required':'📋 Invoice Processed'}</div>
+          <div style="font-size:11px;opacity:.85;margin-top:2px;">${invoiceNum?'Invoice #'+invoiceNum+' · ':''} Period: ${period}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:11px;opacity:.85;">Grand Total: <strong>${fmt(grandTotal)}</strong></div>
+        </div>
       </div>
-      <div style="padding:14px;background:#fff;">
-        ${matched.length?`<div style="margin-bottom:10px;">
-          <div style="font-size:9px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">✅ FOUND IN DASHBOARD (${matched.length})</div>
-          ${matched.map(m=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 10px;background:var(--green-l);border-radius:4px;margin-bottom:3px;font-size:11px;">
-            <div><span style="font-weight:700;color:var(--pink);">${m.rec.phone||'—'}</span> <span style="color:var(--muted);">${m.rec.customer_name||''}</span></div>
-            <div style="display:flex;align-items:center;gap:8px;"><span style="font-family:monospace;color:var(--blue);font-size:10px;">Order #${m.order}</span><span class="badge ${m.type==='activation'?'b-teal':'b-gold'}">${m.type}</span><span class="badge b-green">✓ Verified</span></div>
-          </div>`).join('')}
-        </div>`:''}
-        ${notInDash.length?`<div style="margin-bottom:10px;">
-          <div style="font-size:9px;font-weight:800;color:var(--red);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">❌ IN INVOICE — NOT IN DASHBOARD (${notInDash.length})</div>
-          <div style="padding:10px 12px;background:var(--red-l);border-radius:5px;border-left:3px solid var(--red);">
-            ${notInDash.map(o=>`<div style="font-family:monospace;font-weight:700;color:var(--red);margin-bottom:3px;">Order #${o} — not logged in dashboard ⚠️</div>`).join('')}
-            <div style="font-size:10px;color:var(--red);margin-top:6px;font-weight:600;">These appear on the invoice but were never entered. Log them above.</div>
+      <div style="padding:16px;background:#fff;">
+
+        <!-- ACTIVATION ORDERS -->
+        <div style="margin-bottom:14px;">
+          <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;color:var(--blue);">📱 Activation Orders</div>
+          ${actMatched.length?actMatched.map(m=>`
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--green-l);border-radius:6px;margin-bottom:4px;border-left:3px solid var(--green);">
+              <div>
+                <span style="font-weight:800;color:var(--pink);font-size:12px;">${m.act.phone}</span>
+                <span style="color:var(--muted);margin-left:8px;font-size:11px;">${m.act.customer_name||'—'}</span>
+                <span style="font-family:monospace;color:var(--blue);margin-left:8px;font-size:11px;">Order #${m.orderNum}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-weight:700;color:var(--green);">${m.amt?fmt(m.amt):''}</span>
+                <span class="badge b-green">✅ Verified</span>
+              </div>
+            </div>`).join(''):''}
+          ${actMissing.length?`
+            <div style="padding:10px 12px;background:var(--red-l);border-radius:6px;border-left:3px solid var(--red);">
+              <div style="font-size:11px;font-weight:800;color:var(--red);margin-bottom:6px;">❌ These activations are on the invoice but NOT logged in dashboard:</div>
+              ${actMissing.map(m=>`
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">
+                  <span style="font-family:monospace;font-weight:700;color:var(--red);">Order #${m.orderNum}</span>
+                  <button class="btn" style="background:var(--blue);color:#fff;font-size:10px;padding:3px 10px;" onclick="document.getElementById('act-order').value='${m.orderNum}';document.getElementById('tab-activations').scrollIntoView();">+ Log This</button>
+                </div>`).join('')}
+              <div style="font-size:10px;color:var(--red);margin-top:6px;font-weight:600;">⚠️ Log these activations above to keep records accurate</div>
+            </div>`:'<div style="padding:8px 12px;color:var(--muted);font-size:12px;">No activation orders found in this invoice period</div>'}
+        </div>
+
+        <!-- RTR/REFILL ORDERS -->
+        <div style="margin-bottom:14px;">
+          <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;color:var(--gold);">💳 Refill/RTR Orders</div>
+          ${rtrMatched.length?rtrMatched.map(m=>`
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--green-l);border-radius:6px;margin-bottom:4px;border-left:3px solid var(--green);">
+              <div>
+                <span style="font-weight:800;color:var(--pink);font-size:12px;">${m.ref.phone}</span>
+                <span style="font-family:monospace;color:var(--blue);margin-left:8px;font-size:11px;">Order #${m.orderNum}</span>
+              </div>
+              <span class="badge b-green">✅ Logged</span>
+            </div>`).join(''):''}
+          ${rtrMissing.length?`
+            <div style="padding:10px 12px;background:#fff8e1;border-radius:6px;border-left:3px solid var(--gold);">
+              <div style="font-size:11px;font-weight:800;color:var(--gold);margin-bottom:6px;">⚠️ These refill/RTR orders are on the invoice but NOT logged:</div>
+              ${rtrMissing.map(m=>`
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">
+                  <span style="font-family:monospace;font-weight:700;color:var(--gold);">Order #${m.orderNum}</span>
+                  <button class="btn btn-ghost" style="font-size:10px;padding:3px 10px;" onclick="showTab('refills',document.querySelectorAll('.nav-tab')[3]);document.getElementById('ref-order').value='${m.orderNum}';">Log Refill</button>
+                </div>`).join('')}
+            </div>`:`<div style="padding:8px 12px;color:var(--muted);font-size:12px;">${rtrOrders.length?'All '+rtrOrders.length+' refill order(s) accounted for ✓':'No refill orders in this period'}</div>`}
+        </div>
+
+        <!-- SPIFFS & CREDITS (informational) -->
+        ${spiffCredits.length?`
+        <div style="margin-bottom:14px;">
+          <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;color:var(--green);">💰 Commission Credits (Spiffs)</div>
+          <div style="padding:8px 12px;background:var(--green-l);border-radius:6px;">
+            ${spiffCredits.map(m=>`<div style="font-size:11px;color:var(--green);margin-bottom:2px;display:flex;justify-content:space-between;">
+              <span>${m.type} · Order #${m.orderNum}</span>
+              <span style="font-weight:700;">${m.amt?fmt(m.amt):''}</span>
+            </div>`).join('')}
+            <div style="font-size:10px;color:var(--green);margin-top:4px;font-weight:600;">These are credits paid to you — no action needed</div>
           </div>
         </div>`:''}
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
-          <div style="text-align:center;padding:8px;background:var(--red-l);border-radius:5px;"><div style="font-size:9px;color:var(--muted);font-weight:700;margin-bottom:2px;">ACTIVATION CHARGE</div><div style="font-size:15px;font-weight:900;color:var(--red);">${fmt(actAmt)}</div></div>
-          <div style="text-align:center;padding:8px;background:var(--green-l);border-radius:5px;"><div style="font-size:9px;color:var(--muted);font-weight:700;margin-bottom:2px;">SPIFF CREDIT</div><div style="font-size:15px;font-weight:900;color:var(--green);">${fmt(spiffAmt)}</div></div>
-          <div style="text-align:center;padding:8px;background:var(--gold-l);border-radius:5px;"><div style="font-size:9px;color:var(--muted);font-weight:700;margin-bottom:2px;">RTR ORDERS</div><div style="font-size:15px;font-weight:900;color:var(--gold);">${fmt(rtrAmt)}</div></div>
-          <div style="text-align:center;padding:8px;background:var(--blue-l);border-radius:5px;"><div style="font-size:9px;color:var(--muted);font-weight:700;margin-bottom:2px;">NET BALANCE</div><div style="font-size:15px;font-weight:900;color:var(--blue);">${fmt(actAmt+rtrAmt+feeAmt-spiffAmt)}</div></div>
+
+        <!-- FINANCIAL SUMMARY -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px;padding-top:12px;border-top:2px solid var(--border);">
+          <div style="text-align:center;padding:10px 8px;background:var(--red-l);border-radius:6px;">
+            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">You Were Charged</div>
+            <div style="font-size:18px;font-weight:900;color:var(--red);">${fmt(actAmt+rtrAmt+feeAmt)}</div>
+            <div style="font-size:9px;color:var(--muted);">Act: ${fmt(actAmt)} · RTR: ${fmt(rtrAmt)} · Fee: ${fmt(feeAmt)}</div>
+          </div>
+          <div style="text-align:center;padding:10px 8px;background:var(--green-l);border-radius:6px;">
+            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">Credits Received</div>
+            <div style="font-size:18px;font-weight:900;color:var(--green);">${fmt(spiffAmt)}</div>
+            <div style="font-size:9px;color:var(--muted);">Spiffs & residuals</div>
+          </div>
+          <div style="text-align:center;padding:10px 8px;background:var(--blue-l);border-radius:6px;">
+            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">Net Balance Due</div>
+            <div style="font-size:18px;font-weight:900;color:var(--blue);">${fmt(grandTotal)}</div>
+            <div style="font-size:9px;color:var(--muted);">From your VidaPay balance</div>
+          </div>
+          <div style="text-align:center;padding:10px 8px;background:var(--gold-l);border-radius:6px;">
+            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">Audit Status</div>
+            <div style="font-size:14px;font-weight:900;color:${allOk?'var(--green)':'var(--red)'};">${allOk?'✅ All Clear':actMissing.length+' Issue'+(actMissing.length>1?'s':'')}</div>
+            <div style="font-size:9px;color:var(--muted);">${actMatched.length} verified · ${actMissing.length} missing</div>
+          </div>
         </div>
-        <div style="margin-top:12px;display:flex;gap:8px;">
-          <button class="btn" style="background:var(--blue);color:#fff;font-size:11px;" onclick="saveAuditInvoice('${invoiceNum}','${period}',${actAmt},${spiffAmt},${rtrAmt},${feeAmt})">💾 Save to Invoice Records</button>
-          <button class="btn btn-ghost" style="font-size:11px;" onclick="document.getElementById('auditResults').style.display='none';document.getElementById('auditDropZone').style.display='block';">↩ Run Another</button>
+
+        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn" style="background:var(--blue);color:#fff;" onclick="saveAuditInvoice('${invoiceNum}','${period}',${actAmt},${spiffAmt},${rtrAmt},${feeAmt})">💾 Save Invoice to Records</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('auditResults').style.display='none';document.getElementById('auditDropZone').style.display='block';">↩ Run Another Audit</button>
         </div>
       </div>
     </div>`;
 
-    for(const m of matched){
-      if(m.type==='activation'){
-        await sb.from('activations').update({verified:true}).eq('id',m.rec.id).catch(()=>{});
-        const idx=activations.findIndex(a=>a.id===m.rec.id);
-        if(idx>=0)activations[idx].verified=true;
-      }
+    // Mark matched activations as verified
+    for(const m of actMatched){
+      await sb.from('activations').update({verified:true}).eq('id',m.act.id).catch(()=>{});
+      const idx=activations.findIndex(a=>a.id===m.act.id);
+      if(idx>=0)activations[idx].verified=true;
     }
     renderActivations();
+
   }catch(err){
-    console.error(err);
+    console.error('Audit error:',err);
     document.getElementById('auditStatusIcon').textContent='❌';
     document.getElementById('auditStatusMsg').textContent='Error: '+err.message;
     setTimeout(()=>{zone.style.display='block';status.style.display='none';},3000);

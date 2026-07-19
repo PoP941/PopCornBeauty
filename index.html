@@ -171,6 +171,22 @@ td{padding:10px 12px;vertical-align:middle;}
   </div>
   <div class="section-hdr"><div class="section-title">Monthly Goals — 2027</div><div style="font-size:10px;color:var(--muted)">Click the blue number to edit · Syncs live</div></div>
   <div class="goal-grid" id="goalGrid"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+      <div style="background:#1a1a1a;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-size:12px;font-weight:800;color:#fbbf24;">💰 Commission Pipeline</div>
+        <div style="font-size:10px;color:#888;">Per activation · 6 months</div>
+      </div>
+      <div id="commPipeline" style="padding:12px;max-height:220px;overflow-y:auto;"></div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+      <div style="background:var(--red-l);border-bottom:2px solid var(--red);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-size:12px;font-weight:800;color:var(--red);">⚠️ Customers Due for Refill</div>
+        <div id="overdueCount" style="background:var(--red);color:#fff;border-radius:12px;padding:2px 10px;font-size:11px;font-weight:800;">0</div>
+      </div>
+      <div id="overdueList" style="padding:12px;max-height:220px;overflow-y:auto;"></div>
+    </div>
+  </div>
   <div class="section-hdr" style="margin-top:4px"><div class="section-title">VidaPay Quick Guide</div></div>
   <div class="cheat-grid">
     <div class="cheat-card" style="--acc:var(--red)"><div class="cheat-term" style="color:var(--red)">⬆️ Activation — You Pay</div><div class="cheat-desc">When you activate a customer, VidaPay charges you a fee — less than the plan price.</div><div class="cheat-ex" style="background:var(--red-l);color:var(--red)">$150 plan → you pay $138</div></div>
@@ -195,56 +211,98 @@ td{padding:10px 12px;vertical-align:middle;}
 
 <!-- ACTIVATIONS -->
 <div id="tab-activations" class="tab-panel">
-  <div class="rebate-banner" id="rebateBanner">
-    <div style="font-size:24px">💡</div>
-    <div><div class="rebate-title" id="rebateTitle">Rebate Detected!</div><div class="rebate-desc" id="rebateDesc"></div></div>
-  </div>
-  <div class="form-panel">
-    <div class="form-title">Log New Activation</div>
-    <div class="form-grid">
-      <div class="field"><label>Phone # *</label><input class="phone-f" id="act-phone" type="text" placeholder="phone number"></div>
-      <div class="field"><label>Order #</label><input id="act-order" type="text" placeholder="order #"></div>
+
+  <!-- STEP 1: SALES REP ENTRY -->
+  <div style="background:#eff6ff;border:2px solid var(--blue);border-radius:10px;padding:18px;margin-bottom:16px;">
+    <div style="font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;display:flex;align-items:center;gap:8px;">
+      <span style="background:var(--blue);color:#fff;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;">1</span>
+      Sales Rep Logs Activation — Enter Basics Only
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:14px;margin-left:28px;">Phone #, Order #, Plan — commission calculates automatically. No need to calculate spiff or subsidy.</div>
+    <div class="form-grid" style="grid-template-columns:repeat(auto-fill,minmax(170px,1fr));">
+      <div class="field"><label>Customer Phone # *</label><input class="phone-f" id="act-phone" type="text" placeholder="customer phone #"></div>
+      <div class="field"><label>VidaPay Order # *</label><input id="act-order" type="text" placeholder="order # from VidaPay"></div>
       <div class="field"><label>Customer Name</label><input id="act-name" type="text" placeholder="customer name"></div>
       <div class="field"><label>PIN</label><input id="act-pin" type="text" placeholder="PIN" maxlength="6"></div>
-      <div class="field"><label>IMEI — Auto-links rebate 🔗</label><input class="imei-f" id="act-imei" type="text" placeholder="IMEI number" oninput="checkImei(this.value)"></div>
-      <div class="field"><label>Activation Date</label><input id="act-date" type="date"></div>
-      <div class="field"><label>Carrier</label><select id="act-carrier"><option value="">Select...</option><option>Simple Mobile</option><option>Verizon Prepaid</option><option>Postpaid</option></select></div>
-      <div class="field"><label>Plan</label><select id="act-plan">
-        <option value="">Select plan...</option>
-        <optgroup label="Monthly Plans">
-          <option>SM $20 Travelers (14-day)</option><option>SM $25 Unlimited Talk & Text</option>
-          <option>SM $30 Unlimited Talk & Text</option><option>SM $40 Unlimited Talk & Text</option>
-          <option>SM $50 Unlimited World</option><option>SM $60 Unlimited World+</option>
-        </optgroup>
-        <optgroup label="3-Month Plans">
-          <option>SM $75 3-Month</option><option>SM $150 Unlimited World 3-Month</option><option>SM $180 Unlimited World+ 3-Month</option>
-        </optgroup>
-        <optgroup label="6-Month Plans">
-          <option>SM $150 6-Month ($25/mo)</option><option>SM $300 Unlimited World 6-Month</option><option>SM $360 Unlimited World+ 6-Month</option>
-        </optgroup>
-        <optgroup label="Verizon Prepaid">
-          <option>VZ $35 Plan</option><option>VZ $45 Plan</option><option>VZ $50 Plan</option><option>VZ $60 Plan</option>
-        </optgroup>
-        <option>Other</option>
-      </select></div>
-      <div class="field"><label>MRC $</label><input class="money-f" id="act-mrc" type="number" step="0.01" placeholder="0.00"></div>
-      <div class="field"><label>Subsidy $ (auto-fills from IMEI)</label><input class="money-f" id="act-subsidy" type="number" step="0.01" placeholder="0.00"></div>
-      <div class="field"><label>Instant Spiff $</label><input class="money-f" id="act-spiff" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Carrier</label>
+        <select id="act-carrier">
+          <option value="">Select...</option>
+          <option>Simple Mobile</option><option>Verizon Prepaid</option><option>Postpaid</option>
+        </select>
+      </div>
+      <div class="field"><label>Plan *</label>
+        <select id="act-plan">
+          <option value="">Select plan...</option>
+          <optgroup label="Monthly">
+            <option>SM $20 Travelers</option><option>SM $25</option><option>SM $30</option>
+            <option>SM $40</option><option>SM $50 Unlimited World</option><option>SM $60 Unlimited World+</option>
+          </optgroup>
+          <optgroup label="3-Month">
+            <option>SM $75 3-Month</option><option>SM $150 Unlimited World 3-Month</option><option>SM $180 Unlimited World+ 3-Month</option>
+          </optgroup>
+          <optgroup label="6-Month">
+            <option>SM $150 6-Month</option><option>SM $300 Unlimited World 6-Month</option><option>SM $360 Unlimited World+ 6-Month</option>
+          </optgroup>
+          <optgroup label="Verizon Prepaid">
+            <option>VZ $35</option><option>VZ $45</option><option>VZ $50</option><option>VZ $60</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="field"><label>Date</label><input id="act-date" type="date"></div>
+      <div class="field"><label>IMEI <span style="color:var(--muted);font-size:9px;">(optional)</span></label>
+        <input class="imei-f" id="act-imei" type="text" placeholder="IMEI if known" oninput="checkImei(this.value)">
+      </div>
     </div>
-    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-      <button class="btn btn-red" onclick="addActivation()">+ Add Activation</button>
+    <div class="rebate-banner" id="rebateBanner">
+      <div style="font-size:20px">💡</div>
+      <div><div class="rebate-title" id="rebateTitle"></div><div class="rebate-desc" id="rebateDesc"></div></div>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="addActivation()">+ Log Activation</button>
       <button class="btn btn-ghost" onclick="clearAct()">Clear</button>
-      <span style="font-size:10px;color:var(--muted)">Enter IMEI to auto-detect phone rebate · Or click a plan in Plans tab to prefill</span>
+      <span style="font-size:10px;color:var(--muted);">Commission auto-calculated from plan · Invoice audit will verify everything</span>
     </div>
   </div>
+
+  <!-- STEP 2: INVOICE AUDIT -->
+  <div style="background:#fffbeb;border:2px solid var(--gold);border-radius:10px;padding:18px;margin-bottom:16px;">
+    <div style="font-size:12px;font-weight:800;color:var(--gold);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;display:flex;align-items:center;gap:8px;">
+      <span style="background:var(--gold);color:#fff;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;">2</span>
+      Audit — Drop VidaPay Invoice to Verify Sales
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:14px;margin-left:28px;">Upload your VidaPay invoice — the system cross-checks every order number against what was logged and flags mismatches</div>
+    <div id="auditDropZone" style="border:2px dashed #f59e0b;border-radius:8px;padding:20px;text-align:center;cursor:pointer;background:#fffde7;transition:all .2s;"
+      onclick="document.getElementById('auditFileInput').click()"
+      ondragover="event.preventDefault();this.style.borderColor='var(--gold)';this.style.background='var(--gold-l)'"
+      ondragleave="this.style.borderColor='#f59e0b';this.style.background='#fffde7'"
+      ondrop="event.preventDefault();this.style.borderColor='#f59e0b';this.style.background='#fffde7';handleAuditDrop(event.dataTransfer.files[0])">
+      <div style="font-size:28px;margin-bottom:6px">🔍</div>
+      <div style="font-size:13px;font-weight:800;color:var(--gold);">Drop VidaPay Invoice Here to Audit</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:2px;">PDF or Screenshot — cross-checks order #s, amounts, and commissions against dashboard entries</div>
+      <input type="file" id="auditFileInput" accept=".pdf,image/*" style="display:none" onchange="handleAuditDrop(this.files[0])">
+    </div>
+    <div id="auditStatus" style="display:none;text-align:center;padding:14px;">
+      <div id="auditStatusIcon" style="font-size:28px;margin-bottom:6px">⏳</div>
+      <div id="auditStatusMsg" style="font-size:12px;font-weight:700;color:var(--muted)"></div>
+    </div>
+    <div id="auditResults" style="display:none;margin-top:14px;"></div>
+  </div>
+
+  <!-- ACTIVATION LOG -->
   <div class="section-hdr">
-    <div class="section-title">Activation Log (<span id="actCount">0</span>)</div>
-    <span style="font-size:13px;font-weight:800;color:var(--gold)" id="actTotalSpiff">$0.00 total spiff</span>
+    <div class="section-title">📱 Activation Log (<span id="actCount">0</span>)</div>
+    <span style="font-size:13px;font-weight:800;color:var(--gold)" id="actTotalSpiff">$0.00 projected</span>
   </div>
   <div class="table-wrap"><div class="table-scroll"><table>
-    <thead><tr><th>Phone #</th><th>Order #</th><th>Customer</th><th>PIN</th><th>IMEI</th><th>Date</th><th>Carrier</th><th>Plan</th><th>MRC</th><th>Subsidy</th><th>Spiff</th><th>Net Cost</th><th>M1 90%</th><th>M2 55%</th><th>M3 55%</th><th>M4 70%</th><th>M5 65%</th><th>M6 65%</th><th>Total Spiff</th><th>Refills</th><th>Comm. Month</th><th></th></tr></thead>
-    <tbody id="actTable"><tr><td colspan="22" class="empty-state">No activations yet</td></tr></tbody>
+    <thead><tr>
+      <th>Phone #</th><th>Order #</th><th>Customer</th><th>PIN</th><th>Date</th>
+      <th>Carrier</th><th>Plan</th><th>MRC</th>
+      <th>M1</th><th>M2</th><th>M3</th><th>M4</th><th>M5</th><th>M6</th>
+      <th>Total Spiff</th><th>Refills</th><th>Comm. Status</th><th>✅ Audit</th><th></th>
+    </tr></thead>
+    <tbody id="actTable"><tr><td colspan="19" class="empty-state">No activations logged yet</td></tr></tbody>
   </table></div></div>
+
 </div>
 
 <!-- REFILLS -->
@@ -639,27 +697,50 @@ function setupRealtime(){
 
 async function addActivation(){
   const phone=document.getElementById('act-phone').value.trim();
-  if(!phone){alert('Phone # required');return;}
+  const order=document.getElementById('act-order').value.trim();
+  if(!phone){alert('Customer Phone # is required');return;}
+  if(!order){alert('VidaPay Order # is required');return;}
+
+  // Auto-calculate MRC from plan
+  const plan=document.getElementById('act-plan').value;
+  const mrc=getMrcFromPlan(plan);
+
   const actData={
     phone,
-    order_num:document.getElementById('act-order').value.trim(),
+    order_num:order,
     customer_name:document.getElementById('act-name').value.trim(),
     pin:document.getElementById('act-pin').value.trim(),
     act_date:document.getElementById('act-date').value||null,
     carrier:document.getElementById('act-carrier').value,
-    plan:document.getElementById('act-plan').value,
-    mrc:parseFloat(document.getElementById('act-mrc').value)||0,
-    subsidy:parseFloat(document.getElementById('act-subsidy').value)||0,
-    spiff:parseFloat(document.getElementById('act-spiff').value)||0,
+    plan:plan,
+    mrc:mrc,
+    subsidy:0,
+    spiff:0,
   };
   const imeiVal=document.getElementById('act-imei').value.trim();
   if(imeiVal) actData.imei=imeiVal;
+
   const{data:newAct,error}=await sb.from('activations').insert(actData).select().single();
   if(error){alert('Save Error: '+error.message);return;}
   if(newAct) activations.unshift(newAct);
-  renderActivations();renderDashboard();renderGoals();
+  renderActivations();renderDashboard();renderGoals();renderCommPipeline();renderOverdue();
   clearAct();showToast();
 }
+
+function getMrcFromPlan(plan){
+  if(!plan)return 0;
+  const map={
+    'SM $20 Travelers':20,'SM $25':25,'SM $30':30,'SM $40':40,
+    'SM $50 Unlimited World':50,'SM $60 Unlimited World+':60,
+    'SM $75 3-Month':75,'SM $150 Unlimited World 3-Month':150,
+    'SM $180 Unlimited World+ 3-Month':180,
+    'SM $150 6-Month':150,'SM $300 Unlimited World 6-Month':300,
+    'SM $360 Unlimited World+ 6-Month':360,
+    'VZ $35':35,'VZ $45':45,'VZ $50':50,'VZ $60':60,
+  };
+  return map[plan]||0;
+}
+
 function clearAct(){['act-phone','act-order','act-name','act-pin','act-imei','act-date','act-mrc','act-subsidy','act-spiff'].forEach(id=>document.getElementById(id).value='');document.getElementById('act-carrier').value='';document.getElementById('act-plan').value='';document.getElementById('rebateBanner').classList.remove('show');}
 async function deleteActivation(id){if(!confirm('Delete this activation?'))return;const{error}=await sb.from('activations').delete().eq('id',id);if(error){alert('Delete failed: '+error.message);return;}activations=activations.filter(a=>String(a.id)!==String(id));renderActivations();renderDashboard();renderGoals();showToast();}
 function commMonth(phone){
@@ -703,6 +784,7 @@ function renderActivations(){
       <td class="money-t" style="color:var(--gold);font-weight:900">${fmt(ts)}</td>
       <td><span class="badge ${rc>0?'b-green':'b-gray'}">${rc}</span></td>
       <td>${commMonthBadge(a.phone)}</td>
+      <td>${a.verified?'<span class="badge b-green" style="font-size:9px;">✅ Verified</span>':'<span class="badge b-gray" style="font-size:9px;">Pending</span>'}</td>
       <td><button class="del-btn" onclick="deleteActivation(${a.id})">✕</button></td>
     </tr>`;
   }).join('');
@@ -972,6 +1054,119 @@ let receiptExtracted = null;
 let tesseractReady = false;
 
 // Load Tesseract.js
+// ── ACTIVATION SCREENSHOT READER ──
+async function handleActDrop(file) {
+  if (!file) return;
+  const zone = document.getElementById('actDropZone');
+  const status = document.getElementById('actDropStatus');
+  zone.style.display = 'none';
+  status.style.display = 'block';
+  document.getElementById('actDropIcon').textContent = '⏳';
+  document.getElementById('actDropMsg').textContent = 'Loading OCR...';
+
+  try {
+    await loadTesseract();
+    document.getElementById('actDropMsg').textContent = 'Reading screenshot...';
+    const result = await Tesseract.recognize(file, 'eng', {
+      logger: m => {
+        if (m.status === 'recognizing text')
+          document.getElementById('actDropMsg').textContent = 'Reading... ' + Math.round(m.progress*100) + '%';
+      }
+    });
+    const t = result.data.text.replace(/[\r\n]+/g,' ').replace(/\s+/g,' ');
+
+    // Parse activation fields from VidaPay screenshot
+    const parsed = parseActScreenshot(t);
+
+    // Fill form fields
+    if (parsed.phone)    document.getElementById('act-phone').value  = parsed.phone;
+    if (parsed.order)    document.getElementById('act-order').value  = parsed.order;
+    if (parsed.imei)     document.getElementById('act-imei').value   = parsed.imei;
+    if (parsed.plan)     document.getElementById('act-mrc').value    = parsed.mrc || '';
+    if (parsed.carrier)  document.getElementById('act-carrier').value = parsed.carrier;
+    if (parsed.date)     document.getElementById('act-date').value   = parsed.date;
+    if (parsed.pin)      document.getElementById('act-pin').value    = parsed.pin;
+
+    // Show preview
+    const preview = document.getElementById('actDropPreview');
+    document.getElementById('actDropData').innerHTML = [
+      ['Phone #', parsed.phone], ['Order #', parsed.order],
+      ['IMEI', parsed.imei ? parsed.imei.substring(0,8)+'...' : '—'],
+      ['Plan', parsed.planName], ['MRC', parsed.mrc ? '$'+parsed.mrc : '—'],
+      ['Date', parsed.date]
+    ].map(([l,v]) => v ? `<div style="background:#fff;padding:5px 10px;border-radius:4px;font-size:11px;border:1px solid var(--border);">
+      <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;">${l}</div>
+      <div style="font-weight:800;color:var(--text);">${v}</div>
+    </div>` : '').join('');
+
+    status.style.display = 'none';
+    preview.style.display = 'block';
+
+    // Auto-check IMEI for rebate
+    if (parsed.imei) checkImei(parsed.imei);
+
+  } catch(err) {
+    document.getElementById('actDropIcon').textContent = '❌';
+    document.getElementById('actDropMsg').textContent = 'Could not read — fill manually below';
+    setTimeout(() => { zone.style.display = 'block'; status.style.display = 'none'; }, 2500);
+  }
+}
+
+function parseActScreenshot(t) {
+  const r = {};
+
+  // Phone number
+  let m = t.match(/\(?(\d{3})\)?[\s.-](\d{3})[\s.-](\d{4})/);
+  if (m) r.phone = '(' + m[1] + ') ' + m[2] + '-' + m[3];
+
+  // Order confirmation number
+  m = t.match(/Order\s*(?:Confirmation|#)[:\s#]*(\d{8,12})/i) ||
+      t.match(/Order\s*(\d{9,12})/i);
+  if (m) r.order = m[1];
+
+  // IMEI
+  m = t.match(/IMEI[:\s]*(\d{14,16})/i);
+  if (m) r.imei = m[1];
+
+  // Plan and MRC
+  const planMap = {
+    '\$20':20,'\$25':25,'\$30':30,'\$40':40,'\$50':50,'\$60':60,
+    '\$75':75,'\$150':150,'\$180':180,'\$300':300,'\$360':360
+  };
+  m = t.match(/Simple\s*Mobile\s*(\$[\d]+)/i) || t.match(/Plan\s*Price[:\s]*(\$[\d.]+)/i);
+  if (m) {
+    r.planName = 'Simple Mobile ' + m[1];
+    const amt = parseFloat(m[1].replace('$',''));
+    r.mrc = amt;
+    r.carrier = 'Simple Mobile';
+  }
+
+  // Date
+  m = t.match(/Date\s*of\s*purchase[:\s]*(\w+\s+\d+,?\s+\d{4})/i) ||
+      t.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m && m[1] && m[2] && m[3]) {
+    r.date = m[3]+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0');
+  } else if (m) {
+    try {
+      const d = new Date(m[1]);
+      if (!isNaN(d)) r.date = d.toISOString().split('T')[0];
+    } catch(e){}
+  }
+
+  // PIN from SIM or carrier confirmation
+  m = t.match(/PIN[:\s]*(\d{4,8})/i);
+  if (m) r.pin = m[1];
+
+  return r;
+}
+
+function cancelActDrop() {
+  document.getElementById('actDropZone').style.display = 'block';
+  document.getElementById('actDropStatus').style.display = 'none';
+  document.getElementById('actDropPreview').style.display = 'none';
+  document.getElementById('actFileInput').value = '';
+}
+
 function loadTesseract() {
   return new Promise((resolve) => {
     if (typeof Tesseract !== 'undefined') { resolve(); return; }

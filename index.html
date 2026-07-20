@@ -1940,7 +1940,179 @@ function renderOverdue(){
 function renderAll_UNUSED(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();}
 document.getElementById('headerDate').textContent=new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
 document.querySelectorAll('input[type="date"]').forEach(el=>{el.value=new Date().toISOString().split('T')[0];});
+function showTab(name,el){
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  if(el)el.classList.add('active');
+}
+
+function renderPhones(){
+  const tbody=document.getElementById('phTable');let tp=0;
+  document.getElementById('phoneCount').textContent=phones.length;
+  if(!phones.length){tbody.innerHTML='<tr><td colspan="17" class="empty-state">No phones logged yet</td></tr>';document.getElementById('phoneTotalProfit').textContent='Total Profit: $0.00';return;}
+  tbody.innerHTML=phones.map(p=>{
+    const cost=parseFloat(p.cost)||0,sale=parseFloat(p.sale_price)||0,sub=parseFloat(p.subsidy)||0,reb=parseFloat(p.rebate_expected)||0;
+    const sp=sale-cost,tot=sp+sub;tp+=tot;
+    const dl=daysLeft(p.purchase_date);
+    const dlC=dl===null?'var(--muted)':dl<0?'var(--red)':dl<7?'var(--orange)':'var(--green)';
+    const dlT=dl===null?'—':dl<0?`${Math.abs(dl)}d expired`:`${dl}d left`;
+    const rd=p.purchase_date?new Date(new Date(p.purchase_date+'T12:00:00').getTime()+30*86400000).toLocaleDateString():'—';
+    const hasAct=activations.find(a=>a.imei&&p.imei&&a.imei===p.imei);
+    const sc={'In Stock':'b-blue','Sold — Awaiting Rebate':'b-orange','Sold — Rebate Received':'b-green',Returned:'b-red'};
+    return`<tr style="${hasAct?'background:#f0fff4;':''}">
+      <td><span class="phone-t">${p.phone||'—'}</span></td>
+      <td><span class="order-t">${p.order_num||'—'}</span></td>
+      <td style="font-size:10px;color:var(--blue);font-family:monospace">${p.imei||'—'}${hasAct?' <span class="badge b-teal" style="font-size:9px">✓ Activated</span>':''}</td>
+      <td style="font-weight:700">${p.model}</td>
+      <td>${fmtDate(p.purchase_date)}</td>
+      <td class="money-t" style="color:var(--orange)">${fmt(cost)}</td>
+      <td class="money-t" style="color:var(--purple)">${reb?fmt(reb)+' 🔗':'—'}</td>
+      <td style="font-size:11px;color:var(--muted)">${p.req_plan||'—'}</td>
+      <td>${fmtDate(p.sale_date)}</td>
+      <td class="money-t" style="color:var(--green)">${sale?fmt(sale):'—'}</td>
+      <td class="money-t" style="color:${sp>=0?'var(--gold)':'var(--red)'}">${fmt(sp)}</td>
+      <td class="money-t" style="color:var(--purple)">${sub?fmt(sub):'—'}</td>
+      <td class="money-t" style="color:var(--gold);font-weight:900">${fmt(tot)}</td>
+      <td style="font-size:11px">${rd}</td>
+      <td style="color:${dlC};font-weight:700;font-size:11px">${dlT}</td>
+      <td><span class="badge ${sc[p.status]||'b-gray'}">${p.status}</span></td>
+      <td><button class="del-btn" onclick="deletePhone(${p.id})">✕</button></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('phoneTotalProfit').textContent='Total Profit: '+fmt(tp);
+}
+
+function renderPlans(){
+  const pairs=[['monthly','monthlyPlans','/mo'],['three','threeMonthPlans','/3 mo'],['six','sixMonthPlans','/6 mo']];
+  pairs.forEach(([key,id,per])=>{
+    document.getElementById(id).innerHTML=plans[key].map(p=>`
+      <div class="plan-card" onclick="prefillPlan('${p.name}',${p.mrc})">
+        <div class="plan-use">+ Use Plan</div>
+        <div class="plan-name">Simple Mobile ${p.name}</div>
+        <div class="plan-desc">${p.desc}</div>
+        <div style="display:flex;align-items:baseline;gap:4px;margin-top:6px">
+          <div class="plan-price">${fmt(p.mrc)}</div>
+          <div class="plan-period">${per}</div>
+        </div>
+        <div style="margin-top:8px"><span class="badge b-gold">💰 ${fmt(p.spiff400)} total spiff at 400% MRC</span></div>
+        <div class="plan-breakdown">M1: ${fmt(p.mrc*0.9)} · M2: ${fmt(p.mrc*0.55)} · M3: ${fmt(p.mrc*0.55)} · M4: ${fmt(p.mrc*0.7)} · M5: ${fmt(p.mrc*0.65)} · M6: ${fmt(p.mrc*0.65)}</div>
+      </div>
+    `).join('');
+  });
+}
+
+function prefillPlan(name,mrc){
+  showTab('activations',document.querySelectorAll('.nav-tab')[2]);
+  document.getElementById('act-mrc').value=mrc;
+  document.getElementById('act-carrier').value='Simple Mobile';
+  document.getElementById('act-phone').focus();
+}
+
+function checkImei(imei){
+  const banner=document.getElementById('rebateBanner');
+  if(!imei||imei.length<10){banner.classList.remove('show');return;}
+  const match=phones.find(p=>p.imei&&p.imei.trim()===imei.trim());
+  if(match){
+    const rebate=parseFloat(match.rebate_expected)||parseFloat(match.cost)||0;
+    document.getElementById('rebateTitle').textContent='✅ Rebate Found — '+match.model;
+    document.getElementById('rebateDesc').textContent=
+      'IMEI matches '+match.model+' in your phone inventory. '+
+      'Expected rebate: '+fmt(rebate)+
+      (match.req_plan?' · Required plan: '+match.req_plan:'')+
+      '. Subsidy field auto-filled below.';
+    document.getElementById('act-subsidy').value=rebate;
+    banner.classList.add('show');
+  } else {
+    banner.classList.remove('show');
+    if(document.getElementById('act-subsidy').value&&!parseFloat(document.getElementById('act-subsidy').value))
+      document.getElementById('act-subsidy').value='';
+  }
+}
+
+function showToast(){const t=document.getElementById('syncToast');t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2000);}
+
+const fmtDate=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'}):'—';
+const spiff=mrc=>pcts.reduce((a,p)=>a+(mrc*p),0);
+
+function daysLeft(d){if(!d)return null;const dl=new Date(d+'T12:00:00');dl.setDate(dl.getDate()+30);return Math.round((dl-new Date())/86400000);}
+
 renderPlans();
+function lookupSaleImei(imei){
+  const result=document.getElementById('saleLookupResult');
+  if(!result)return;
+  if(!imei||imei.replace(/[^0-9]/g,'').length<10){result.style.display='none';return;}
+  const clean=imei.replace(/[^0-9]/g,'');
+  const match=phones.find(p=>p.imei&&p.imei.replace(/[^0-9]/g,'')===clean);
+  result.style.display='block';
+  if(match){
+    result.innerHTML='<span style="color:var(--green);font-weight:700;">Found in inventory: </span>'+
+      (match.model||'Unknown')+' &middot; Cost: <strong>'+fmt(match.cost)+'</strong>'+
+      (match.rebate_expected?' &middot; Rebate: <strong>'+fmt(match.rebate_expected)+'</strong>':'');
+  } else {
+    result.innerHTML='<span style="color:var(--red);">IMEI not in inventory &mdash; add phone in Invoices tab first</span>';
+  }
+}
+
+function lookupSaleImeiByPhone(phone){}
+
+function clearSaleForm(){
+  ['sale-phone','sale-imei','sale-date','sale-price','sale-subsidy'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
+  const r=document.getElementById('saleLookupResult');if(r)r.style.display='none';
+}
+
+function samePhone(a,b){
+  const clean=s=>(s||'').replace(/[^0-9]/g,'');
+  return clean(a)===clean(b)&&clean(a).length>=7;
+}
+
+function returnCountdown(d){
+  if(!d)return '--';
+  const rd=new Date(d+'T12:00:00');
+  const days=Math.round((rd-new Date())/86400000);
+  if(days<0)return '<span style="color:var(--red);font-weight:800;">'+Math.abs(days)+'d OVERDUE</span>';
+  if(days===0)return '<span style="color:var(--red);font-weight:800;">DUE TODAY</span>';
+  if(days<=3)return '<span style="color:var(--red);">'+days+'d left</span>';
+  if(days<=7)return '<span style="color:var(--orange);">'+days+'d left</span>';
+  return '<span style="color:var(--green);">'+days+'d left</span>';
+}
+
+function renderPL(){}
+
+function renderLookup(){
+  const q=(document.getElementById('lookup-q')||{}).value||'';
+  const out=document.getElementById('lookup-results');
+  if(!out)return;
+  if(!q){out.innerHTML='<div style="padding:20px;text-align:center;color:var(--muted);">Enter a phone #, IMEI, name, or order # to search</div>';return;}
+  const clean=q.replace(/[^0-9]/g,'');
+  const results=[];
+  activations.forEach(a=>{
+    if((a.phone&&a.phone.replace(/[^0-9]/g,'').includes(clean))||
+       (a.order_num&&a.order_num.includes(q))||
+       (a.customer_name&&a.customer_name.toLowerCase().includes(q.toLowerCase()))||
+       (a.imei&&a.imei.includes(q)))
+      results.push({type:'Activation',data:a,label:a.phone,sub:a.customer_name+' '+a.plan});
+  });
+  refills.forEach(r=>{
+    if((r.phone&&r.phone.replace(/[^0-9]/g,'').includes(clean))||
+       (r.order_num&&r.order_num.includes(q)))
+      results.push({type:'Refill',data:r,label:r.phone,sub:fmtDate(r.ref_date)+' '+fmt(r.amount)});
+  });
+  phones.forEach(p=>{
+    if((p.imei&&p.imei.includes(q))||(p.model&&p.model.toLowerCase().includes(q.toLowerCase()))||
+       (p.order_num&&p.order_num.includes(q)))
+      results.push({type:'Phone',data:p,label:p.model||p.imei,sub:'Cost: '+fmt(p.cost)});
+  });
+  if(!results.length){out.innerHTML='<div style="padding:20px;text-align:center;color:var(--muted);">No results found for "'+q+'"</div>';return;}
+  out.innerHTML=results.map(r=>`<div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;">
+    <span class="badge b-blue" style="font-size:10px;min-width:70px;text-align:center;">${r.type}</span>
+    <div><div style="font-weight:700;color:var(--pink);">${r.label||'--'}</div>
+    <div style="font-size:11px;color:var(--muted);">${r.sub||''}</div></div>
+  </div>`).join('');
+}
+
 loadAll();
 setupRealtime();
 

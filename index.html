@@ -184,59 +184,44 @@ td{padding:10px 12px;vertical-align:middle;}
 
 <!-- ACTIVATIONS -->
 <div id="tab-activations" class="tab-panel">
-  <div class="rebate-banner" id="rebateBanner">
-    <div style="font-size:24px">💡</div>
-    <div><div class="rebate-title" id="rebateTitle">Rebate Detected!</div><div class="rebate-desc" id="rebateDesc"></div></div>
-  </div>
-  <div class="form-panel">
-    <div class="form-title">Log New Activation</div>
+  <div style="background:#eff6ff;border:2px solid var(--blue);border-radius:10px;padding:18px;margin-bottom:16px;">
+    <div style="font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px;">📱 Log Activation — Sales Rep Entry</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Enter Phone #, Order #, and Plan. Commission calculates automatically.</div>
     <div class="form-grid">
-      <div class="field"><label>Phone # *</label><input class="phone-f" id="act-phone" type="text" placeholder="(516) 000-0000"></div>
-      <div class="field"><label>Order #</label><input id="act-order" type="text" placeholder="347742386"></div>
-      <div class="field"><label>Customer Name</label><input id="act-name" type="text" placeholder="John Smith"></div>
-      <div class="field"><label>PIN</label><input id="act-pin" type="text" placeholder="1234" maxlength="6"></div>
-      <div class="field"><label>IMEI — Auto-links rebate 🔗</label><input class="imei-f" id="act-imei" type="text" placeholder="356938035643809" oninput="checkImei(this.value)"></div>
-      <div class="field"><label>Activation Date</label><input id="act-date" type="date"></div>
-      <div class="field"><label>Carrier</label><select id="act-carrier"><option value="">Select...</option><option>Simple Mobile</option><option>Verizon Prepaid</option><option>Postpaid</option></select></div>
-      <div class="field"><label>Plan</label><select id="act-plan">
-        <option value="">Select plan...</option>
-        <optgroup label="Monthly Plans">
-          <option>SM $20 Travelers (14-day)</option><option>SM $25 Unlimited Talk & Text</option>
-          <option>SM $30 Unlimited Talk & Text</option><option>SM $40 Unlimited Talk & Text</option>
-          <option>SM $50 Unlimited World</option><option>SM $60 Unlimited World+</option>
-        </optgroup>
-        <optgroup label="3-Month Plans">
-          <option>SM $75 3-Month</option><option>SM $150 Unlimited World 3-Month</option><option>SM $180 Unlimited World+ 3-Month</option>
-        </optgroup>
-        <optgroup label="6-Month Plans">
-          <option>SM $150 6-Month ($25/mo)</option><option>SM $300 Unlimited World 6-Month</option><option>SM $360 Unlimited World+ 6-Month</option>
-        </optgroup>
-        <optgroup label="Verizon Prepaid">
-          <option>VZ $35 Plan</option><option>VZ $45 Plan</option><option>VZ $50 Plan</option><option>VZ $60 Plan</option>
-        </optgroup>
-        <option>Other</option>
-      </select></div>
-      <div class="field"><label>MRC $</label><input class="money-f" id="act-mrc" type="number" step="0.01" placeholder="50.00"></div>
-      <div class="field"><label>Subsidy $ (auto-fills from IMEI)</label><input class="money-f" id="act-subsidy" type="number" step="0.01" placeholder="0.00"></div>
-      <div class="field"><label>Instant Spiff $</label><input class="money-f" id="act-spiff" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Customer Phone # *</label><input class="phone-f" id="act-phone" type="text" placeholder="customer phone #"></div>
+      <div class="field"><label>VidaPay Order # *</label><input id="act-order" type="text" placeholder="order # from VidaPay"></div>
+      <div class="field"><label>Customer Name</label><input id="act-name" type="text" placeholder="customer name"></div>
+      <div class="field"><label>PIN</label><input id="act-pin" type="text" placeholder="PIN" maxlength="6"></div>
+      <div class="field"><label>Carrier</label>
+        <select id="act-carrier"><option value="">Select...</option><option>Simple Mobile</option><option>Verizon Prepaid</option><option>Postpaid</option></select></div>
+      <div class="field"><label>Plan *</label>
+        <select id="act-plan">
+          <option value="">Select plan...</option>
+          <optgroup label="Monthly"><option>SM $20 Travelers</option><option>SM $25</option><option>SM $30</option><option>SM $40</option><option>SM $50 Unlimited World</option><option>SM $60 Unlimited World+</option></optgroup>
+          <optgroup label="3-Month"><option>SM $75 3-Month</option><option>SM $150 Unlimited World 3-Month</option><option>SM $180 Unlimited World+ 3-Month</option></optgroup>
+          <optgroup label="6-Month"><option>SM $150 6-Month</option><option>SM $300 Unlimited World 6-Month</option><option>SM $360 Unlimited World+ 6-Month</option></optgroup>
+          <optgroup label="Verizon Prepaid"><option>VZ $35</option><option>VZ $45</option><option>VZ $50</option><option>VZ $60</option></optgroup>
+        </select></div>
+      <div class="field"><label>Date</label><input id="act-date" type="date"></div>
+      <div class="field"><label>IMEI (optional)</label><input class="imei-f" id="act-imei" type="text" placeholder="IMEI if known" oninput="checkImei(this.value)"></div>
     </div>
-    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-      <button class="btn btn-red" onclick="addActivation()">+ Add Activation</button>
+    <div class="rebate-banner" id="rebateBanner"><div style="font-size:20px">💡</div><div><div class="rebate-title" id="rebateTitle"></div><div class="rebate-desc" id="rebateDesc"></div></div></div>
+    <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="addActivation()">+ Log Activation</button>
       <button class="btn btn-ghost" onclick="clearAct()">Clear</button>
-      <span style="font-size:10px;color:var(--muted)">Enter IMEI to auto-detect phone rebate · Or click a plan in Plans tab to prefill</span>
+      <span style="font-size:10px;color:var(--muted);">Commission unlocks each month as the customer returns to pay</span>
     </div>
   </div>
   <div class="section-hdr">
-    <div class="section-title">Activation Log (<span id="actCount">0</span>)</div>
-    <span style="font-size:13px;font-weight:800;color:var(--gold)" id="actTotalSpiff">$0.00 total spiff</span>
+    <div class="section-title">📱 Activation Log (<span id="actCount">0</span>)</div>
+    <span style="font-size:13px;font-weight:800;color:var(--gold)" id="actTotalSpiff">$0.00 earned</span>
   </div>
   <div class="table-wrap"><div class="table-scroll"><table>
-    <thead><tr><th>Phone #</th><th>Order #</th><th>Customer</th><th>PIN</th><th>IMEI</th><th>Date</th><th>Carrier</th><th>Plan</th><th>MRC</th><th>Subsidy</th><th>Spiff</th><th>Net Cost</th><th>M1 90%</th><th>M2 55%</th><th>M3 55%</th><th>M4 70%</th><th>M5 65%</th><th>M6 65%</th><th>Total Spiff</th><th>Refills</th><th>Comm. Month</th><th></th></tr></thead>
-    <tbody id="actTable"><tr><td colspan="22" class="empty-state">No activations yet</td></tr></tbody>
+    <thead><tr><th>Phone #</th><th>Order #</th><th>Customer</th><th>PIN</th><th>Date</th><th>Carrier</th><th>Plan</th><th>MRC</th><th>M1</th><th>M2</th><th>M3</th><th>M4</th><th>M5</th><th>M6</th><th>Earned/Max</th><th>Refills</th><th>Status</th><th>Audit</th><th></th></tr></thead>
+    <tbody id="actTable"><tr><td colspan="19" class="empty-state">No activations yet</td></tr></tbody>
   </table></div></div>
 </div>
 
-<!-- REFILLS -->
 <div id="tab-refills" class="tab-panel">
   <div class="form-panel">
     <div class="form-title">Log Refill Payment</div>
@@ -286,106 +271,131 @@ td{padding:10px 12px;vertical-align:middle;}
 
 <!-- PHONES -->
 <div id="tab-phones" class="tab-panel">
-  <div class="form-panel">
-    <div class="form-title">Log Phone — Inventory & Rebate Tracking</div>
+  <div style="background:var(--green-l);border:2px solid var(--green);border-radius:10px;padding:18px;margin-bottom:16px;">
+    <div style="font-size:12px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">💰 Log a Phone Sale</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Enter customer phone # and IMEI — finds phone from inventory and logs the sale</div>
     <div class="form-grid">
-      <div class="field"><label>Customer Phone #</label><input class="phone-f" id="ph-phone" type="text" placeholder="(516) 000-0000"></div>
-      <div class="field"><label>Order #</label><input id="ph-order" type="text" placeholder="347742386"></div>
-      <div class="field"><label>IMEI * (links to activation)</label><input class="imei-f" id="ph-imei" type="text" placeholder="356938035643809"></div>
-      <div class="field"><label>Model</label><input id="ph-model" type="text" placeholder="iPhone 13 128GB"></div>
-      <div class="field"><label>Purchase Date</label><input id="ph-pdate" type="date"></div>
-      <div class="field"><label>Your Cost $</label><input class="money-f" id="ph-cost" type="number" step="0.01" placeholder="259.99"></div>
-      <div class="field"><label>Rebate Expected $ 🔗</label><input class="money-f" id="ph-rebate" type="number" step="0.01" placeholder="259.99"></div>
-      <div class="field"><label>Required Plan for Rebate</label><input id="ph-req-plan" type="text" placeholder="3x $50 or $150 3-Month"></div>
-      <div class="field"><label>Sale Date</label><input id="ph-sdate" type="date"></div>
-      <div class="field"><label>Sale Price $</label><input class="money-f" id="ph-sale" type="number" step="0.01" placeholder="299.99"></div>
-      <div class="field"><label>Subsidy Received $</label><input class="money-f" id="ph-subsidy" type="number" step="0.01" placeholder="259.99"></div>
-      <div class="field"><label>Status</label><select id="ph-status"><option>In Stock</option><option>Sold — Awaiting Rebate</option><option>Sold — Rebate Received</option><option>Returned</option></select></div>
+      <div class="field"><label>Customer Phone # *</label><input class="phone-f" id="sale-phone" type="text" placeholder="customer phone #" oninput="lookupSaleImeiByPhone(this.value)"></div>
+      <div class="field"><label>IMEI * (links to inventory)</label><input class="imei-f" id="sale-imei" type="text" placeholder="IMEI number" oninput="lookupSaleImei(this.value)"></div>
+      <div class="field"><label>Sale Date</label><input id="sale-date" type="date"></div>
+      <div class="field"><label>Sale Price $</label><input class="money-f" id="sale-price" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Subsidy Received $</label><input class="money-f" id="sale-subsidy" type="number" step="0.01" placeholder="0.00"></div>
     </div>
-    <div style="margin-top:12px;display:flex;gap:8px;">
-      <button class="btn btn-red" onclick="addPhone()">+ Add Phone</button>
-      <button class="btn btn-ghost" onclick="clearPh()">Clear</button>
-    </div>
-    <div style="margin-top:10px;padding:10px 14px;background:var(--blue-l);border-radius:5px;font-size:11px;color:var(--blue);font-weight:600;">
-      💡 <strong>How IMEI linking works:</strong> Add the phone here with its IMEI and expected rebate. Then in Activations, type the same IMEI — the subsidy field auto-fills with the rebate amount and shows a banner confirming the match.
+    <div id="saleLookupResult" style="display:none;margin-top:10px;padding:10px 14px;background:#fff;border:1px solid var(--green);border-radius:6px;font-size:12px;"></div>
+    <div style="margin-top:14px;display:flex;gap:8px;align-items:center;">
+      <button class="btn btn-green" onclick="logPhoneSale()">💰 Log This Sale</button>
+      <button class="btn btn-ghost" onclick="clearSaleForm()">Clear</button>
+      <span style="font-size:10px;color:var(--muted);">Add phones to inventory via the Invoices tab</span>
     </div>
   </div>
   <div class="section-hdr">
-    <div class="section-title">Phone Inventory (<span id="phoneCount">0</span>)</div>
-    <span style="font-size:13px;font-weight:800;color:var(--gold)" id="phoneTotalProfit">Total Profit: $0.00</span>
+    <div class="section-title">📦 In Stock (<span id="inStockCount">0</span>)</div>
+    <input id="ph-search" type="text" placeholder="search IMEI, model..." oninput="filterPhones(this.value)" style="background:#fff;border:1.5px solid #d1d5db;border-radius:6px;padding:6px 12px;font-size:12px;font-family:inherit;width:200px;outline:none;">
+  </div>
+  <div class="table-wrap" style="margin-bottom:20px;"><div class="table-scroll"><table>
+    <thead><tr><th>IMEI</th><th>Model</th><th>Order #</th><th>Purchased</th><th>Cost</th><th>Rebate Expected</th><th>Required Plan</th><th>Return By</th><th>Countdown</th><th></th></tr></thead>
+    <tbody id="inStockTable"><tr><td colspan="10" class="empty-state">No phones in inventory — add via Invoices tab</td></tr></tbody>
+  </table></div></div>
+  <div class="section-hdr">
+    <div class="section-title">✅ Sales Log (<span id="soldCount">0</span>)</div>
+    <span style="font-size:13px;font-weight:800;color:var(--gold)" id="totalSaleProfit">Total Profit: $0.00</span>
   </div>
   <div class="table-wrap"><div class="table-scroll"><table>
-    <thead><tr><th>Phone #</th><th>Order #</th><th>IMEI</th><th>Model</th><th>Bought</th><th>Cost</th><th>Rebate Expected</th><th>Required Plan</th><th>Sold</th><th>Sale Price</th><th>Sale Profit</th><th>Subsidy Received</th><th>Total Profit</th><th>Return Deadline</th><th>Days Left</th><th>Status</th><th></th></tr></thead>
-    <tbody id="phTable"><tr><td colspan="17" class="empty-state">No phones logged yet</td></tr></tbody>
+    <thead><tr><th>Customer Phone #</th><th>IMEI</th><th>Model</th><th>Cost</th><th>Sale Price</th><th>Profit</th><th>Subsidy</th><th>Total Profit</th><th>Sale Date</th><th></th></tr></thead>
+    <tbody id="soldTable"><tr><td colspan="10" class="empty-state">No sales yet</td></tr></tbody>
   </table></div></div>
 </div>
 
-<!-- INVOICES -->
 <div id="tab-invoices" class="tab-panel">
-  <!-- PDF AUTO-IMPORT -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js"></script>
-  <div class="form-panel" style="border-top:3px solid var(--blue);margin-bottom:16px;">
-    <div class="form-title" style="color:var(--blue)">⚡ Auto-Import VidaPay Invoice from PDF</div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">Download your invoice from VidaPay email → drag it here → all fields fill automatically</div>
-    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-      <div id="pdfDropZone" style="flex:1;min-width:280px;border:2px dashed var(--border2);border-radius:8px;padding:28px;text-align:center;cursor:pointer;transition:all .2s;background:var(--surface2);"
-        onclick="document.getElementById('pdfFileInput').click()"
-        ondragover="event.preventDefault();this.style.borderColor='var(--blue)';this.style.background='var(--blue-l)';this.style.borderStyle='solid'"
-        ondragleave="this.style.borderColor='var(--border2)';this.style.background='var(--surface2)';this.style.borderStyle='dashed'"
-        ondrop="event.preventDefault();this.style.borderColor='var(--border2)';this.style.background='var(--surface2)';this.style.borderStyle='dashed';handlePdfDrop(event.dataTransfer.files[0])">
-        <div style="font-size:36px;margin-bottom:10px">📄</div>
-        <div style="font-size:14px;font-weight:800;color:var(--blue);margin-bottom:4px">Drop VidaPay PDF Invoice Here</div>
-        <div style="font-size:11px;color:var(--muted)">or click to browse your files</div>
-        <input type="file" id="pdfFileInput" accept=".pdf,application/pdf" style="display:none" onchange="handlePdfDrop(this.files[0])">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+
+    <!-- DROP INVOICE AUDIT -->
+    <div style="background:#fffbeb;border:2px solid var(--gold);border-radius:10px;padding:18px;">
+      <div style="font-size:12px;font-weight:800;color:var(--gold);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;">🔍 Drop Invoice — Full Audit</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">PDF or screenshot · Checks every order # · Flags anything not logged</div>
+      <div id="invDropZone" style="border:2px dashed #f59e0b;border-radius:8px;padding:20px;text-align:center;cursor:pointer;background:#fffde7;transition:all .2s;"
+        onclick="document.getElementById('invDropInput').click()"
+        ondragover="event.preventDefault();this.style.borderColor='var(--gold)';this.style.background='#fef3c7'"
+        ondragleave="this.style.borderColor='#f59e0b';this.style.background='#fffde7'"
+        ondrop="event.preventDefault();this.style.borderColor='#f59e0b';this.style.background='#fffde7';runFullAudit(event.dataTransfer.files[0])">
+        <div style="font-size:28px;margin-bottom:6px">📄</div>
+        <div style="font-size:13px;font-weight:800;color:var(--gold);">Drop VidaPay Invoice Here</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px;">PDF (instant) · Screenshot (~15s)</div>
+        <input type="file" id="invDropInput" accept=".pdf,image/*" style="display:none" onchange="runFullAudit(this.files[0])">
       </div>
-      <div id="pdfStatus" style="flex:1;min-width:200px;text-align:center;display:none;">
-        <div id="pdfStatusIcon" style="font-size:36px;margin-bottom:10px">⏳</div>
-        <div id="pdfStatusMsg" style="font-size:12px;font-weight:700;color:var(--muted)">Reading PDF...</div>
+      <div id="invAuditStatus" style="display:none;text-align:center;padding:16px;">
+        <div id="invAuditIcon" style="font-size:28px;margin-bottom:6px">⏳</div>
+        <div id="invAuditMsg" style="font-size:12px;font-weight:700;color:var(--muted);"></div>
       </div>
+      <div id="invAuditResults" style="display:none;margin-top:14px;"></div>
     </div>
-    <div id="pdfPreview" style="display:none;margin-top:14px;padding:16px;background:var(--green-l);border:1.5px solid var(--green);border-radius:6px;">
-      <div style="font-size:12px;font-weight:800;color:var(--green);margin-bottom:12px">✅ Invoice Data Extracted — Review & Confirm</div>
-      <div id="pdfExtractedData" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:14px;"></div>
-      <div style="display:flex;gap:8px;">
-        <button class="btn btn-green" onclick="confirmPdfImport()">✅ Confirm & Save Invoice</button>
-        <button class="btn btn-ghost" onclick="cancelPdfImport()">❌ Cancel</button>
+
+    <!-- ADD PHONE TO INVENTORY -->
+    <div style="background:#eff6ff;border:2px solid var(--blue);border-radius:10px;padding:18px;">
+      <div style="font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;">📦 Add Phone to Inventory</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">Drop VidaPay order history screenshot to auto-fill · or enter manually</div>
+      <div id="receiptDropZone" style="border:2px dashed #d1d5db;border-radius:6px;padding:12px;text-align:center;cursor:pointer;background:#fafafa;margin-bottom:12px;transition:all .2s;"
+        onclick="document.getElementById('receiptFileInput').click()"
+        ondragover="event.preventDefault();this.style.borderColor='var(--purple)'"
+        ondragleave="this.style.borderColor='#d1d5db'"
+        ondrop="event.preventDefault();this.style.borderColor='#d1d5db';handleReceiptDrop(event.dataTransfer.files[0])">
+        <div style="font-size:18px;margin-bottom:3px">📱</div>
+        <div style="font-size:11px;font-weight:700;color:var(--purple);">Drop VidaPay Order History Screenshot</div>
+        <div style="font-size:10px;color:var(--muted);">Reads IMEI, model, price automatically</div>
+        <input type="file" id="receiptFileInput" accept="image/*,.pdf" style="display:none" onchange="handleReceiptDrop(this.files[0])">
+      </div>
+      <div id="receiptStatus" style="display:none;text-align:center;padding:10px;">
+        <div id="receiptStatusIcon" style="font-size:20px;margin-bottom:4px">⏳</div>
+        <div id="receiptStatusMsg" style="font-size:11px;font-weight:700;color:var(--muted)"></div>
+      </div>
+      <div id="receiptPreview" style="display:none;margin-bottom:10px;padding:10px;background:var(--purple-l);border:1px solid var(--purple);border-radius:6px;">
+        <div style="font-size:11px;font-weight:800;color:var(--purple);margin-bottom:8px;">✅ Data Extracted — Review Below</div>
+        <div id="receiptExtractedData" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;"></div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn" style="background:var(--purple);color:#fff;font-size:11px;padding:6px 12px;" onclick="confirmReceiptImport()">✅ Use Data</button>
+          <button class="btn btn-ghost" style="font-size:11px;padding:6px 10px;" onclick="cancelReceiptImport()">Cancel</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="field"><label>Order #</label><input id="ph-order" type="text" placeholder="order #"></div>
+        <div class="field"><label>IMEI *</label><input class="imei-f" id="ph-imei" type="text" placeholder="IMEI number"></div>
+        <div class="field" style="grid-column:span 2;"><label>Model *</label><input id="ph-model" type="text" placeholder="phone model"></div>
+        <div class="field"><label>Purchase Date</label><input id="ph-pdate" type="date"></div>
+        <div class="field"><label>Your Cost $</label><input class="money-f" id="ph-cost" type="number" step="0.01" placeholder="0.00"></div>
+        <div class="field"><label>Rebate Expected $</label><input class="money-f" id="ph-rebate" type="number" step="0.01" placeholder="0.00"></div>
+        <div class="field"><label style="color:var(--red);font-weight:700;">📅 Return By</label><input id="ph-return-date" type="date" style="background:#fff5f5;border:2px solid var(--red) !important;"></div>
+        <div class="field" style="grid-column:span 2;"><label>Required Plan for Rebate</label>
+          <select id="ph-req-plan">
+            <option value="">— No rebate plan —</option>
+            <optgroup label="1 Month"><option value="1x$50">1 Month — $50/mo</option><option value="1x$60">1 Month — $60/mo</option></optgroup>
+            <optgroup label="3 Month"><option value="3x$50">3 Months — $50/mo ($150)</option><option value="3x$60">3 Months — $60/mo ($180)</option><option value="3xWorld">3 Month Unlimited World ($150)</option><option value="3xWorld+">3 Month Unlimited World+ ($180)</option></optgroup>
+            <optgroup label="6 Month"><option value="6x$50">6 Months — $50/mo ($300)</option><option value="6x$60">6 Months — $60/mo ($360)</option></optgroup>
+          </select></div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;">
+        <button class="btn" style="background:var(--blue);color:#fff;" onclick="addPhone()">+ Add to Inventory</button>
+        <button class="btn btn-ghost" onclick="clearPh()">Clear</button>
       </div>
     </div>
   </div>
 
-  <div class="inv-summary">
-    <div class="inv-card" style="--acc:var(--red)"><div class="inv-card-label">Total Debits — You Pay</div><div class="inv-card-value" id="invDebits" style="color:var(--red)">$0.00</div></div>
-    <div class="inv-card" style="--acc:var(--green)"><div class="inv-card-label">Total Credits — You Earn</div><div class="inv-card-value" id="invCredits" style="color:var(--green)">$0.00</div></div>
-    <div class="inv-card" style="--acc:var(--gold)"><div class="inv-card-label">Net Balance (Negative = They Owe You)</div><div class="inv-card-value" id="invNet" style="color:var(--gold)">$0.00</div></div>
+  <!-- SUMMARY CARDS -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--red);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">Total Debits — You Pay</div><div style="font-size:24px;font-weight:900;color:var(--red);" id="invDebits">$0.00</div></div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--green);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">Total Credits — You Earn</div><div style="font-size:24px;font-weight:900;color:var(--green);" id="invCredits">$0.00</div></div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--gold);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">Net Balance</div><div style="font-size:24px;font-weight:900;" id="invNet">$0.00</div></div>
   </div>
-  <div class="form-panel">
-    <div class="form-title">Log VidaPay Invoice</div>
-    <div class="form-grid">
-      <div class="field"><label>Invoice #</label><input id="inv-num" type="text" placeholder="347827529"></div>
-      <div class="field"><label>Invoice Date</label><input id="inv-date" type="date"></div>
-      <div class="field"><label>Period</label><input id="inv-period" type="text" placeholder="07/09 - 07/12/2026"></div>
-      <div class="field"><label>Activation Orders $</label><input class="money-f" id="inv-act" type="number" step="0.01" placeholder="138.00"></div>
-      <div class="field"><label>Instant Spiff $ (credit)</label><input class="money-f" id="inv-spiff" type="number" step="0.01" placeholder="88.00"></div>
-      <div class="field"><label>Subsidy/Promo $ (credit)</label><input class="money-f" id="inv-sub" type="number" step="0.01" placeholder="259.99"></div>
-      <div class="field"><label>RTR/Refill Orders $</label><input class="money-f" id="inv-rtr" type="number" step="0.01" placeholder="23.00"></div>
-      <div class="field"><label>Invoice Fee $</label><input class="money-f" id="inv-fee" type="number" step="0.01" placeholder="1.50"></div>
-      <div class="field"><label>Notes</label><input id="inv-notes" type="text" placeholder="iPhone 13 + $25 RTR"></div>
-    </div>
-    <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
-      <button class="btn btn-red" onclick="addInvoice()">+ Log Invoice</button>
-      <button class="btn btn-ghost" onclick="clearInv()">Clear</button>
-      <span style="font-size:10px;color:var(--muted)">Assessed twice a week — Mon & Thu</span>
-    </div>
+
+  <!-- INVOICE HISTORY -->
+  <div class="section-hdr">
+    <div class="section-title">📋 Invoice History (<span id="invCount">0</span>)</div>
   </div>
-  <div class="section-hdr"><div class="section-title">Invoice History</div></div>
   <div class="table-wrap"><div class="table-scroll"><table>
-    <thead><tr><th>Invoice #</th><th>Date</th><th>Period</th><th>Act. Orders</th><th>Spiff</th><th>Subsidy</th><th>RTR</th><th>Fee</th><th>Total Debits</th><th>Total Credits</th><th>Net Balance</th><th>Notes</th><th></th></tr></thead>
-    <tbody id="invTable"><tr><td colspan="13" class="empty-state">No invoices logged yet</td></tr></tbody>
+    <thead><tr><th>Invoice #</th><th>Date</th><th>Period</th><th>Act. Orders</th><th>Spiff Credit</th><th>Subsidy</th><th>RTR</th><th>Fee</th><th>Total Debits</th><th>Total Credits</th><th>Net Balance</th><th>Notes</th><th>Status</th><th></th></tr></thead>
+    <tbody id="invTable"><tr><td colspan="14" class="empty-state">No invoices yet — drop a PDF above</td></tr></tbody>
   </table></div></div>
 </div>
 
-</div>
 <div class="sync-toast" id="syncToast">✓ Saved</div>
 
 <script>

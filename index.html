@@ -891,35 +891,39 @@ function renderGoals(){
 async function updateGoal(month,val){await sb.from('goals').upsert({month,target:parseInt(val)||10},{onConflict:'month'});showToast();}
 
 function renderInvoices(){
-  const tbody=document.getElementById('invTable');let td=0,tc=0;
+  const tbody=document.getElementById('invTable');
+  const countEl=document.getElementById('invCount');
+  if(countEl)countEl.textContent=invoices.length;
+  let td=0,tc=0;
   if(!invoices.length){
-    tbody.innerHTML='<tr><td colspan="13" class="empty-state">No invoices logged yet</td></tr>';
+    if(tbody)tbody.innerHTML='<tr><td colspan="14" class="empty-state">No invoices yet — drop a PDF above</td></tr>';
     document.getElementById('invDebits').textContent='$0.00';
     document.getElementById('invCredits').textContent='$0.00';
     const ne=document.getElementById('invNet');if(ne){ne.textContent='$0.00';ne.style.color='var(--gold)';}
     return;
   }
-  tbody.innerHTML=invoices.map(inv=>{
+  if(tbody)tbody.innerHTML=invoices.map(inv=>{
     const deb=(parseFloat(inv.act_orders)||0)+(parseFloat(inv.rtr)||0)+(parseFloat(inv.fee)||0);
     const cred=(parseFloat(inv.spiff)||0)+(parseFloat(inv.subsidy)||0);
     const net=deb-cred;td+=deb;tc+=cred;
     const nc=net<0?'var(--green)':net>0?'var(--red)':'var(--muted)';
+    const netLabel=net<0?'('+fmt(Math.abs(net))+')':fmt(net);
     return`<tr id="inv-row-${inv.id}">
-      <td style="color:var(--blue);font-family:monospace;font-size:11px;">${inv.invoice_num}</td>
+      <td style="color:var(--blue);font-family:monospace;font-size:11px;font-weight:700;">${inv.invoice_num}</td>
       <td>${fmtDate(inv.invoice_date)}</td>
       <td style="font-size:11px;color:var(--muted);">${inv.period||'—'}</td>
-      <td class="money-t" style="color:var(--red);">${fmt(inv.act_orders)}</td>
+      <td class="money-t" style="color:var(--red);">${inv.act_orders?fmt(inv.act_orders):'—'}</td>
       <td class="money-t" style="color:var(--green);">${inv.spiff?fmt(inv.spiff):'—'}</td>
       <td class="money-t" style="color:var(--purple);">${inv.subsidy?fmt(inv.subsidy):'—'}</td>
       <td class="money-t" style="color:var(--gold);">${inv.rtr?fmt(inv.rtr):'—'}</td>
       <td class="money-t" style="color:var(--muted);">${fmt(inv.fee)}</td>
-      <td class="money-t" style="color:var(--red);">${fmt(deb)}</td>
-      <td class="money-t" style="color:var(--green);">${fmt(cred)}</td>
-      <td class="money-t" style="color:${nc};font-weight:900;">${fmt(net)}</td>
-      <td style="font-size:11px;color:var(--muted);">${inv.notes||'—'}</td>
+      <td class="money-t" style="color:var(--red);font-weight:700;">${fmt(deb)}</td>
+      <td class="money-t" style="color:var(--green);font-weight:700;">${fmt(cred)}</td>
+      <td class="money-t" style="color:${nc};font-weight:900;">${netLabel}</td>
+      <td style="font-size:10px;color:var(--muted);max-width:150px;overflow:hidden;text-overflow:ellipsis;">${inv.notes||'—'}</td>
+      <td>${inv.notes&&inv.notes.includes('Auto-audited')?'<span class="badge b-green" style="font-size:9px;">✅ Audited</span>':'<span class="badge b-gray" style="font-size:9px;">Manual</span>'}</td>
       <td style="display:flex;gap:4px;">
-        <button class="del-btn" title="Edit" onclick="editInvoice(${inv.id})" style="color:var(--blue)">✏️</button>
-        <button class="del-btn" onclick="deleteInvoice(${inv.id})">✕</button>
+        <button class="del-btn" onclick="deleteInvoice(${inv.id})" title="Delete">✕</button>
       </td>
     </tr>`;
   }).join('');
@@ -927,7 +931,7 @@ function renderInvoices(){
   document.getElementById('invDebits').textContent=fmt(td);
   document.getElementById('invCredits').textContent=fmt(tc);
   const ne=document.getElementById('invNet');
-  if(ne){ne.textContent=fmt(na);ne.style.color=na<0?'var(--green)':na>0?'var(--red)':'var(--gold)';}
+  if(ne){ne.textContent=na<0?'('+fmt(Math.abs(na))+')':fmt(na);ne.style.color=na<0?'var(--green)':na>0?'var(--red)':'var(--gold)';}
 }
 
 async function deleteInvoice(id){
@@ -1637,6 +1641,308 @@ async function saveAuditInvoice(num,period,act,spiff,rtr,fee){
   if(newInv)invoices.unshift(newInv);
   renderInvoices();showToast();alert('✅ Invoice saved to Invoice History!');
 }
+
+// ══ FULL INVOICE AUDIT ENGINE ══
+async function runFullAudit(file){
+  if(!file)return;
+  const zone=document.getElementById('invDropZone');
+  const status=document.getElementById('invAuditStatus');
+  const results=document.getElementById('invAuditResults');
+  const bar=document.getElementById('invAuditBar');
+
+  zone.style.display='none';
+  status.style.display='block';
+  results.style.display='none';
+
+  const setProgress=(pct,msg)=>{
+    document.getElementById('invAuditIcon').textContent='⏳';
+    document.getElementById('invAuditMsg').textContent=msg;
+    if(bar)bar.style.width=pct+'%';
+  };
+
+  try{
+    setProgress(10,'Reading invoice...');
+    let text='';
+    const isPdf=file.name.toLowerCase().endsWith('.pdf')||file.type==='application/pdf';
+
+    if(isPdf){
+      if(typeof pdfjsLib==='undefined')await new Promise(r=>setTimeout(r,1500));
+      pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+      for(let i=1;i<=pdf.numPages;i++){
+        const page=await pdf.getPage(i);
+        const c=await page.getTextContent();
+        text+=c.items.map(x=>x.str).join(' ')+'\n';
+      }
+    } else {
+      await loadTesseract();
+      setProgress(20,'Reading image (15-20 seconds)...');
+      const r=await Tesseract.recognize(file,'eng',{
+        logger:m=>{if(m.status==='recognizing text'){
+          const p=Math.round(m.progress*60)+20;
+          setProgress(p,'Reading text... '+Math.round(m.progress*100)+'%');
+        }}
+      });
+      text=r.data.text;
+    }
+
+    setProgress(80,'Parsing line items...');
+
+    const flat=text.replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim();
+
+    // ── Parse invoice header ──
+    const invoiceNum=(flat.match(/Invoice\s*No[:.\s]+(\d{7,12})/i)||[])[1]||'';
+    const invoiceDate=(()=>{
+      const m=flat.match(/Invoice\s*Date[:\s]+(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})/i);
+      return m?`${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`:null;
+    })();
+    const period=(flat.match(/Period[:\s]+([\d/]+ ?-+ ?[\d/]+)/i)||[])[1]||'';
+    const grandTotal=(()=>{
+      const m=flat.match(/Grand\s*Total[^\d(]*\(?\$?([\d,]+\.\d{2})/i);
+      return m?parseFloat(m[1].replace(/,/g,'')):0;
+    })();
+    const isCredit=flat.includes('('+grandTotal.toFixed(2)+')');
+
+    // ── Parse each line item from Invoice Detail section ──
+    // Pattern: date | order# | type | product | price | fee | total
+    const lineItems=[];
+    // Find all order numbers with context
+    const orderMatches=[...flat.matchAll(/\b(3[3-9]\d{7,8})\b/g)];
+    const seenOrders=new Set();
+
+    orderMatches.forEach(m=>{
+      const orderNum=m[1];
+      if(seenOrders.has(orderNum))return;
+      seenOrders.add(orderNum);
+
+      // Get context around this order number
+      const ctx=flat.substring(Math.max(0,m.index-10),m.index+300);
+
+      // Determine type
+      let type='Unknown';
+      if(/Activation\s*Order/i.test(ctx)) type='Activation Order';
+      else if(/Branded\s*Market\s*Place/i.test(ctx)||/BrandedMarketPlace/i.test(ctx)) type='Branded MarketPlace';
+      else if(/Sales\s*Order/i.test(ctx)) type='Sales Order';
+      else if(/Postpaid\s*Instant\s*Spiff/i.test(ctx)) type='Postpaid Instant Spiff';
+      else if(/Additional\s*Spiff/i.test(ctx)) type='Additional Spiff';
+      else if(/Retroactive\s*Spiff/i.test(ctx)) type='Retroactive Spiff';
+      else if(/Promo\s*Order/i.test(ctx)) type='Promo Order';
+      else if(/Residual\s*Order/i.test(ctx)) type='Residual Order';
+      else if(/\bFee\b/i.test(ctx)) type='Fee';
+
+      // Extract amount — look for dollar amounts near this order
+      const amtMatch=ctx.match(/\$([\d,]+\.\d{2})(?:\s+\$[\d.]+)?\s+\(?\$?([\d,]+\.\d{2})\)?/);
+      const totalMatch=ctx.match(/\(?\$?([\d,]+\.\d{2})\)?\s*$/);
+      let amt=0;
+      if(amtMatch)amt=parseFloat(amtMatch[2]?.replace(/[,$()]/g,'')||amtMatch[1].replace(/,/g,''));
+      else if(totalMatch)amt=parseFloat(totalMatch[1].replace(/[,$()]/g,''));
+
+      // Is it a credit (negative)?
+      const isNeg=type.includes('Spiff')||type.includes('Promo')||type.includes('Residual');
+
+      // Extract product description
+      let product='';
+      const prodMatch=ctx.match(/(?:Simple\s*Mobile|Simple\s*UN|Apple|Samsung)[^$\d]{0,60}/i);
+      if(prodMatch)product=prodMatch[0].trim().substring(0,50);
+
+      lineItems.push({orderNum,type,amt:isNeg?-Math.abs(amt):Math.abs(amt),product,isCredit:isNeg});
+    });
+
+    setProgress(90,'Cross-checking dashboard...');
+
+    // ── CROSS-CHECK each line item ──
+    const actOrders=lineItems.filter(i=>i.type==='Activation Order');
+    const phoneOrders=lineItems.filter(i=>i.type==='Branded MarketPlace');
+    const rtrOrders=lineItems.filter(i=>i.type==='Sales Order');
+    const credits=lineItems.filter(i=>i.isCredit);
+    const fees=lineItems.filter(i=>i.type==='Fee');
+
+    // Check activations
+    const actResults=actOrders.map(item=>{
+      const found=activations.find(a=>a.order_num===item.orderNum);
+      return{...item,found,matched:!!found,customer:found?.phone||'',name:found?.customer_name||''};
+    });
+
+    // Check phones (Branded MarketPlace)
+    const phoneResults=phoneOrders.map(item=>{
+      const found=phones.find(p=>p.order_num===item.orderNum);
+      return{...item,found,matched:!!found,model:found?.model||''};
+    });
+
+    // Check RTR/refills
+    const rtrResults=rtrOrders.map(item=>{
+      const found=refills.find(r=>r.order_num===item.orderNum);
+      return{...item,found,matched:!!found,customer:found?.phone||''};
+    });
+
+    // ── Calculate totals from summary section ──
+    const totalDebits=Math.abs(parseFloat((flat.match(/Total\s*Debits[^\d$]*\$?([\d,]+\.\d{2})/i)||[])[1])||0);
+    const totalCredits=Math.abs(parseFloat((flat.match(/Total\s*Credits[^\d$]*\(?\$?([\d,]+\.\d{2})\)?/i)||[])[1])||0);
+    const netBalance=grandTotal;
+
+    // Check for issues
+    const actMissing=actResults.filter(r=>!r.matched);
+    const phoneMissing=phoneResults.filter(r=>!r.matched);
+    const rtrMissing=rtrResults.filter(r=>!r.matched);
+    const totalIssues=actMissing.length+phoneMissing.length+rtrMissing.length;
+    const allGood=totalIssues===0&&(actResults.length+phoneResults.length+rtrResults.length)>0;
+
+    setProgress(100,'Done!');
+
+    // ── BUILD RESULTS HTML ──
+    const hColor=allGood?'var(--green)':totalIssues>0?'var(--red)':'var(--gold)';
+    const hIcon=allGood?'✅':totalIssues>0?'⚠️':'📋';
+
+    const renderRow=(r,label,type)=>{
+      if(r.matched){
+        return`<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;background:var(--green-l);border-radius:5px;margin-bottom:3px;font-size:12px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span class="badge b-teal" style="font-size:9px;">${label}</span>
+            <span style="font-family:monospace;color:var(--blue);font-size:11px;">Order #${r.orderNum}</span>
+            ${r.customer?`<span style="font-weight:700;color:var(--pink);">${r.customer}</span>`:''}
+            ${r.name?`<span style="color:var(--muted);">${r.name}</span>`:''}
+            ${r.model?`<span style="color:var(--muted);">${r.model}</span>`:''}
+            ${r.product?`<span style="color:var(--muted);font-size:10px;">${r.product}</span>`:''}
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            ${r.amt?`<span style="font-weight:700;color:var(--green);">${fmt(Math.abs(r.amt))}</span>`:''}
+            <span class="badge b-green">✅ Verified</span>
+          </div>
+        </div>`;
+      } else {
+        return`<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;background:var(--red-l);border-radius:5px;margin-bottom:3px;font-size:12px;border-left:3px solid var(--red);">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span class="badge b-red" style="font-size:9px;">${label}</span>
+            <span style="font-family:monospace;color:var(--red);font-weight:700;">Order #${r.orderNum}</span>
+            ${r.product?`<span style="color:var(--muted);font-size:10px;">${r.product}</span>`:''}
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            ${r.amt?`<span style="font-weight:700;color:var(--red);">${fmt(Math.abs(r.amt))}</span>`:''}
+            <span class="badge b-red">❌ Not Logged</span>
+            <button class="btn" style="font-size:9px;padding:2px 8px;background:var(--blue);color:#fff;" onclick="${
+              type==='activation'?`document.getElementById('act-order').value='${r.orderNum}';showTab('activations',document.querySelectorAll('.nav-tab')[1])`:
+              type==='phone'?`document.getElementById('ph-order').value='${r.orderNum}';showTab('phones',document.querySelectorAll('.nav-tab')[3])`:
+              `document.getElementById('ref-order').value='${r.orderNum}';showTab('refills',document.querySelectorAll('.nav-tab')[2])`
+            }">Log It →</button>
+          </div>
+        </div>`;
+      }
+    };
+
+    status.style.display='none';
+    results.style.display='block';
+
+    results.innerHTML=`<div style="border-radius:10px;overflow:hidden;border:2px solid ${hColor};">
+      <!-- Header -->
+      <div style="background:${hColor};color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div>
+          <div style="font-weight:900;font-size:15px;">${hIcon} ${allGood?'Audit Passed — All Orders Verified':totalIssues>0?totalIssues+' Issue'+(totalIssues>1?'s':'')+' Found — Action Required':'Invoice Processed'}</div>
+          <div style="font-size:11px;opacity:.9;margin-top:2px;">${invoiceNum?'Invoice #'+invoiceNum+' · ':''} Period: ${period}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:13px;font-weight:800;">Grand Total: ${netBalance<0?'<span style="color:#fde68a;">('+fmt(Math.abs(netBalance))+') ← They owe you</span>':fmt(netBalance)}</div>
+        </div>
+      </div>
+
+      <div style="padding:16px;background:#fff;">
+
+        <!-- ACTIVATIONS -->
+        ${actResults.length?`<div style="margin-bottom:14px;">
+          <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:var(--blue);margin-bottom:8px;">📱 Activation Orders (${actResults.length})</div>
+          ${actResults.map(r=>renderRow(r,'Activation','activation')).join('')}
+        </div>`:''}
+
+        <!-- PHONE PURCHASES -->
+        ${phoneResults.length?`<div style="margin-bottom:14px;">
+          <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:var(--orange);margin-bottom:8px;">📲 Phone Purchases — Branded MarketPlace (${phoneResults.length})</div>
+          ${phoneResults.map(r=>renderRow(r,'Phone Purchase','phone')).join('')}
+        </div>`:''}
+
+        <!-- RTR ORDERS -->
+        ${rtrResults.length?`<div style="margin-bottom:14px;">
+          <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:var(--gold);margin-bottom:8px;">💳 RTR / Refill Orders (${rtrResults.length})</div>
+          ${rtrResults.map(r=>renderRow(r,'RTR/Refill','refill')).join('')}
+        </div>`:''}
+
+        <!-- CREDITS -->
+        ${credits.length?`<div style="margin-bottom:14px;">
+          <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:var(--green);margin-bottom:8px;">💰 Credits Received — No Action Needed (${credits.length})</div>
+          <div style="padding:10px 14px;background:var(--green-l);border-radius:6px;">
+            ${credits.map(c=>`<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid rgba(0,0,0,.05);">
+              <span style="color:var(--muted);">${c.type} · Order #${c.orderNum}</span>
+              <span style="font-weight:700;color:var(--green);">${fmt(Math.abs(c.amt))} credit</span>
+            </div>`).join('')}
+            <div style="font-size:10px;color:var(--green);margin-top:6px;font-weight:600;">These credits are paid directly to your VidaPay balance ✓</div>
+          </div>
+        </div>`:''}
+
+        <!-- FINANCIAL SUMMARY -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:14px 0;padding:14px 0;border-top:2px solid var(--border);border-bottom:2px solid var(--border);">
+          <div style="text-align:center;padding:10px;background:var(--red-l);border-radius:6px;">
+            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">You Were Charged</div>
+            <div style="font-size:18px;font-weight:900;color:var(--red);">${fmt(totalDebits)}</div>
+          </div>
+          <div style="text-align:center;padding:10px;background:var(--green-l);border-radius:6px;">
+            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">Credits to You</div>
+            <div style="font-size:18px;font-weight:900;color:var(--green);">${fmt(totalCredits)}</div>
+          </div>
+          <div style="text-align:center;padding:10px;background:${netBalance<0?'var(--green-l)':'var(--blue-l)'};border-radius:6px;">
+            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">Net Balance</div>
+            <div style="font-size:18px;font-weight:900;color:${netBalance<0?'var(--green)':'var(--blue)'};">${netBalance<0?'('+fmt(Math.abs(netBalance))+')':fmt(netBalance)}</div>
+            ${netBalance<0?'<div style="font-size:9px;color:var(--green);">← They owe you!</div>':''}
+          </div>
+          <div style="text-align:center;padding:10px;background:${allGood?'var(--green-l)':'var(--red-l)'};border-radius:6px;">
+            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">Audit Status</div>
+            <div style="font-size:16px;font-weight:900;color:${allGood?'var(--green)':'var(--red)'};">${allGood?'✅ Clean':totalIssues+' Issue'+(totalIssues>1?'s':'')}</div>
+          </div>
+        </div>
+
+        <!-- ACTIONS -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn" style="background:var(--green);color:#fff;" onclick="saveFullAuditInvoice('${invoiceNum}','${invoiceDate||''}','${period}',${totalDebits},${totalCredits},${netBalance},'${actResults.map(r=>r.orderNum).join(',')}')">💾 Save Invoice to History</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('invAuditResults').style.display='none';document.getElementById('invDropZone').style.display='block';document.getElementById('invDropInput').value='';">↩ Audit Another Invoice</button>
+        </div>
+
+      </div>
+    </div>`;
+
+    // Mark verified activations
+    for(const r of actResults){
+      if(r.matched&&r.found){
+        await sb.from('activations').update({verified:true}).eq('id',r.found.id).catch(()=>{});
+        const idx=activations.findIndex(a=>a.id===r.found.id);
+        if(idx>=0)activations[idx].verified=true;
+      }
+    }
+    renderActivations();
+
+  }catch(err){
+    console.error('Audit error:',err);
+    document.getElementById('invAuditIcon').textContent='❌';
+    document.getElementById('invAuditMsg').textContent='Error: '+(err.message||'Could not read invoice');
+    if(bar)bar.style.background='var(--red)';
+    setTimeout(()=>{
+      document.getElementById('invAuditStatus').style.display='none';
+      document.getElementById('invDropZone').style.display='block';
+    },4000);
+  }
+}
+
+async function saveFullAuditInvoice(num,date,period,debits,credits,net,orderNums){
+  if(!num){alert('No invoice number found');return;}
+  if(invoices.find(i=>i.invoice_num===num)){alert('Invoice #'+num+' already saved');return;}
+  const{data:newInv,error}=await sb.from('invoices').insert({
+    invoice_num:num,invoice_date:date||null,period,
+    act_orders:debits,spiff:credits,rtr:0,fee:1.50,
+    notes:'Auto-audited · Orders: '+orderNums
+  }).select().single();
+  if(error){alert('Save error: '+error.message);return;}
+  if(newInv)invoices.unshift(newInv);
+  renderInvoices();
+  showToast();
+  alert('✅ Invoice #'+num+' saved to Invoice History!');
+}
+
 
 function cancelPdfImport() {
   document.getElementById('pdfDropZone').style.display = 'block';

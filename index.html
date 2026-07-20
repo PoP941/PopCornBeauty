@@ -400,7 +400,19 @@ td{padding:10px 12px;vertical-align:middle;}
 
 <div class="sync-toast" id="syncToast">✓ Saved</div>
 
-<script>
+<script>function getMrcFromPlan(plan){
+  const map={
+    'SM $20 Travelers':20,'SM $25':25,'SM $30':30,'SM $40':40,
+    'SM $50 Unlimited World':50,'SM $60 Unlimited World+':60,
+    'SM $75 3-Month':75,'SM $150 Unlimited World 3-Month':150,
+    'SM $180 Unlimited World+ 3-Month':180,
+    'SM $150 6-Month':150,'SM $300 Unlimited World 6-Month':300,
+    'SM $360 Unlimited World+ 6-Month':360,
+    'VZ $35':35,'VZ $45':45,'VZ $50':50,'VZ $60':60,
+  };
+  return map[plan]||0;
+}
+
 const SB_URL='https://timtwxrpanjtacstcfvz.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpbXR3eHJwYW5qdGFjc3RjZnZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMTM5MTMsImV4cCI6MjA5OTc4OTkxM30.vfr72cFDKEPQNbFGALSyFFEtQRBHqiF99pmf6J4Dktw';
 const sb=supabase.createClient(SB_URL,SB_KEY);
@@ -538,7 +550,7 @@ function commMonth(phone){const c=refills.filter(r=>r.phone===phone).length;retu
 
 function renderActivations(){
   const tbody=document.getElementById('actTable');
-  if(!activations.length){tbody.innerHTML='<tr><td colspan="22" class="empty-state">No activations yet</td></tr>';document.getElementById('actCount').textContent='0';document.getElementById('actTotalSpiff').textContent='$0.00 total spiff';return;}
+  if(!activations.length){tbody.innerHTML='<tr><td colspan="19" class="empty-state">No activations yet</td></tr>';document.getElementById('actCount').textContent='0';document.getElementById('actTotalSpiff').textContent='$0.00 total spiff';return;}
   let total=0;
   tbody.innerHTML=activations.map(a=>{
     const mrc=parseFloat(a.mrc)||0,sub=parseFloat(a.subsidy)||0,sp=parseFloat(a.spiff)||0;
@@ -572,10 +584,24 @@ function renderActivations(){
 async function addRefill(){
   const phone=(document.getElementById('ref-phone')?.value||'').trim();
   if(!phone){alert('Phone # required');return;}
+  const orderNum=(document.getElementById('ref-order')?.value||'').trim();
+  const refDate=document.getElementById('ref-date')?.value||null;
+  
+  // Dedup check: prevent same phone+order# being logged twice
+  if(orderNum){
+    const exists=refills.find(r=>{
+      const samePhone=(r.phone||'').replace(/\D/g,'')===(phone||'').replace(/\D/g,'');
+      return samePhone&&r.order_num===orderNum;
+    });
+    if(exists){
+      alert('This refill (Order #'+orderNum+') has already been logged for '+phone+'.');
+      return;
+    }
+  }
+  
   const payload={
-    phone,
-    order_num:(document.getElementById('ref-order')?.value||'').trim(),
-    ref_date:document.getElementById('ref-date')?.value||null,
+    phone, order_num:orderNum,
+    ref_date:refDate,
     plan:document.getElementById('ref-plan')?.value||'',
     amount:parseFloat(document.getElementById('ref-amount')?.value)||0,
   };
@@ -1273,20 +1299,40 @@ async function handleReceiptDrop(file){
     }
     t=t.replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim();
     receiptExtracted={};
-    // Order # — VidaPay shows "Order #347861736" prominently
-    // Try multiple patterns since OCR can vary
+    // Order # extraction - aggressive multi-pattern approach
     {
-      let orderFound=null;
-      // Pattern 1: "Order #347861736" or "Order # 347861736"
-      const p1=t.match(/Order\s*#\s*([0-9][0-9 ]{7,10})/i);
-      if(p1)orderFound=p1[1].replace(/\s/g,'');
-      // Pattern 2: "Order: 347861736"
-      if(!orderFound){const p2=t.match(/Order\s*:\s*([0-9]{8,10})/i);if(p2)orderFound=p2[1];}
-      // Pattern 3: Any 9-digit number starting with 34 (VidaPay order range)
-      if(!orderFound){const p3=[...t.matchAll(/\b(34[0-9]{7})\b/g)];if(p3.length)orderFound=p3[0][1];}
-      // Pattern 4: Any 9-digit number starting with 33-39
-      if(!orderFound){const p4=[...t.matchAll(/\b(3[3-9][0-9]{7})\b/g)];if(p4.length)orderFound=p4[0][1];}
-      if(orderFound&&orderFound.length>=8)receiptExtracted.order_num=orderFound;
+      // Collect all candidate numbers from the text
+      // VidaPay order numbers are 9 digits, starting with 34x/33x/35x range
+      const candidates=[];
+      
+      // P1: "Order #XXXXXXXXX" with any whitespace/formatting
+      const p1=t.match(/Order[\s#:]+([0-9][\s0-9]{7,11})/i);
+      if(p1)candidates.push(p1[1].replace(/\s/g,''));
+      
+      // P2: All standalone 9-digit numbers in 3xx million range
+      for(const m of t.matchAll(/(3\d{8})/g))candidates.push(m[1]);
+      
+      // P3: Numbers near "Order" keyword (within 30 chars)
+      const orderIdx=t.search(/Order/i);
+      if(orderIdx>=0){
+        const nearby=t.slice(orderIdx,orderIdx+40);
+        const nm=nearby.match(/(\d{8,10})/);
+        if(nm)candidates.push(nm[1]);
+      }
+      
+      // Pick best candidate: prefer 9-digit starting with 34
+      let best=null;
+      for(const c of candidates){
+        const clean=c.replace(/\D/g,'');
+        if(clean.length===9&&clean.startsWith('34')){best=clean;break;}
+      }
+      if(!best){
+        for(const c of candidates){
+          const clean=c.replace(/\D/g,'');
+          if(clean.length>=8&&clean.length<=10&&clean.startsWith('3')){best=clean;break;}
+        }
+      }
+      if(best)receiptExtracted.order_num=best;
     }
     // IMEI
     const im=t.match(/IMEI[:\s]+([0-9]{14,16})/i)||t.match(/\b([0-9]{15})\b/);
@@ -1308,15 +1354,23 @@ async function handleReceiptDrop(file){
     if(!receiptExtracted.order_num&&!receiptExtracted.iccid&&!receiptExtracted.model)
       throw new Error('Could not read data. Make sure the full VidaPay page is visible.');
 
-    const fields=[
-      {l:'Order #',v:receiptExtracted.order_num||'-- (not found)',c:'var(--blue)'},
-      {l:'IMEI',v:receiptExtracted.iccid||'—',c:'var(--purple)'},
-      {l:'Model',v:receiptExtracted.model||'—',c:'var(--text)'},
-      {l:'Price',v:receiptExtracted.price?'$'+receiptExtracted.price.toFixed(2):'—',c:'var(--orange)'},
-      {l:'Date',v:receiptExtracted.date||'—',c:'var(--muted)'},
-    ];
     const ed=document.getElementById('receiptExtractedData');
-    if(ed)ed.innerHTML=fields.map(f=>`<div style="background:#fff;padding:6px 10px;border-radius:5px;border:1px solid var(--border)"><div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;">${f.l}</div><div style="font-size:12px;font-weight:800;color:${f.c};">${f.v}</div></div>`).join('');
+    if(ed){
+      // Show editable order # field + read-only fields for everything else
+      const orderVal=receiptExtracted.order_num||'';
+      ed.innerHTML=`
+        <div style="background:#fff;padding:6px 10px;border-radius:5px;border:${orderVal?'1px solid var(--border)':'2px solid var(--red)'};grid-column:span 1;">
+          <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:3px;">Order # ${orderVal?'':'⚠️ Enter manually'}</div>
+          <input id="ocr-order-input" value="${orderVal}" placeholder="type order # here" style="border:none;outline:none;font-size:12px;font-weight:800;color:var(--blue);width:100%;background:transparent;" oninput="receiptExtracted.order_num=this.value">
+        </div>
+        ${[
+          {l:'IMEI',v:receiptExtracted.iccid||'—',c:'var(--purple)'},
+          {l:'Model',v:receiptExtracted.model||'—',c:'var(--text)'},
+          {l:'Price',v:receiptExtracted.price?'$'+receiptExtracted.price.toFixed(2):'—',c:'var(--orange)'},
+          {l:'Date',v:receiptExtracted.date||'—',c:'var(--muted)'},
+        ].map(f=>`<div style="background:#fff;padding:6px 10px;border-radius:5px;border:1px solid var(--border)"><div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;">${f.l}</div><div style="font-size:12px;font-weight:800;color:${f.c};">${f.v}</div></div>`).join('')}
+      `;
+    }
     if(status)status.style.display='none';
     if(preview)preview.style.display='block';
   }catch(err){

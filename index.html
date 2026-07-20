@@ -491,7 +491,32 @@ td{padding:10px 12px;vertical-align:middle;}
 </div>
 <div class="sync-toast" id="syncToast">✓ Saved</div>
 
-<script>function loadTesseract(){
+<script>const fmt=n=>{if(!n&&n!==0)return '--';return '$'+(parseFloat(n)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');};
+const plans={
+  monthly:[
+    {name:'SM $20 Travelers',mrc:20,carrier:'Simple Mobile',desc:'Talk & Text + 1GB Data'},
+    {name:'SM $25',mrc:25,carrier:'Simple Mobile',desc:'Talk & Text + Unlimited Data'},
+    {name:'SM $30',mrc:30,carrier:'Simple Mobile',desc:'Talk & Text + 5GB High Speed'},
+    {name:'SM $40',mrc:40,carrier:'Simple Mobile',desc:'Talk & Text + 10GB High Speed'},
+    {name:'SM $50 Unlimited World',mrc:50,carrier:'Simple Mobile',desc:'Unlimited + 15GB Hotspot'},
+    {name:'SM $60 Unlimited World+',mrc:60,carrier:'Simple Mobile',desc:'Unlimited + 25GB Hotspot'},
+    {name:'VZ $35',mrc:35,carrier:'Verizon Prepaid',desc:'Unlimited Talk & Text + 5GB'},
+    {name:'VZ $45',mrc:45,carrier:'Verizon Prepaid',desc:'Unlimited + 15GB Data'},
+    {name:'VZ $50',mrc:50,carrier:'Verizon Prepaid',desc:'Unlimited Talk, Text & Data'},
+    {name:'VZ $60',mrc:60,carrier:'Verizon Prepaid',desc:'Unlimited + 15GB Hotspot'},
+  ],
+  three:[
+    {name:'SM $75 3-Month',mrc:75,carrier:'Simple Mobile',desc:'3 Months prepaid'},
+    {name:'SM $150 Unlimited World 3-Month',mrc:150,carrier:'Simple Mobile',desc:'3 Months Unlimited World'},
+    {name:'SM $180 Unlimited World+ 3-Month',mrc:180,carrier:'Simple Mobile',desc:'3 Months Unlimited World+'},
+  ],
+  six:[
+    {name:'SM $150 6-Month',mrc:150,carrier:'Simple Mobile',desc:'6 Months prepaid'},
+    {name:'SM $300 Unlimited World 6-Month',mrc:300,carrier:'Simple Mobile',desc:'6 Months Unlimited World'},
+    {name:'SM $360 Unlimited World+ 6-Month',mrc:360,carrier:'Simple Mobile',desc:'6 Months Unlimited World+'},
+  ],
+};
+function loadTesseract(){
   return new Promise((resolve)=>{
     // Tesseract is loaded via CDN tag - just wait for it
     let attempts=0;
@@ -550,7 +575,11 @@ async function handleReceiptDrop(file){
     const t=rawText.replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim();
     receiptExtracted={};
     // Order #
-    let m=t.match(/Order\s*[#:]\s*(\d{8,10})/i)||t.match(/\b(34\d{7,8}|33\d{7,8}|35\d{7,8})\b/);
+    // VidaPay shows "Order #347861736" or "Order: 347861736" at top of page
+    let m=t.match(/Order\s*#?\s*(\d{8,10})/i)
+      ||t.match(/\b(34[0-9]{7,8})\b/)
+      ||t.match(/\b(33[0-9]{7,8})\b/)
+      ||t.match(/\b(35[0-9]{7,8})\b/);
     if(m)receiptExtracted.order_num=m[1];
     // IMEI
     m=t.match(/IMEI[:\s]+(\d{14,16})/i)||t.match(/\b(\d{15})\b/);
@@ -1012,32 +1041,42 @@ function renderRefills(){
 }
 
 async function addPhone(){
-  const model=document.getElementById('ph-model').value.trim();
-  const imei=document.getElementById('ph-imei').value.trim();
-  if(!model){alert('Model is required');return;}
+  const model=(document.getElementById('ph-model')||{}).value||'';
+  const imei=(document.getElementById('ph-imei')||{}).value||'';
+  if(!model.trim()){alert('Model is required');return;}
+  const cost=parseFloat((document.getElementById('ph-cost')||{}).value)||0;
+  const rebate=parseFloat((document.getElementById('ph-rebate')||{}).value)||0;
+  const returnDate=(document.getElementById('ph-return-date')||{}).value||null;
+  const reqPlan=(document.getElementById('ph-req-plan')||{}).value||'';
+  const orderNum=(document.getElementById('ph-order')||{}).value||'';
+  const pdate=(document.getElementById('ph-pdate')||{}).value||null;
+
   const payload={
-    order_num:document.getElementById('ph-order').value.trim()||'',
-    imei:imei,
-    model:model,
-    purchase_date:document.getElementById('ph-pdate').value||null,
-    cost:parseFloat(document.getElementById('ph-cost').value)||0,
-    rebate_expected:parseFloat(document.getElementById('ph-rebate').value)||0,
-    req_plan:document.getElementById('ph-req-plan')?document.getElementById('ph-req-plan').value:'',
-    return_date:document.getElementById('ph-return-date')?document.getElementById('ph-return-date').value||null:null,
+    order_num:orderNum.trim(),
+    imei:imei.trim(),
+    model:model.trim(),
+    purchase_date:pdate||null,
+    cost:cost,
+    rebate_expected:rebate,
+    req_plan:reqPlan,
     status:'In Stock',
     phone:'',
     sale_date:null,
     sale_price:0,
     subsidy:0,
   };
+  // Only add return_date if column exists (check by trying)
+  if(returnDate) payload.return_date=returnDate;
+
   const{data:newPh,error}=await sb.from('phones').insert(payload).select().single();
-  if(error){alert('Save Error: '+error.message);return;}
+  if(error){
+    console.error('addPhone error:',error);
+    alert('Save Error: '+error.message+'\n\nMake sure all required Supabase columns exist.');
+    return;
+  }
   if(newPh)phones.unshift(newPh);
   renderPhones();renderDashboard();
   clearPh();showToast();
-  // Scroll to confirm
-  const inStock=document.getElementById('inStockTable');
-  if(inStock)inStock.scrollIntoView({behavior:'smooth'});
 }
 
 function clearPh(){
@@ -1984,21 +2023,36 @@ function renderPhones(){
 }
 
 function renderPlans(){
-  const pairs=[['monthly','monthlyPlans','/mo'],['three','threeMonthPlans','/3 mo'],['six','sixMonthPlans','/6 mo']];
-  pairs.forEach(([key,id,per])=>{
-    document.getElementById(id).innerHTML=plans[key].map(p=>`
-      <div class="plan-card" onclick="prefillPlan('${p.name}',${p.mrc})">
-        <div class="plan-use">+ Use Plan</div>
-        <div class="plan-name">Simple Mobile ${p.name}</div>
-        <div class="plan-desc">${p.desc}</div>
-        <div style="display:flex;align-items:baseline;gap:4px;margin-top:6px">
-          <div class="plan-price">${fmt(p.mrc)}</div>
-          <div class="plan-period">${per}</div>
+  const pcts=[0.90,0.55,0.55,0.70,0.65,0.65];
+  const sections=[
+    {key:'monthly',id:'monthlyPlans',color:'var(--blue)',bg:'#eff6ff'},
+    {key:'three',id:'threeMonthPlans',color:'var(--purple)',bg:'#f5f3ff'},
+    {key:'six',id:'sixMonthPlans',color:'var(--green)',bg:'#f0fff4'},
+  ];
+  sections.forEach(({key,id,color,bg})=>{
+    const el=document.getElementById(id);if(!el)return;
+    el.innerHTML=(plans[key]||[]).map(p=>{
+      const totalSpiff=pcts.reduce((s,pct)=>s+(p.mrc*pct),0);
+      const carrierColor=p.carrier==='Verizon Prepaid'?'var(--blue)':'var(--green)';
+      return`<div onclick="prefillPlan('${p.name}',${p.mrc})"
+        style="border:2px solid ${color};border-radius:10px;padding:14px;cursor:pointer;background:#fff;transition:all .15s;"
+        onmouseover="this.style.background='${bg}';this.style.transform='translateY(-2px)'"
+        onmouseout="this.style.background='#fff';this.style.transform=''">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+          <div style="font-size:18px;font-weight:900;color:${color};">${fmt(p.mrc)}</div>
+          <span style="background:${carrierColor};color:#fff;font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap;">${p.carrier}</span>
         </div>
-        <div style="margin-top:8px"><span class="badge b-gold">💰 ${fmt(p.spiff400)} total spiff at 400% MRC</span></div>
-        <div class="plan-breakdown">M1: ${fmt(p.mrc*0.9)} · M2: ${fmt(p.mrc*0.55)} · M3: ${fmt(p.mrc*0.55)} · M4: ${fmt(p.mrc*0.7)} · M5: ${fmt(p.mrc*0.65)} · M6: ${fmt(p.mrc*0.65)}</div>
-      </div>
-    `).join('');
+        <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:2px;">${p.name}</div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:8px;">${p.desc||''}</div>
+        <div style="border-top:1px solid var(--border);padding-top:8px;">
+          <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">Commission per return (400% MRC)</div>
+          <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:4px;">
+            ${pcts.map((pct,i)=>`<div style="background:${i===0?'#dcfce7':'var(--surface3)'};border:1px solid ${i===0?'var(--green)':'var(--border)'};border-radius:4px;padding:2px 5px;font-size:9px;font-weight:700;color:${i===0?'var(--green)':'var(--muted)'};">M${i+1}:$${(p.mrc*pct).toFixed(0)}</div>`).join('')}
+          </div>
+          <div style="font-size:12px;font-weight:800;color:var(--gold);">Total: ${fmt(totalSpiff)}</div>
+        </div>
+      </div>`;
+    }).join('');
   });
 }
 

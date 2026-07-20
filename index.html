@@ -591,38 +591,48 @@ async function handleReceiptDrop(file){
     setMsg('*','Parsing...');
     const t=rawText.replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim();
     receiptExtracted={};
-    // Order # 
-    // VidaPay order page shows "Order #347861736" prominently
-    // Also appears as "Order: 347861736" or just the number alone
+    // Order # - VidaPay page shows "Order #347861736"
     {
-      // Try "Order #XXXXXXXXX" format first (most reliable)
-      const orderMatch=t.match(/Order\s*#\s*([\d\s]{7,12})/i)
-        ||t.match(/Order\s*:\s*([\d\s]{7,12})/i)
-        ||t.match(/Order\s+([\d\s]{8,11})/i);
-      if(orderMatch){
-        const cleaned=orderMatch[1].replace(/\s/g,'');
-        if(cleaned.length>=8)receiptExtracted.order_num=cleaned;
+      // Pattern 1: "Order #347861736" (may have spaces from OCR)
+      let om=t.match(/Order\s*#\s*([\d][\d\s]{7,10})/i)
+        ||t.match(/Order\s*:\s*([\d][\d\s]{7,10})/i)
+        ||t.match(/Order\s+([\d][\d\s]{7,10})/i)
+        ||t.match(/#\s*([3][3-9][\d\s]{6,8})/);
+      if(om){
+        const clean=om[1].replace(/\s/g,'');
+        if(clean.length>=8&&clean.length<=10)receiptExtracted.order_num=clean;
       }
-    }
-    if(!receiptExtracted.order_num){
-      // Fallback: find any 9-digit number in 3xx million range
-      const allNums=[...t.matchAll(/\b3[3-9]\d{7}\b/g)];
-      if(allNums.length>0)receiptExtracted.order_num=allNums[0][0];
+      // Pattern 2: standalone 9-digit number starting with 34x/33x/35x
+      if(!receiptExtracted.order_num){
+        const nums=[...t.matchAll(/\b(3[3-9]\d{7})\b/g)];
+        if(nums.length>0)receiptExtracted.order_num=nums[0][1];
+      }
     }
     // IMEI
     m=t.match(/IMEI[:\s]+(\d{14,16})/i)||t.match(/\b(\d{15})\b/);
     if(m)receiptExtracted.iccid=m[1];
-    // Model
-    const modelPats=[
-      /Apple\s+iPhone\s+\d{1,2}\s*(?:Plus|Pro\s+Max|Pro|Mini)?\s*(?:\d+GB|\d+TB)?\s*(?:Black|White|Blue|Red|Green|Gold|Purple|Midnight|Starlight|Pink|Silver|Space\s*Gray|Deep\s*Purple|Yellow)?/i,
-      /Samsung\s+Galaxy\s+[A-Z0-9]+(?:\s+\d+GB)?/i,
-      /iPhone\s+\d{1,2}(?:\s+(?:Plus|Pro\s+Max|Pro|Mini))?/i,
-    ];
-    for(const pat of modelPats){
-      const mm=t.match(pat);
-      if(mm&&mm[0].length>6){
-        receiptExtracted.model=mm[0].replace(/\b\d{10,}\b/g,'').replace(/\s+/g,' ').trim();
-        break;
+    // Model — VidaPay page title shows full product name
+    // OCR may split "14" or add spaces. We grab a wide chunk after "iPhone"
+    {
+      // First try to get the full product line from the page heading
+      // VidaPay shows: "1  Apple iPhone 14 Plus 128GB Black  $345.00 Total Purchase Price"
+      const fullTitle=t.match(/Apple\s+iPhone[\s\d]+(?:Plus|Pro\s*Max|Pro|Mini)?[\s\w]*?(?:128GB|256GB|512GB|64GB|1TB)[\s\w]*?(?:Black|White|Blue|Red|Green|Gold|Purple|Midnight|Starlight|Pink|Silver|Space\s*Gray|Deep\s*Purple|Yellow)?/i);
+      if(fullTitle&&fullTitle[0].length>10){
+        receiptExtracted.model=fullTitle[0].replace(/\b\d{10,}\b/g,'').replace(/\s+/g,' ').trim();
+      } else {
+        // Fallback: grab "iPhone XX" and surrounding words
+        const iphone=t.match(/(?:Apple\s+)?iPhone\s+([\d]+(?:[\s]*(?:Plus|Pro\s*Max|Pro|Mini))?)/i);
+        if(iphone){
+          // Build model name
+          let modelName='Apple iPhone '+iphone[1].trim();
+          // Look for storage after the number
+          const storage=t.match(/(?:128|256|512|64)\s*GB/i);
+          if(storage)modelName+=' '+storage[0].replace(/\s/,'')+'B';
+          // Look for color
+          const color=t.match(/\b(Black|White|Blue|Red|Green|Gold|Purple|Midnight|Starlight|Pink|Silver|Space Gray|Deep Purple|Yellow)\b/i);
+          if(color)modelName+=' '+color[1];
+          receiptExtracted.model=modelName.trim();
+        }
       }
     }
     // Price
@@ -787,8 +797,8 @@ function renderDashboard(){
   const rp=refills.reduce((a,r)=>a+((parseFloat(r.amount)||0)*0.08),0);
   const pp=phones.filter(p=>p.status&&p.status.includes('Sold')).reduce((a,p)=>a+(parseFloat(p.sale_price)||0)-(parseFloat(p.cost)||0)+(parseFloat(p.subsidy)||0),0);
   const net=tc+ts+rp+pp;
-  const inStock=phones.filter(p=>!p.status||p.status==='In Stock').length;
-  const sold=phones.filter(p=>p.status&&p.status.includes('Sold')).length;
+  const inStock=phones.filter(p=>!p.status||p.status==='In Stock'||p.status==='in stock');
+  const sold=phones.filter(p=>p.status&&p.status.toLowerCase().includes('sold'));
   const ids={'netTotal':fmt(net),'dashCommission':fmt(tc),'dashSubsidy':fmt(ts),'dashRefillProfit':fmt(rp),'dashPhoneProfit':fmt(pp),
     'kpiActivations':activations.length,'kpiCommission':'$'+Math.round(tc),'kpiSubsidy':'$'+Math.round(ts),
     'kpiRefills':refills.length,'kpiRefillProfit':'$'+Math.round(rp),'kpiPhoneProfit':'$'+Math.round(pp),
@@ -1073,6 +1083,9 @@ function renderRefills(){
 }
 
 async function addPhone(){
+  if(addPhone._running)return;
+  addPhone._running=true;
+  setTimeout(()=>addPhone._running=false, 3000);
   const g=id=>(document.getElementById(id)||{}).value||'';
   const model=g('ph-model').trim();
   if(!model){alert('Model is required');return;}
@@ -1093,7 +1106,12 @@ async function addPhone(){
   if(newPh)phones.unshift(newPh);
   renderPhones();renderDashboard();
   clearPh();showToast();
-  alert('Phone added to inventory! Go to Phones tab to see it.');
+  showToast();
+  // Switch to Phones tab to show the result
+  setTimeout(()=>{
+    showTab('phones',document.querySelectorAll('.nav-tab')[4]);
+  },300);
+  alert('✅ Added to inventory!\nModel: '+model+'\nGo to Phones tab → In Stock to confirm.');
 }
 
 function clearPh(){
@@ -1115,7 +1133,11 @@ async function logPhoneSale(){
   const saleDate=document.getElementById('sale-date').value||new Date().toISOString().split('T')[0];
   const cleanImei=imei.replace(/[^0-9]/g,'');
   const invPhone=phones.find(p=>p.imei&&p.imei.replace(/[^0-9]/g,'')===cleanImei);
-  if(!invPhone){alert('IMEI not found in inventory.\nAdd the phone in the Invoices tab first.');return;}
+  if(!invPhone){
+    const allIMEIs=phones.map(p=>p.imei||'none').join(', ');
+    alert('IMEI '+cleanImei+' not found in inventory.\n\nPhone count: '+phones.length+'\nIMEIs in inventory: '+allIMEIs.substring(0,200)+'\n\nAdd the phone in the Invoices tab first, then try again.');
+    return;
+  }
   const{error}=await sb.from('phones').update({
     phone:custPhone,sale_date:saleDate,sale_price:salePrice,subsidy:subsidy,status:'Sold',
   }).eq('id',invPhone.id);
@@ -1936,8 +1958,9 @@ function renderPhones(){
 
   if(phoneCountEl)phoneCountEl.textContent=phones.length;
 
-  const inStock=phones.filter(p=>!p.status||p.status==='In Stock');
-  const sold=phones.filter(p=>p.status&&p.status.toLowerCase().includes('sold'));
+  const inStock=phones.filter(p=>!p.status||p.status==='In Stock'||p.status==='in stock');
+  const sold=phones.filter(p=>p.status&&(p.status.toLowerCase().includes('sold')));
+  console.log('renderPhones: total='+phones.length+' inStock='+inStock.length+' sold='+sold.length);
 
   if(inStockCount)inStockCount.textContent=inStock.length;
   if(soldCount)soldCount.textContent=sold.length;

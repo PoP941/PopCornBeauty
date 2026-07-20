@@ -333,38 +333,112 @@ td{padding:10px 12px;vertical-align:middle;}
 
 <!-- PHONES -->
 <div id="tab-phones" class="tab-panel">
-  <div class="form-panel">
-    <div class="form-title">Log Phone — Inventory & Rebate Tracking</div>
+
+  <!-- RECEIPT DROP ZONE -->
+  <div style="border:2px dashed #d1d5db;border-radius:8px;padding:20px;text-align:center;cursor:pointer;background:#fafafa;margin-bottom:16px;transition:all .2s;"
+    id="receiptDropZone"
+    onclick="document.getElementById('receiptFileInput').click()"
+    ondragover="event.preventDefault();this.style.borderColor='var(--purple)';this.style.background='var(--purple-l)'"
+    ondragleave="this.style.borderColor='#d1d5db';this.style.background='#fafafa'"
+    ondrop="event.preventDefault();this.style.borderColor='#d1d5db';this.style.background='#fafafa';handleReceiptDrop(event.dataTransfer.files[0])">
+    <div style="font-size:28px;margin-bottom:6px">📱</div>
+    <div style="font-size:13px;font-weight:800;color:var(--purple);">Drop VidaPay Merchant Receipt Here</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:2px;">PNG, JPG, PDF · Reads order #, ICCID, model, price automatically · ~10s for images</div>
+    <input type="file" id="receiptFileInput" accept="image/*,.pdf" style="display:none" onchange="handleReceiptDrop(this.files[0])">
+  </div>
+  <div id="receiptStatus" style="display:none;text-align:center;padding:16px;">
+    <div id="receiptStatusIcon" style="font-size:28px;margin-bottom:6px">⏳</div>
+    <div id="receiptStatusMsg" style="font-size:12px;font-weight:700;color:var(--muted)">Reading receipt...</div>
+  </div>
+  <div id="receiptPreview" style="display:none;margin-bottom:16px;padding:14px;background:var(--purple-l);border:1.5px solid var(--purple);border-radius:8px;">
+    <div style="font-size:12px;font-weight:800;color:var(--purple);margin-bottom:10px">✅ Receipt Read — Review & Confirm</div>
+    <div id="receiptExtractedData" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:12px;"></div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn" style="background:var(--purple);color:#fff;" onclick="confirmReceiptImport()">✅ Use This Data</button>
+      <button class="btn btn-ghost" onclick="cancelReceiptImport()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- SECTION 1: ADD TO INVENTORY -->
+  <div style="background:#eff6ff;border:2px solid var(--blue);border-radius:10px;padding:18px;margin-bottom:14px;">
+    <div style="font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.8px;margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+      <span style="background:var(--blue);color:#fff;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;">1</span>
+      📦 Add Phone to Inventory
+    </div>
     <div class="form-grid">
-      <div class="field"><label>Customer Phone #</label><input class="phone-f" id="ph-phone" type="text" placeholder="(516) 000-0000"></div>
-      <div class="field"><label>Order #</label><input id="ph-order" type="text" placeholder="347742386"></div>
-      <div class="field"><label>IMEI * (links to activation)</label><input class="imei-f" id="ph-imei" type="text" placeholder="356938035643809"></div>
-      <div class="field"><label>Model</label><input id="ph-model" type="text" placeholder="iPhone 13 128GB"></div>
+      <div class="field"><label>Order #</label><input id="ph-order" type="text" placeholder="order #"></div>
+      <div class="field"><label>IMEI *</label><input class="imei-f" id="ph-imei" type="text" placeholder="IMEI number"></div>
+      <div class="field"><label>Model *</label><input id="ph-model" type="text" placeholder="phone model"></div>
       <div class="field"><label>Purchase Date</label><input id="ph-pdate" type="date"></div>
-      <div class="field"><label>Your Cost $</label><input class="money-f" id="ph-cost" type="number" step="0.01" placeholder="259.99"></div>
-      <div class="field"><label>Rebate Expected $ 🔗</label><input class="money-f" id="ph-rebate" type="number" step="0.01" placeholder="259.99"></div>
-      <div class="field"><label>Required Plan for Rebate</label><input id="ph-req-plan" type="text" placeholder="3x $50 or $150 3-Month"></div>
-      <div class="field"><label>Sale Date</label><input id="ph-sdate" type="date"></div>
-      <div class="field"><label>Sale Price $</label><input class="money-f" id="ph-sale" type="number" step="0.01" placeholder="299.99"></div>
-      <div class="field"><label>Subsidy Received $</label><input class="money-f" id="ph-subsidy" type="number" step="0.01" placeholder="259.99"></div>
-      <div class="field"><label>Status</label><select id="ph-status"><option>In Stock</option><option>Sold — Awaiting Rebate</option><option>Sold — Rebate Received</option><option>Returned</option></select></div>
+      <div class="field"><label>Your Cost $</label><input class="money-f" id="ph-cost" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Rebate Expected $</label><input class="money-f" id="ph-rebate" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Required Plan for Rebate</label>
+        <select id="ph-req-plan">
+          <option value="">— No rebate plan —</option>
+          <optgroup label="1 Month"><option value="1 Month — $50">1 Month — $50/mo</option><option value="1 Month — $60">1 Month — $60/mo</option></optgroup>
+          <optgroup label="3 Month"><option value="3 Months — $50/mo ($150)">3 Months — $50/mo ($150)</option><option value="3 Months — $60/mo ($180)">3 Months — $60/mo ($180)</option><option value="3 Month Unlimited World">3 Month Unlimited World ($150)</option><option value="3 Month Unlimited World+">3 Month Unlimited World+ ($180)</option></optgroup>
+          <optgroup label="6 Month"><option value="6 Months — $50/mo ($300)">6 Months — $50/mo ($300)</option><option value="6 Months — $60/mo ($360)">6 Months — $60/mo ($360)</option></optgroup>
+        </select>
+      </div>
+      <div class="field">
+        <label style="color:var(--red);font-weight:700;">📅 Return By Date</label>
+        <input id="ph-return-date" type="date" style="background:#fff5f5;border:2px solid var(--red) !important;">
+        <div style="font-size:9px;color:var(--red);margin-top:2px;">⏰ Countdown shows in inventory</div>
+      </div>
     </div>
-    <div style="margin-top:12px;display:flex;gap:8px;">
-      <button class="btn btn-red" onclick="addPhone()">+ Add Phone</button>
+    <div style="margin-top:14px;display:flex;gap:8px;align-items:center;">
+      <button class="btn" style="background:var(--blue);color:#fff;" onclick="addPhone()">+ Add to Inventory</button>
       <button class="btn btn-ghost" onclick="clearPh()">Clear</button>
-    </div>
-    <div style="margin-top:10px;padding:10px 14px;background:var(--blue-l);border-radius:5px;font-size:11px;color:var(--blue);font-weight:600;">
-      💡 <strong>How IMEI linking works:</strong> Add the phone here with its IMEI and expected rebate. Then in Activations, type the same IMEI — the subsidy field auto-fills with the rebate amount and shows a banner confirming the match.
+      <span style="font-size:10px;color:var(--muted);">💡 Drop receipt above to auto-fill</span>
     </div>
   </div>
+
+  <!-- SECTION 2: LOG A SALE -->
+  <div style="background:var(--green-l);border:2px solid var(--green);border-radius:10px;padding:18px;margin-bottom:20px;">
+    <div style="font-size:12px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.8px;margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+      <span style="background:var(--green);color:#fff;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;">2</span>
+      💰 Log a Phone Sale
+    </div>
+    <div class="form-grid">
+      <div class="field"><label>Customer Phone # *</label><input class="phone-f" id="sale-phone" type="text" placeholder="customer phone #" oninput="lookupSaleImeiByPhone(this.value)"></div>
+      <div class="field"><label>IMEI * (links to inventory)</label><input class="imei-f" id="sale-imei" type="text" placeholder="IMEI number" oninput="lookupSaleImei(this.value)"></div>
+      <div class="field"><label>Sale Date</label><input id="sale-date" type="date"></div>
+      <div class="field"><label>Sale Price $</label><input class="money-f" id="sale-price" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Subsidy Received $</label><input class="money-f" id="sale-subsidy" type="number" step="0.01" placeholder="0.00"></div>
+    </div>
+    <div id="saleLookupResult" style="display:none;margin-top:10px;padding:10px 14px;background:#fff;border:1px solid var(--green);border-radius:6px;font-size:12px;line-height:1.5;"></div>
+    <div style="margin-top:14px;display:flex;gap:8px;align-items:center;">
+      <button class="btn btn-green" onclick="logPhoneSale()">💰 Log This Sale</button>
+      <button class="btn btn-ghost" onclick="clearSaleForm()">Clear</button>
+      <span style="font-size:10px;color:var(--muted);">Enter IMEI to see phone from inventory</span>
+    </div>
+  </div>
+
+  <!-- IN STOCK TABLE -->
   <div class="section-hdr">
-    <div class="section-title">Phone Inventory (<span id="phoneCount">0</span>)</div>
-    <span style="font-size:13px;font-weight:800;color:var(--gold)" id="phoneTotalProfit">Total Profit: $0.00</span>
+    <div class="section-title">📦 In Stock (<span id="inStockCount">0</span>)</div>
+    <input id="ph-search" type="text" placeholder="search IMEI, model..." oninput="filterPhones(this.value)"
+      style="background:#fff;border:1.5px solid #d1d5db;border-radius:6px;padding:6px 12px;font-size:12px;font-family:inherit;width:200px;outline:none;">
   </div>
-  <div class="table-wrap"><div class="table-scroll"><table>
-    <thead><tr><th>Phone #</th><th>Order #</th><th>IMEI</th><th>Model</th><th>Bought</th><th>Cost</th><th>Rebate Expected</th><th>Required Plan</th><th>Sold</th><th>Sale Price</th><th>Sale Profit</th><th>Subsidy Received</th><th>Total Profit</th><th>Return Deadline</th><th>Days Left</th><th>Status</th><th></th></tr></thead>
-    <tbody id="phTable"><tr><td colspan="17" class="empty-state">No phones logged yet</td></tr></tbody>
-  </table></div></div>
+  <div class="table-wrap" style="margin-bottom:20px;">
+    <div class="table-scroll"><table>
+      <thead><tr><th>IMEI</th><th>Model</th><th>Order #</th><th>Purchased</th><th>Cost</th><th>Rebate Expected</th><th>Required Plan</th><th>📅 Return By</th><th>⏱ Countdown</th><th></th></tr></thead>
+      <tbody id="inStockTable"><tr><td colspan="10" class="empty-state">No phones in inventory yet</td></tr></tbody>
+    </table></div>
+  </div>
+
+  <!-- SALES LOG TABLE -->
+  <div class="section-hdr">
+    <div class="section-title">✅ Sales Log (<span id="soldCount">0</span>)</div>
+    <span style="font-size:13px;font-weight:800;color:var(--gold)" id="totalSaleProfit">Total Profit: $0.00</span>
+  </div>
+  <div class="table-wrap">
+    <div class="table-scroll"><table>
+      <thead><tr><th>Customer Phone #</th><th>IMEI</th><th>Model</th><th>Cost</th><th>Sale Price</th><th>Profit</th><th>Subsidy</th><th>Total Profit</th><th>Sale Date</th><th></th></tr></thead>
+      <tbody id="soldTable"><tr><td colspan="10" class="empty-state">No sales yet</td></tr></tbody>
+    </table></div>
+  </div>
+
 </div>
 
 <!-- INVOICES -->
@@ -434,7 +508,8 @@ td{padding:10px 12px;vertical-align:middle;}
 </div>
 <div class="sync-toast" id="syncToast">✓ Saved</div>
 
-<script>
+<script>function returnCountdown(d){if(!d)return'—';const rd=new Date(d+'T12:00:00');const days=Math.round((rd-new Date())/86400000);if(days<0)return'<span style="color:var(--red);font-weight:800;">'+Math.abs(days)+'d OVERDUE ⚠️</span>';if(days===0)return'<span style="color:var(--red);font-weight:800;">DUE TODAY</span>';if(days<=3)return'<span style="color:var(--red);font-weight:700;">'+days+'d left ⚠️</span>';if(days<=7)return'<span style="color:var(--orange);font-weight:700;">'+days+'d left</span>';return'<span style="color:var(--green);">'+days+'d left</span>';}
+
 const SB_URL='https://timtwxrpanjtacstcfvz.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpbXR3eHJwYW5qdGFjc3RjZnZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMTM5MTMsImV4cCI6MjA5OTc4OTkxM30.vfr72cFDKEPQNbFGALSyFFEtQRBHqiF99pmf6J4Dktw';
 const sb=supabase.createClient(SB_URL,SB_KEY);
@@ -774,7 +849,17 @@ async function updateInvoice(id){
 async function addRefill(){
   const phone=document.getElementById('ref-phone').value.trim();
   if(!phone){alert('Phone # required');return;}
-  await sb.from('refills').insert({phone,order_num:document.getElementById('ref-order').value.trim(),ref_date:document.getElementById('ref-date').value||null,plan:document.getElementById('ref-plan').value,amount:parseFloat(document.getElementById('ref-amount').value)||0});
+  const payload={
+    phone,
+    order_num:document.getElementById('ref-order').value.trim(),
+    ref_date:document.getElementById('ref-date').value||null,
+    plan:document.getElementById('ref-plan').value,
+    amount:parseFloat(document.getElementById('ref-amount').value)||0,
+  };
+  const{data:newRef,error}=await sb.from('refills').insert(payload).select().single();
+  if(error){alert('Save Error: '+error.message);return;}
+  if(newRef)refills.unshift(newRef);
+  renderRefills();renderDashboard();renderCommPipeline();renderOverdue();
   clearRef();showToast();
 }
 function clearRef(){['ref-phone','ref-order','ref-date','ref-amount'].forEach(id=>document.getElementById(id).value='');document.getElementById('ref-plan').value='';document.getElementById('refLookupPanel').style.display='none';document.getElementById('refLookupHint').style.display='inline';}
@@ -881,7 +966,15 @@ function lookupRefillPhone(phone){
     alertEl.style.display='none';
   }
 }
-async function deleteRefill(id){if(!confirm('Delete?'))return;await sb.from('refills').delete().eq('id',id);showToast();}
+async function deleteRefill(id){
+  if(!confirm('Delete this refill?'))return;
+  const numId=parseInt(id);
+  let error=null;
+  if(!isNaN(numId)){const res=await sb.from('refills').delete().eq('id',numId);error=res.error;}
+  if(error||isNaN(numId)){const res2=await sb.from('refills').delete().eq('id',String(id));if(res2.error){alert('Delete failed: '+res2.error.message);return;}}
+  refills=refills.filter(r=>String(r.id)!==String(id));
+  renderRefills();renderDashboard();showToast();
+}
 function refillTrigger(phone,rid){const pr=refills.filter(r=>r.phone===phone).sort((a,b)=>a.id-b.id);const pos=pr.findIndex(r=>r.id===rid);return['→Month 2','→Month 3','→Month 4','→Month 5','→Month 6 💰'][Math.min(pos,4)]||'—';}
 
 function renderRefills(){
@@ -932,44 +1025,64 @@ async function addPhone(){
   });
   clearPh();showToast();
 }
-function clearPh(){['ph-phone','ph-order','ph-imei','ph-model','ph-pdate','ph-cost','ph-rebate','ph-req-plan','ph-sdate','ph-sale','ph-subsidy'].forEach(id=>document.getElementById(id).value='');document.getElementById('ph-status').value='In Stock';}
-async function deletePhone(id){if(!confirm('Delete?'))return;await sb.from('phones').delete().eq('id',id);showToast();}
-function daysLeft(d){if(!d)return null;const dl=new Date(d+'T12:00:00');dl.setDate(dl.getDate()+30);return Math.round((dl-new Date())/86400000);}
+function clearPh(){
+  ['ph-order','ph-imei','ph-model','ph-pdate','ph-cost','ph-rebate','ph-return-date'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
+  const rp=document.getElementById('ph-req-plan');if(rp)rp.selectedIndex=0;
+}
 
-function renderPhones(){
-  const tbody=document.getElementById('phTable');let tp=0;
-  document.getElementById('phoneCount').textContent=phones.length;
-  if(!phones.length){tbody.innerHTML='<tr><td colspan="17" class="empty-state">No phones logged yet</td></tr>';document.getElementById('phoneTotalProfit').textContent='Total Profit: $0.00';return;}
-  tbody.innerHTML=phones.map(p=>{
-    const cost=parseFloat(p.cost)||0,sale=parseFloat(p.sale_price)||0,sub=parseFloat(p.subsidy)||0,reb=parseFloat(p.rebate_expected)||0;
-    const sp=sale-cost,tot=sp+sub;tp+=tot;
-    const dl=daysLeft(p.purchase_date);
-    const dlC=dl===null?'var(--muted)':dl<0?'var(--red)':dl<7?'var(--orange)':'var(--green)';
-    const dlT=dl===null?'—':dl<0?`${Math.abs(dl)}d expired`:`${dl}d left`;
-    const rd=p.purchase_date?new Date(new Date(p.purchase_date+'T12:00:00').getTime()+30*86400000).toLocaleDateString():'—';
-    const hasAct=activations.find(a=>a.imei&&p.imei&&a.imei===p.imei);
-    const sc={'In Stock':'b-blue','Sold — Awaiting Rebate':'b-orange','Sold — Rebate Received':'b-green',Returned:'b-red'};
-    return`<tr style="${hasAct?'background:#f0fff4;':''}">
-      <td><span class="phone-t">${p.phone||'—'}</span></td>
-      <td><span class="order-t">${p.order_num||'—'}</span></td>
-      <td style="font-size:10px;color:var(--blue);font-family:monospace">${p.imei||'—'}${hasAct?' <span class="badge b-teal" style="font-size:9px">✓ Activated</span>':''}</td>
-      <td style="font-weight:700">${p.model}</td>
-      <td>${fmtDate(p.purchase_date)}</td>
-      <td class="money-t" style="color:var(--orange)">${fmt(cost)}</td>
-      <td class="money-t" style="color:var(--purple)">${reb?fmt(reb)+' 🔗':'—'}</td>
-      <td style="font-size:11px;color:var(--muted)">${p.req_plan||'—'}</td>
-      <td>${fmtDate(p.sale_date)}</td>
-      <td class="money-t" style="color:var(--green)">${sale?fmt(sale):'—'}</td>
-      <td class="money-t" style="color:${sp>=0?'var(--gold)':'var(--red)'}">${fmt(sp)}</td>
-      <td class="money-t" style="color:var(--purple)">${sub?fmt(sub):'—'}</td>
-      <td class="money-t" style="color:var(--gold);font-weight:900">${fmt(tot)}</td>
-      <td style="font-size:11px">${rd}</td>
-      <td style="color:${dlC};font-weight:700;font-size:11px">${dlT}</td>
-      <td><span class="badge ${sc[p.status]||'b-gray'}">${p.status}</span></td>
-      <td><button class="del-btn" onclick="deletePhone(${p.id})">✕</button></td>
-    </tr>`;
-  }).join('');
-  document.getElementById('phoneTotalProfit').textContent='Total Profit: '+fmt(tp);
+async function logPhoneSale(){
+  const custPhone=document.getElementById('sale-phone').value.trim();
+  const imei=document.getElementById('sale-imei').value.trim();
+  if(!custPhone||!imei){alert('Customer phone # and IMEI are required');return;}
+  const salePrice=parseFloat(document.getElementById('sale-price').value)||0;
+  const subsidy=parseFloat(document.getElementById('sale-subsidy').value)||0;
+  const saleDate=document.getElementById('sale-date').value||null;
+  const invPhone=phones.find(p=>p.imei&&p.imei.replace(/\D/g,'')===imei.replace(/\D/g,''));
+  if(!invPhone){alert('IMEI not found in inventory — add the phone to inventory first');return;}
+  const{error}=await sb.from('phones').update({
+    phone:custPhone,sale_date:saleDate,sale_price:salePrice,
+    subsidy:subsidy,status:'Sold — Rebate Received',
+  }).eq('id',invPhone.id);
+  if(error){alert('Sale Error: '+error.message);return;}
+  const idx=phones.findIndex(p=>p.id===invPhone.id);
+  if(idx>=0)phones[idx]={...phones[idx],phone:custPhone,sale_date:saleDate,sale_price:salePrice,subsidy,status:'Sold — Rebate Received'};
+  renderPhones();renderDashboard();
+  clearSaleForm();showToast();
+}
+
+function lookupSaleImei(imei){
+  const result=document.getElementById('saleLookupResult');
+  if(!imei||imei.length<10){result.style.display='none';return;}
+  const match=phones.find(p=>p.imei&&p.imei.replace(/\D/g,'')===imei.replace(/\D/g,''));
+  if(match){
+    result.style.display='block';
+    result.innerHTML='<span style="color:var(--green);font-weight:700;">✅ Found:</span> '+
+      (match.model||'Unknown')+' · Cost: <strong>'+fmt(match.cost)+'</strong>'+
+      (match.rebate_expected?' · Rebate: <strong>'+fmt(match.rebate_expected)+'</strong>':'')+
+      (match.req_plan?' · Plan needed: <strong>'+match.req_plan+'</strong>':'');
+  } else {
+    result.style.display='block';
+    result.innerHTML='<span style="color:var(--red);">⚠️ IMEI not in inventory — add phone first</span>';
+  }
+}
+
+function lookupSaleImeiByPhone(phone){
+  const act=activations.find(a=>samePhone(a.phone,phone));
+  if(act){
+    const result=document.getElementById('saleLookupResult');
+    result.style.display='block';
+    result.innerHTML='<span style="color:var(--blue);font-weight:700;">📱 Activation found:</span> '+
+      (act.customer_name||phone)+' · '+act.carrier+' · '+act.plan;
+  }
+}
+
+function clearSaleForm(){
+  ['sale-phone','sale-imei','sale-date','sale-price','sale-subsidy'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
+  const r=document.getElementById('saleLookupResult');if(r)r.style.display='none';
 }
 
 async function addInvoice(){
@@ -1535,6 +1648,32 @@ document.querySelectorAll('input[type="date"]').forEach(el=>{el.value=new Date()
 renderPlans();
 loadAll();
 setupRealtime();
-</script>
+
+function filterPhones(q){
+  q=(q||'').toLowerCase();
+  document.querySelectorAll('#inStockTable tr').forEach(row=>{
+    if(row.querySelector('td.empty-state')){row.style.display='';return;}
+    row.style.display=!q||row.textContent.toLowerCase().includes(q)?'':'none';
+  });
+}
+function confirmReceiptImport(){
+  if(!receiptExtracted)return;
+  let model=(receiptExtracted.model||'').replace(/\b\d{10,}\b/g,'').replace(/\s+/g,' ').trim();
+  if(receiptExtracted.order_num)document.getElementById('ph-order').value=receiptExtracted.order_num;
+  if(receiptExtracted.iccid)document.getElementById('ph-imei').value=receiptExtracted.iccid;
+  if(model)document.getElementById('ph-model').value=model;
+  if(receiptExtracted.price)document.getElementById('ph-cost').value=receiptExtracted.price;
+  if(receiptExtracted.date)document.getElementById('ph-pdate').value=receiptExtracted.date;
+  cancelReceiptImport();
+  const invForm=document.querySelector('[style*="background:#eff6ff"]');
+  if(invForm)invForm.scrollIntoView({behavior:'smooth'});
+}
+function cancelReceiptImport(){
+  const dz=document.getElementById('receiptDropZone');if(dz)dz.style.display='block';
+  const st=document.getElementById('receiptStatus');if(st)st.style.display='none';
+  const pv=document.getElementById('receiptPreview');if(pv)pv.style.display='none';
+  const fi=document.getElementById('receiptFileInput');if(fi)fi.value='';
+  receiptExtracted=null;
+}</script>
 </body>
 </html>

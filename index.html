@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Popcorn Beauty — Wireless Command Center</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 :root{
@@ -1199,11 +1201,21 @@ function renderPhones(){
 // ── Receipt OCR ──
 function loadTesseract(){
   return new Promise(resolve=>{
-    if(typeof Tesseract!=='undefined'&&Tesseract.recognize){resolve();return;}
-    let n=0;const check=()=>{
-      if(typeof Tesseract!=='undefined'&&Tesseract.recognize){resolve();return;}
-      if(n++<40)setTimeout(check,500);else resolve();
-    };check();
+    // Check if already loaded
+    if(typeof Tesseract!=='undefined'&&typeof Tesseract.recognize==='function'){resolve();return;}
+    // Wait for CDN to finish loading (it loads async)
+    let attempts=0;
+    const wait=()=>{
+      if(typeof Tesseract!=='undefined'&&typeof Tesseract.recognize==='function'){resolve();return;}
+      if(attempts++<40){setTimeout(wait,500);return;}
+      // Try dynamic load as last resort
+      const s=document.createElement('script');
+      s.src='https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js';
+      s.onload=()=>setTimeout(resolve,500);
+      s.onerror=resolve; // resolve anyway so we show a proper error
+      document.head.appendChild(s);
+    };
+    wait();
   });
 }
 

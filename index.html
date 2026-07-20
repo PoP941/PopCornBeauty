@@ -613,13 +613,17 @@ async function handleReceiptDrop(file){
     m=t.match(/IMEI[:\s]+(\d{14,16})/i)||t.match(/\b(\d{15})\b/);
     if(m)receiptExtracted.iccid=m[1];
     // Model
-    m=t.match(/(Apple\s+iPhone\s+[\w\s]+?(?:128GB|256GB|512GB|64GB)?(?:\s+(?:Black|White|Blue|Red|Green|Gold|Purple|Midnight|Starlight|Pink|Silver|RFB|SMP|Unlocked))*)/i)
-      ||t.match(/(Samsung\s+Galaxy\s+[\w\s]+?(?:128GB|256GB|64GB)?)/i)
-      ||t.match(/(iPhone\s+\d+\s*(?:Plus|Pro\s*Max|Pro|Mini)?\s*(?:128GB|256GB|512GB|64GB)?)/i);
-    if(m){
-      let model=m[1].replace(/\b\d{10,}\b/g,'').replace(/\s+/g,' ').trim();
-      if(model.length>60)model=model.substring(0,60);
-      receiptExtracted.model=model;
+    const modelPats=[
+      /Apple\s+iPhone\s+\d{1,2}\s*(?:Plus|Pro\s+Max|Pro|Mini)?\s*(?:\d+GB|\d+TB)?\s*(?:Black|White|Blue|Red|Green|Gold|Purple|Midnight|Starlight|Pink|Silver|Space\s*Gray|Deep\s*Purple|Yellow)?/i,
+      /Samsung\s+Galaxy\s+[A-Z0-9]+(?:\s+\d+GB)?/i,
+      /iPhone\s+\d{1,2}(?:\s+(?:Plus|Pro\s+Max|Pro|Mini))?/i,
+    ];
+    for(const pat of modelPats){
+      const mm=t.match(pat);
+      if(mm&&mm[0].length>6){
+        receiptExtracted.model=mm[0].replace(/\b\d{10,}\b/g,'').replace(/\s+/g,' ').trim();
+        break;
+      }
     }
     // Price
     m=t.match(/\$(\d+\.?\d*)\s+Total\s+Purchase/i)||t.match(/Total\s+Purchase.*?\$(\d+\.?\d*)/i);
@@ -1069,37 +1073,27 @@ function renderRefills(){
 }
 
 async function addPhone(){
-  const model=(document.getElementById('ph-model')||{}).value||'';
-  const imei=(document.getElementById('ph-imei')||{}).value||'';
-  if(!model.trim()){alert('Model is required');return;}
-
+  const g=id=>(document.getElementById(id)||{}).value||'';
+  const model=g('ph-model').trim();
+  if(!model){alert('Model is required');return;}
   const payload={
-    order_num:((document.getElementById('ph-order')||{}).value||'').trim(),
-    imei:imei.trim(),
-    model:model.trim(),
-    purchase_date:(document.getElementById('ph-pdate')||{}).value||null,
-    cost:parseFloat((document.getElementById('ph-cost')||{}).value)||0,
-    rebate_expected:parseFloat((document.getElementById('ph-rebate')||{}).value)||0,
-    req_plan:(document.getElementById('ph-req-plan')||{}).value||'',
+    order_num:g('ph-order').trim(),
+    imei:g('ph-imei').trim(),
+    model:model,
+    purchase_date:g('ph-pdate')||null,
+    cost:parseFloat(g('ph-cost'))||0,
+    rebate_expected:parseFloat(g('ph-rebate'))||0,
+    req_plan:g('ph-req-plan'),
     status:'In Stock',
   };
-
-  const returnDate=(document.getElementById('ph-return-date')||{}).value||'';
-  if(returnDate)payload.return_date=returnDate;
-
-  console.log('addPhone payload:',payload);
-
+  const rd=g('ph-return-date');
+  if(rd)payload.return_date=rd;
   const{data:newPh,error}=await sb.from('phones').insert(payload).select().single();
-  if(error){
-    console.error('addPhone error:',error);
-    alert('Add to Inventory failed:\n'+error.message);
-    return;
-  }
+  if(error){alert('Save failed: '+error.message);return;}
   if(newPh)phones.unshift(newPh);
   renderPhones();renderDashboard();
-  clearPh();
-  showToast();
-  alert('Phone added to inventory!');
+  clearPh();showToast();
+  alert('Phone added to inventory! Go to Phones tab to see it.');
 }
 
 function clearPh(){
@@ -2083,34 +2077,20 @@ function filterPhones(q){
   });
 }
 function confirmReceiptImport(){
-  if(!receiptExtracted)return;
-  // Clean model
+  if(!receiptExtracted){return;}
   let model=(receiptExtracted.model||'');
   if(receiptExtracted.iccid)model=model.replace(receiptExtracted.iccid,'');
   model=model.replace(/\b\d{10,}\b/g,'').replace(/\s+/g,' ').trim();
-
-  // Fill each field if we have data
-  const fill=(id,val)=>{if(!val&&val!==0)return;const el=document.getElementById(id);if(el)el.value=val;};
-  fill('ph-order', receiptExtracted.order_num||'');
-  fill('ph-imei',  receiptExtracted.iccid||'');
-  fill('ph-model', model);
-  fill('ph-cost',  receiptExtracted.price||'');
-  fill('ph-pdate', receiptExtracted.date||'');
-
-  // Hide preview
+  const setF=(id,val)=>{if(val===null||val===undefined||val==='')return;const el=document.getElementById(id);if(el){el.value=val;el.style.background='#dcfce7';setTimeout(()=>el.style.background='',2000);}};
+  setF('ph-order',receiptExtracted.order_num);
+  setF('ph-imei',receiptExtracted.iccid);
+  setF('ph-model',model);
+  setF('ph-cost',receiptExtracted.price);
+  setF('ph-pdate',receiptExtracted.date);
   const prev=document.getElementById('receiptPreview');if(prev)prev.style.display='none';
   const dz=document.getElementById('receiptDropZone');if(dz)dz.style.display='block';
   const fi=document.getElementById('receiptFileInput');if(fi)fi.value='';
   receiptExtracted=null;
-
-  // Highlight filled fields briefly
-  ['ph-order','ph-imei','ph-model','ph-cost','ph-pdate'].forEach(id=>{
-    const el=document.getElementById(id);
-    if(el&&el.value){
-      el.style.background='#dcfce7';
-      setTimeout(()=>el.style.background='',2000);
-    }
-  });
 }
 
 function cancelReceiptImport(){

@@ -209,7 +209,7 @@ td{padding:10px 12px;vertical-align:middle;}
     </div>
     <div class="rebate-banner" id="rebateBanner"><div style="font-size:20px">💡</div><div><div class="rebate-title" id="rebateTitle"></div><div class="rebate-desc" id="rebateDesc"></div></div></div>
     <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <button class="btn btn-primary" onclick="addActivation()">+ Log Activation</button>
+      <button style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:10px 20px;font-size:12px;font-weight:700;cursor:pointer;" onclick="addActivation()">+ Log Activation</button>
       <button class="btn btn-ghost" onclick="clearAct()">Clear</button>
       <span style="font-size:10px;color:var(--muted);">Commission unlocks each month as the customer returns to pay</span>
     </div>
@@ -501,24 +501,38 @@ async function loadAll(){
 function setupRealtime(){sb.channel('all').on('postgres_changes',{event:'*',schema:'public'},()=>loadAll()).subscribe();}
 
 async function addActivation(){
-  const phone=document.getElementById('act-phone').value.trim();
-  if(!phone){alert('Phone # required');return;}
-  const{error}=await sb.from('activations').insert({
-    phone,order_num:document.getElementById('act-order').value.trim(),
-    customer_name:document.getElementById('act-name').value.trim(),
-    pin:document.getElementById('act-pin').value.trim(),
-    imei:document.getElementById('act-imei').value.trim(),
-    act_date:document.getElementById('act-date').value||null,
-    carrier:document.getElementById('act-carrier').value,
-    plan:document.getElementById('act-plan').value,
-    mrc:parseFloat(document.getElementById('act-mrc').value)||0,
-    subsidy:parseFloat(document.getElementById('act-subsidy').value)||0,
-    spiff:parseFloat(document.getElementById('act-spiff').value)||0,
-  });
-  if(error){alert('Error: '+error.message);return;}
+  const phone=(document.getElementById('act-phone')?.value||'').trim();
+  const order=(document.getElementById('act-order')?.value||'').trim();
+  if(!phone){alert('Customer Phone # is required');return;}
+  if(!order){alert('VidaPay Order # is required');return;}
+  const plan=document.getElementById('act-plan')?.value||'';
+  if(!plan){alert('Please select a Plan');return;}
+  const mrc=getMrcFromPlan(plan);
+  const payload={
+    phone, order_num:order,
+    customer_name:(document.getElementById('act-name')?.value||'').trim(),
+    pin:(document.getElementById('act-pin')?.value||'').trim(),
+    act_date:document.getElementById('act-date')?.value||null,
+    carrier:document.getElementById('act-carrier')?.value||'Simple Mobile',
+    plan, mrc,
+  };
+  const imei=(document.getElementById('act-imei')?.value||'').trim();
+  if(imei)payload.imei=imei;
+  const{data,error}=await sb.from('activations').insert(payload).select().single();
+  if(error){alert('Save Error:\n'+error.message);return;}
+  activations.unshift(data);
+  renderActivations();renderDashboard();
   clearAct();showToast();
+  alert('✅ Activation saved!\n'+phone+' — '+plan);
 }
-function clearAct(){['act-phone','act-order','act-name','act-pin','act-imei','act-date','act-mrc','act-subsidy','act-spiff'].forEach(id=>document.getElementById(id).value='');document.getElementById('act-carrier').value='';document.getElementById('act-plan').value='';document.getElementById('rebateBanner').classList.remove('show');}
+function clearAct(){
+  ['act-phone','act-order','act-name','act-pin','act-imei','act-date'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
+  const carr=document.getElementById('act-carrier');if(carr)carr.value='';
+  const plan=document.getElementById('act-plan');if(plan)plan.value='';
+  const banner=document.getElementById('rebateBanner');if(banner)banner.classList.remove('show');
+}
 async function deleteActivation(id){if(!confirm('Delete?'))return;await sb.from('activations').delete().eq('id',id);showToast();}
 function commMonth(phone){const c=refills.filter(r=>r.phone===phone).length;return['Month 1','→Month 2','→Month 3','→Month 4','→Month 5','→Month 6','✓ Done'][Math.min(c,6)];}
 
@@ -556,10 +570,21 @@ function renderActivations(){
 }
 
 async function addRefill(){
-  const phone=document.getElementById('ref-phone').value.trim();
+  const phone=(document.getElementById('ref-phone')?.value||'').trim();
   if(!phone){alert('Phone # required');return;}
-  await sb.from('refills').insert({phone,order_num:document.getElementById('ref-order').value.trim(),ref_date:document.getElementById('ref-date').value||null,plan:document.getElementById('ref-plan').value,amount:parseFloat(document.getElementById('ref-amount').value)||0});
+  const payload={
+    phone,
+    order_num:(document.getElementById('ref-order')?.value||'').trim(),
+    ref_date:document.getElementById('ref-date')?.value||null,
+    plan:document.getElementById('ref-plan')?.value||'',
+    amount:parseFloat(document.getElementById('ref-amount')?.value)||0,
+  };
+  const{data,error}=await sb.from('refills').insert(payload).select().single();
+  if(error){alert('Save Error:\n'+error.message);return;}
+  refills.unshift(data);
+  renderRefills();renderDashboard();renderCommPipeline();renderOverdue();
   clearRef();showToast();
+  alert('✅ Refill saved!\n'+phone);
 }
 function clearRef(){['ref-phone','ref-order','ref-date','ref-amount'].forEach(id=>document.getElementById(id).value='');document.getElementById('ref-plan').value='';document.getElementById('refLookupPanel').style.display='none';document.getElementById('refLookupHint').style.display='inline';}
 
@@ -1248,10 +1273,21 @@ async function handleReceiptDrop(file){
     }
     t=t.replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim();
     receiptExtracted={};
-    // Order #
-    const om=t.match(/Order\s*#\s*([0-9][0-9 ]{6,11})/i)||t.match(/Order\s+([0-9][0-9 ]{6,11})/i)||t.match(/#\s*([34][0-9 ]{7,10})/);
-    if(om){const c=om[1].replace(/\s/g,'');if(c.length>=8)receiptExtracted.order_num=c;}
-    if(!receiptExtracted.order_num){const n=[...t.matchAll(/\b(3[34589][0-9]{7})\b/g)];if(n.length)receiptExtracted.order_num=n[0][1];}
+    // Order # — VidaPay shows "Order #347861736" prominently
+    // Try multiple patterns since OCR can vary
+    {
+      let orderFound=null;
+      // Pattern 1: "Order #347861736" or "Order # 347861736"
+      const p1=t.match(/Order\s*#\s*([0-9][0-9 ]{7,10})/i);
+      if(p1)orderFound=p1[1].replace(/\s/g,'');
+      // Pattern 2: "Order: 347861736"
+      if(!orderFound){const p2=t.match(/Order\s*:\s*([0-9]{8,10})/i);if(p2)orderFound=p2[1];}
+      // Pattern 3: Any 9-digit number starting with 34 (VidaPay order range)
+      if(!orderFound){const p3=[...t.matchAll(/\b(34[0-9]{7})\b/g)];if(p3.length)orderFound=p3[0][1];}
+      // Pattern 4: Any 9-digit number starting with 33-39
+      if(!orderFound){const p4=[...t.matchAll(/\b(3[3-9][0-9]{7})\b/g)];if(p4.length)orderFound=p4[0][1];}
+      if(orderFound&&orderFound.length>=8)receiptExtracted.order_num=orderFound;
+    }
     // IMEI
     const im=t.match(/IMEI[:\s]+([0-9]{14,16})/i)||t.match(/\b([0-9]{15})\b/);
     if(im)receiptExtracted.iccid=im[1];

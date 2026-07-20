@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Popcorn Beauty — Wireless Command Center</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 :root{
@@ -1078,6 +1080,16 @@ function lookupRefillPhone(phone){
     alertEl.style.display='none';
   }
 }
+async function deletePhone(id){
+  if(!confirm('Delete this phone?'))return;
+  const numId=parseInt(id);
+  let error=null;
+  if(!isNaN(numId)){const res=await sb.from('phones').delete().eq('id',numId);error=res.error;}
+  if(error||isNaN(numId)){const res2=await sb.from('phones').delete().eq('id',String(id));if(res2.error){alert('Delete failed: '+res2.error.message);return;}}
+  phones=phones.filter(p=>String(p.id)!==String(id));
+  renderPhones();renderDashboard();showToast();
+}
+
 async function deleteRefill(id){
   if(!confirm('Delete this refill?'))return;
   const numId=parseInt(id);
@@ -1121,27 +1133,40 @@ function renderRefills(){
 
 async function addPhone(){
   const model=document.getElementById('ph-model').value.trim();
-  if(!model){alert('Model required');return;}
-  await sb.from('phones').insert({
-    phone:document.getElementById('ph-phone').value.trim(),
-    order_num:document.getElementById('ph-order').value.trim(),
-    imei:document.getElementById('ph-imei').value.trim(),
-    model,purchase_date:document.getElementById('ph-pdate').value||null,
+  const imei=document.getElementById('ph-imei').value.trim();
+  if(!model){alert('Model is required');return;}
+  const payload={
+    order_num:document.getElementById('ph-order').value.trim()||'',
+    imei:imei,
+    model:model,
+    purchase_date:document.getElementById('ph-pdate').value||null,
     cost:parseFloat(document.getElementById('ph-cost').value)||0,
     rebate_expected:parseFloat(document.getElementById('ph-rebate').value)||0,
-    req_plan:document.getElementById('ph-req-plan').value.trim(),
-    sale_date:document.getElementById('ph-sdate').value||null,
-    sale_price:parseFloat(document.getElementById('ph-sale').value)||0,
-    subsidy:parseFloat(document.getElementById('ph-subsidy').value)||0,
-    status:document.getElementById('ph-status').value,
-  });
+    req_plan:document.getElementById('ph-req-plan')?document.getElementById('ph-req-plan').value:'',
+    return_date:document.getElementById('ph-return-date')?document.getElementById('ph-return-date').value||null:null,
+    status:'In Stock',
+    phone:'',
+    sale_date:null,
+    sale_price:0,
+    subsidy:0,
+  };
+  const{data:newPh,error}=await sb.from('phones').insert(payload).select().single();
+  if(error){alert('Save Error: '+error.message);return;}
+  if(newPh)phones.unshift(newPh);
+  renderPhones();renderDashboard();
   clearPh();showToast();
+  // Scroll to confirm
+  const inStock=document.getElementById('inStockTable');
+  if(inStock)inStock.scrollIntoView({behavior:'smooth'});
 }
+
 function clearPh(){
   ['ph-order','ph-imei','ph-model','ph-pdate','ph-cost','ph-rebate','ph-return-date'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.value='';
   });
   const rp=document.getElementById('ph-req-plan');if(rp)rp.selectedIndex=0;
+  const prev=document.getElementById('receiptPreview');if(prev)prev.style.display='none';
+  const dz=document.getElementById('receiptDropZone');if(dz)dz.style.display='block';
 }
 
 async function logPhoneSale(){
@@ -1380,12 +1405,12 @@ async function confirmPdfImport() {
 
 async function handleAuditDrop(file){
   if(!file)return;
-  const zone=document.getElementById('auditDropZone');
-  const status=document.getElementById('auditStatus');
-  const results=document.getElementById('auditResults');
+  const zone=document.getElementById('invDropZone');
+  const status=document.getElementById('invAuditStatus');
+  const results=document.getElementById('invAuditResults');
   zone.style.display='none';status.style.display='block';results.style.display='none';
-  document.getElementById('auditStatusIcon').textContent='⏳';
-  document.getElementById('auditStatusMsg').textContent='Reading invoice...';
+  document.getElementById('invAuditIcon').textContent='⏳';
+  document.getElementById('invAuditMsg').textContent='Reading invoice...';
   try{
     let text='';
     const isPdf=file.name.toLowerCase().endsWith('.pdf')||file.type==='application/pdf';
@@ -1402,12 +1427,12 @@ async function handleAuditDrop(file){
       await loadTesseract();
       const r=await Tesseract.recognize(file,'eng',{logger:m=>{
         if(m.status==='recognizing text')
-          document.getElementById('auditStatusMsg').textContent='Reading... '+Math.round(m.progress*100)+'%';
+          document.getElementById('invAuditMsg').textContent='Reading... '+Math.round(m.progress*100)+'%';
       }});
       text=r.data.text;
     }
 
-    document.getElementById('auditStatusMsg').textContent='Parsing invoice detail...';
+    document.getElementById('invAuditMsg').textContent='Parsing invoice detail...';
     const flat=text.replace(/[\r\n]+/g,' ').replace(/\s+/g,' ');
 
     // ── SMART PARSING: Extract invoice detail line by line ──
@@ -1593,7 +1618,7 @@ async function handleAuditDrop(file){
 
         <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn" style="background:var(--blue);color:#fff;" onclick="saveAuditInvoice('${invoiceNum}','${period}',${actAmt},${spiffAmt},${rtrAmt},${feeAmt})">💾 Save Invoice to Records</button>
-          <button class="btn btn-ghost" onclick="document.getElementById('auditResults').style.display='none';document.getElementById('auditDropZone').style.display='block';">↩ Run Another Audit</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('invAuditResults').style.display='none';document.getElementById('invDropZone').style.display='block';">↩ Run Another Audit</button>
         </div>
       </div>
     </div>`;
@@ -1608,8 +1633,8 @@ async function handleAuditDrop(file){
 
   }catch(err){
     console.error('Audit error:',err);
-    document.getElementById('auditStatusIcon').textContent='❌';
-    document.getElementById('auditStatusMsg').textContent='Error: '+err.message;
+    document.getElementById('invAuditIcon').textContent='❌';
+    document.getElementById('invAuditMsg').textContent='Error: '+err.message;
     setTimeout(()=>{zone.style.display='block';status.style.display='none';},3000);
   }
 }
@@ -1910,12 +1935,19 @@ async function runFullAudit(file){
 }
 
 async function saveFullAuditInvoice(num,date,period,debits,credits,net,orderNums){
-  if(!num){alert('No invoice number found');return;}
-  if(invoices.find(i=>i.invoice_num===num)){alert('Invoice #'+num+' already saved');return;}
+  if(!num){alert('No invoice number found in this PDF');return;}
+  if(invoices.find(i=>i.invoice_num===String(num))){
+    if(!confirm('Invoice #'+num+' already saved. Save again?'))return;
+  }
   const{data:newInv,error}=await sb.from('invoices').insert({
-    invoice_num:num,invoice_date:date||null,period,
-    act_orders:debits,spiff:credits,rtr:0,fee:1.50,
-    notes:'Auto-audited · Orders: '+orderNums
+    invoice_num:String(num),
+    invoice_date:date||null,
+    period:period||'',
+    act_orders:parseFloat(debits)||0,
+    spiff:parseFloat(credits)||0,
+    rtr:0,
+    fee:1.50,
+    notes:'Auto-audited via invoice drop'
   }).select().single();
   if(error){alert('Save error: '+error.message);return;}
   if(newInv)invoices.unshift(newInv);

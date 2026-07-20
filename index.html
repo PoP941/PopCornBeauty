@@ -591,22 +591,23 @@ async function handleReceiptDrop(file){
     setMsg('*','Parsing...');
     const t=rawText.replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim();
     receiptExtracted={};
-    // Order #
-    // VidaPay shows "Order #347861736" - OCR may add spaces within number
-    // Try multiple patterns to catch it
-    let m=t.match(/Order\s*#\s*([\d\s]{8,12})/i);
-    if(m){receiptExtracted.order_num=m[1].replace(/\s/g,'');}
-    if(!receiptExtracted.order_num){
-      m=t.match(/Order\s*[:#]?\s*(\d[\d\s]{7,10})/i);
-      if(m)receiptExtracted.order_num=m[1].replace(/\s/g,'');
+    // Order # 
+    // VidaPay order page shows "Order #347861736" prominently
+    // Also appears as "Order: 347861736" or just the number alone
+    {
+      // Try "Order #XXXXXXXXX" format first (most reliable)
+      const orderMatch=t.match(/Order\s*#\s*([\d\s]{7,12})/i)
+        ||t.match(/Order\s*:\s*([\d\s]{7,12})/i)
+        ||t.match(/Order\s+([\d\s]{8,11})/i);
+      if(orderMatch){
+        const cleaned=orderMatch[1].replace(/\s/g,'');
+        if(cleaned.length>=8)receiptExtracted.order_num=cleaned;
+      }
     }
     if(!receiptExtracted.order_num){
-      // Find any 9-digit number in the 3xx million range
-      const nums=[...t.matchAll(/\b(3[3-9][\d\s]{7,9})\b/g)];
-      for(const nm of nums){
-        const clean=nm[1].replace(/\s/g,'');
-        if(clean.length>=8&&clean.length<=10){receiptExtracted.order_num=clean;break;}
-      }
+      // Fallback: find any 9-digit number in 3xx million range
+      const allNums=[...t.matchAll(/\b3[3-9]\d{7}\b/g)];
+      if(allNums.length>0)receiptExtracted.order_num=allNums[0][0];
     }
     // IMEI
     m=t.match(/IMEI[:\s]+(\d{14,16})/i)||t.match(/\b(\d{15})\b/);
@@ -1071,44 +1072,34 @@ async function addPhone(){
   const model=(document.getElementById('ph-model')||{}).value||'';
   const imei=(document.getElementById('ph-imei')||{}).value||'';
   if(!model.trim()){alert('Model is required');return;}
-  const cost=parseFloat((document.getElementById('ph-cost')||{}).value)||0;
-  const rebate=parseFloat((document.getElementById('ph-rebate')||{}).value)||0;
-  const returnDate=(document.getElementById('ph-return-date')||{}).value||null;
-  const reqPlan=(document.getElementById('ph-req-plan')||{}).value||'';
-  const orderNum=(document.getElementById('ph-order')||{}).value||'';
-  const pdate=(document.getElementById('ph-pdate')||{}).value||null;
 
   const payload={
-    order_num:orderNum.trim(),
+    order_num:((document.getElementById('ph-order')||{}).value||'').trim(),
     imei:imei.trim(),
     model:model.trim(),
-    purchase_date:pdate||null,
-    cost:cost,
-    rebate_expected:rebate,
-    req_plan:reqPlan,
+    purchase_date:(document.getElementById('ph-pdate')||{}).value||null,
+    cost:parseFloat((document.getElementById('ph-cost')||{}).value)||0,
+    rebate_expected:parseFloat((document.getElementById('ph-rebate')||{}).value)||0,
+    req_plan:(document.getElementById('ph-req-plan')||{}).value||'',
     status:'In Stock',
-    phone:'',
-    sale_date:null,
-    sale_price:0,
-    subsidy:0,
   };
-  // Only add return_date if column exists (check by trying)
-  if(returnDate) payload.return_date=returnDate;
+
+  const returnDate=(document.getElementById('ph-return-date')||{}).value||'';
+  if(returnDate)payload.return_date=returnDate;
+
+  console.log('addPhone payload:',payload);
 
   const{data:newPh,error}=await sb.from('phones').insert(payload).select().single();
   if(error){
     console.error('addPhone error:',error);
-    alert('Save Error: '+error.message+'\n\nMake sure all required Supabase columns exist.');
+    alert('Add to Inventory failed:\n'+error.message);
     return;
   }
   if(newPh)phones.unshift(newPh);
   renderPhones();renderDashboard();
-  clearPh();showToast();
-  // Scroll to in-stock table so user sees the result
-  setTimeout(()=>{
-    const t=document.getElementById('inStockTable');
-    if(t)t.closest('.table-wrap').scrollIntoView({behavior:'smooth',block:'center'});
-  },300);
+  clearPh();
+  showToast();
+  alert('Phone added to inventory!');
 }
 
 function clearPh(){
@@ -2093,29 +2084,35 @@ function filterPhones(q){
 }
 function confirmReceiptImport(){
   if(!receiptExtracted)return;
+  // Clean model
   let model=(receiptExtracted.model||'');
   if(receiptExtracted.iccid)model=model.replace(receiptExtracted.iccid,'');
   model=model.replace(/\b\d{10,}\b/g,'').replace(/\s+/g,' ').trim();
 
-  const setVal=(id,val)=>{if(!val)return;const el=document.getElementById(id);if(el)el.value=val;};
-  setVal('ph-order', receiptExtracted.order_num);
-  setVal('ph-imei',  receiptExtracted.iccid);
-  if(model){const m=document.getElementById('ph-model');if(m)m.value=model;}
-  if(receiptExtracted.price){const c=document.getElementById('ph-cost');if(c)c.value=receiptExtracted.price;}
-  if(receiptExtracted.date){const d=document.getElementById('ph-pdate');if(d)d.value=receiptExtracted.date;}
+  // Fill each field if we have data
+  const fill=(id,val)=>{if(!val&&val!==0)return;const el=document.getElementById(id);if(el)el.value=val;};
+  fill('ph-order', receiptExtracted.order_num||'');
+  fill('ph-imei',  receiptExtracted.iccid||'');
+  fill('ph-model', model);
+  fill('ph-cost',  receiptExtracted.price||'');
+  fill('ph-pdate', receiptExtracted.date||'');
 
-  // Hide preview, show drop zone
+  // Hide preview
   const prev=document.getElementById('receiptPreview');if(prev)prev.style.display='none';
   const dz=document.getElementById('receiptDropZone');if(dz)dz.style.display='block';
+  const fi=document.getElementById('receiptFileInput');if(fi)fi.value='';
   receiptExtracted=null;
 
-  // Flash the form to confirm data was applied
-  const form=document.querySelector('[id="ph-order"]');
-  if(form){
-    form.style.background='#dcfce7';
-    setTimeout(()=>form.style.background='',1500);
-  }
+  // Highlight filled fields briefly
+  ['ph-order','ph-imei','ph-model','ph-cost','ph-pdate'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el&&el.value){
+      el.style.background='#dcfce7';
+      setTimeout(()=>el.style.background='',2000);
+    }
+  });
 }
+
 function cancelReceiptImport(){
   const dz=document.getElementById('receiptDropZone');if(dz)dz.style.display='block';
   const st=document.getElementById('receiptStatus');if(st)st.style.display='none';

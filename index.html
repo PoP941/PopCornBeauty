@@ -491,7 +491,13 @@ td{padding:10px 12px;vertical-align:middle;}
 </div>
 <div class="sync-toast" id="syncToast">✓ Saved</div>
 
-<script>window.onerror=function(msg,src,line,col,err){
+<script>const SB_URL='https://timtwxrpanjtacstcfvz.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpbXR3eHJwYW5qdGFjc3RjZnZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMTM5MTMsImV4cCI6MjA5OTc4OTkxM30.vfr72cFDKEPQNbFGALSyFFEtQRBHqiF99pmf6J4Dktw';
+const sb=supabase.createClient(SB_URL,SB_KEY);
+let activations=[],refills=[],phones=[],invoices=[],goals={};
+const pcts=[0.90,0.55,0.55,0.70,0.65,0.65];
+let receiptExtracted=null;
+window.onerror=function(msg,src,line,col,err){
   console.error('JS Error:',msg,'at line',line,err);
   return false;
 };

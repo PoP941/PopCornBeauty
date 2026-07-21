@@ -1630,24 +1630,36 @@ async function runFullAudit(file){
     const grandTotal=parseFloat((flat.match(/Grand\s*Total[^\d(]*\$?([\d,]+\.\d{2})/i)||[])[1])||0;
     const totalDebits=parseFloat((flat.match(/Total\s*Debits[^\d$]*\$?([\d,]+\.\d{2})/i)||[])[1])||0;
     const totalCredits=parseFloat((flat.match(/Total\s*Credits[^\d$]*\(?\$?([\d,]+\.\d{2})\)?/i)||[])[1])||0;
-    // Extract order numbers
-    const seen=new Set();seen.add(invoiceNum);
-    const orderNums=[...flat.matchAll(/\b(3[3-9]\d{7,8})\b/g)]
-      .map(m=>m[1]).filter(n=>{if(seen.has(n))return false;seen.add(n);return true;});
-    // Categorize by type
-    const actOrders=[],rtrOrders=[],credits=[];
-    orderNums.forEach(n=>{
-      const ctx=flat.substring(Math.max(0,flat.indexOf(n)-5),flat.indexOf(n)+200);
-      if(/Activation\s*Order/i.test(ctx))actOrders.push(n);
-      else if(/Sales\s*Order/i.test(ctx))rtrOrders.push(n);
-      else if(/Spiff|Promo|Residual/i.test(ctx))credits.push(n);
+
+    // Parse each invoice-detail LINE as its own row, bounded by the next date (or "Total:")
+    // so text never bleeds from one row into the next — that bleed is what previously made
+    // a Promo Order row get misread as a Sales/RTR order.
+    const rowRe=/(\d{1,2}\/\d{1,2}\/\d{4})\s+(?:\d{1,2}:\d{2}:\d{2}\s*[AP]M\s+)?(\d{7,9})\s+(Activation\s*Order|Postpaid\s*Instant\s*Spiff|Promo\s*Order|Sales\s*Order|Fee)\s+(.*?)(?=\d{1,2}\/\d{1,2}\/\d{4}\s+\d|Total\s*:|$)/gi;
+    const rows=[...flat.matchAll(rowRe)].map(m=>{
+      const type=m[3].replace(/\s+/g,' ').trim().toLowerCase();
+      const rest=m[4]||'';
+      const amtRe=/\(\$([\d,]+\.\d{2})\)|\$([\d,]+\.\d{2})/g;
+      let last=null,mm;
+      while((mm=amtRe.exec(rest)))last=mm;
+      const amount=last?(last[1]?-parseFloat(last[1].replace(/,/g,'')):parseFloat(last[2].replace(/,/g,''))):0;
+      return{date:m[1],order:m[2],type,amount,product:rest.replace(/\$[\d,.()]+/g,'').trim().slice(0,60)};
     });
-    // Cross-check
-    const actResults=actOrders.map(n=>({n,act:activations.find(a=>a.order_num===n)}));
-    const rtrResults=rtrOrders.map(n=>({n,ref:refills.find(r=>r.order_num===n)}));
+    const actRows=rows.filter(r=>r.type.includes('activation'));
+    const spiffRows=rows.filter(r=>r.type.includes('spiff'));
+    const promoRows=rows.filter(r=>r.type.includes('promo'));
+    const rtrRows=rows.filter(r=>r.type.includes('sales'));
+    const feeRows=rows.filter(r=>r.type==='fee');
+
+    // Cross-check against what's actually logged in the app
+    const actResults=actRows.map(r=>({...r,act:activations.find(a=>a.order_num===r.order)}));
+    const rtrResults=rtrRows.map(r=>({...r,ref:refills.find(f=>f.order_num===r.order)}));
+    // Postpaid Instant Spiff shares its ORDER # with the Activation Order it belongs to —
+    // so it reconciles against the same activation record, not a separately-logged entry.
+    const spiffResults=spiffRows.map(r=>({...r,act:activations.find(a=>a.order_num===r.order)}));
     const issues=actResults.filter(r=>!r.act).length+rtrResults.filter(r=>!r.ref).length;
     const allGood=issues===0&&(actResults.length+rtrResults.length)>0;
     const hColor=allGood?'var(--green)':issues>0?'var(--red)':'var(--gold)';
+    const feeTotal=feeRows.reduce((s,r)=>s+r.amount,0);
     if(status)status.style.display='none';
     if(results)results.style.display='block';
     results.innerHTML=`<div style="border-radius:8px;overflow:hidden;border:2px solid ${hColor};">
@@ -1658,16 +1670,29 @@ async function runFullAudit(file){
       <div style="padding:14px;background:#fff;">
         ${actResults.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--blue);text-transform:uppercase;margin-bottom:6px;">Activation Orders</div>
           ${actResults.map(r=>r.act
-            ?`<div style="padding:6px 10px;background:var(--green-l);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span><strong>${r.act.phone}</strong> ${r.act.customer_name||''}</span><span style="color:var(--blue);font-family:monospace;">#${r.n} <span class="badge b-green">✅</span></span></div>`
-            :`<div style="padding:6px 10px;background:var(--red-l);border-left:3px solid var(--red);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--red);font-weight:700;">Order #${r.n} — NOT LOGGED</span><button class="btn" style="font-size:10px;padding:2px 8px;background:var(--blue);color:#fff;" onclick="document.getElementById('act-order').value='${r.n}';showTab('activations',document.querySelectorAll('.nav-tab')[2])">Log →</button></div>`
+            ?`<div style="padding:6px 10px;background:var(--green-l);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span><strong>${r.act.phone}</strong> ${r.act.customer_name||''}</span><span style="color:var(--blue);font-family:monospace;">#${r.order} <span class="badge b-green">✅</span></span></div>`
+            :`<div style="padding:6px 10px;background:var(--red-l);border-left:3px solid var(--red);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--red);font-weight:700;">Order #${r.order} — NOT LOGGED</span><button class="btn" style="font-size:10px;padding:2px 8px;background:var(--blue);color:#fff;" onclick="document.getElementById('act-order').value='${r.order}';showTab('activations',document.querySelectorAll('.nav-tab')[2])">Log →</button></div>`
           ).join('')}
+        </div>`:''}
+        ${spiffResults.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--gold);text-transform:uppercase;margin-bottom:6px;">💰 Instant Spiff (matched by Order #, not separately logged)</div>
+          ${spiffResults.map(r=>r.act
+            ?`<div style="padding:6px 10px;background:var(--gold-l,#fff8e1);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span><strong>${r.act.phone}</strong> ${r.act.customer_name||''} · ${r.act.plan||''}</span><span style="color:var(--gold);font-weight:700;">VidaPay paid ${fmt(Math.abs(r.amount))} <span class="badge b-green">✅ linked</span></span></div>`
+            :`<div style="padding:6px 10px;background:var(--red-l);border-left:3px solid var(--red);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--red);font-weight:700;">Order #${r.order} — spiff paid, but NO matching activation on file</span><span style="color:var(--red);font-weight:700;">${fmt(Math.abs(r.amount))}</span></div>`
+          ).join('')}
+        </div>`:''}
+        ${promoRows.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--purple);text-transform:uppercase;margin-bottom:6px;">📦 Subsidy / Promo Credits (informational — verify against Phones tab)</div>
+          ${promoRows.map(r=>{
+            const nearMatch=activations.find(a=>Math.abs((parseFloat(a.subsidy)||0)-Math.abs(r.amount))<10&&parseFloat(a.subsidy)>0);
+            return `<div style="padding:6px 10px;background:${nearMatch?'var(--green-l)':'#f3f0ff'};border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span>Order #${r.order}${nearMatch?' · possibly '+nearMatch.phone+' ('+(nearMatch.customer_name||'')+')':''}</span><span style="color:var(--purple);font-weight:700;">${fmt(Math.abs(r.amount))}${nearMatch?' <span class="badge b-green">✅ close match</span>':' <span class="badge b-gray">no obvious match</span>'}</span></div>`;
+          }).join('')}
         </div>`:''}
         ${rtrResults.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--gold);text-transform:uppercase;margin-bottom:6px;">RTR/Refill Orders</div>
           ${rtrResults.map(r=>r.ref
-            ?`<div style="padding:6px 10px;background:var(--green-l);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span><strong>${r.ref.phone}</strong></span><span style="color:var(--blue);font-family:monospace;">#${r.n} <span class="badge b-green">✅</span></span></div>`
-            :`<div style="padding:6px 10px;background:#fff8e1;border-left:3px solid var(--gold);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--gold);font-weight:700;">Order #${r.n} — not logged</span><button class="btn btn-ghost" style="font-size:10px;padding:2px 8px;" onclick="document.getElementById('ref-order').value='${r.n}';showTab('refills',document.querySelectorAll('.nav-tab')[3])">Log →</button></div>`
+            ?`<div style="padding:6px 10px;background:var(--green-l);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span><strong>${r.ref.phone}</strong></span><span style="color:var(--blue);font-family:monospace;">#${r.order} <span class="badge b-green">✅</span></span></div>`
+            :`<div style="padding:6px 10px;background:#fff8e1;border-left:3px solid var(--gold);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--gold);font-weight:700;">Order #${r.order} — not logged</span><button class="btn btn-ghost" style="font-size:10px;padding:2px 8px;" onclick="document.getElementById('ref-order').value='${r.order}';showTab('refills',document.querySelectorAll('.nav-tab')[3])">Log →</button></div>`
           ).join('')}
         </div>`:''}
+        ${feeRows.length?`<div style="margin-bottom:10px;font-size:11px;color:var(--muted);">Fees this period: ${fmt(feeTotal)} (informational, nothing to log)</div>`:''}
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
           <div style="text-align:center;padding:8px;background:var(--red-l);border-radius:5px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">DEBITS</div><div style="font-size:16px;font-weight:900;color:var(--red);">${fmt(totalDebits)}</div></div>
           <div style="text-align:center;padding:8px;background:var(--green-l);border-radius:5px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">CREDITS</div><div style="font-size:16px;font-weight:900;color:var(--green);">${fmt(totalCredits)}</div></div>
@@ -1675,7 +1700,7 @@ async function runFullAudit(file){
         </div>
         <div style="margin-top:12px;display:flex;gap:8px;">
           <button class="btn" style="background:var(--green);color:#fff;" onclick="saveAuditResult('${invoiceNum}','${period}',${totalDebits},${totalCredits},${grandTotal})">💾 Save to Invoice History</button>
-          <button class="btn btn-ghost" onclick="results.style.display='none';zone.style.display='block';">↩ Another</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('invAuditResults').style.display='none';document.getElementById('invDropZone').style.display='block';">↩ Another</button>
         </div>
       </div>
     </div>`;

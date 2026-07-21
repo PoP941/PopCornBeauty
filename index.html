@@ -409,7 +409,7 @@ td{padding:10px 12px;vertical-align:middle;}
         <div style="font-size:11px;font-weight:800;color:var(--purple);margin-bottom:8px;">✅ Data Extracted — Review Below</div>
         <div id="receiptExtractedData" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;"></div>
         <div style="display:flex;gap:6px;">
-          <button class="btn" style="background:var(--purple);color:#fff;font-size:11px;padding:6px 12px;" onclick="confirmReceiptImport()">✅ Use Data</button>
+          <button class="btn" style="background:var(--purple);color:#fff;font-size:11px;padding:6px 12px;" onclick="confirmReceiptImport()">✅ Add All to Inventory</button>
           <button class="btn btn-ghost" style="font-size:11px;padding:6px 10px;" onclick="cancelReceiptImport()">Cancel</button>
         </div>
       </div>
@@ -1634,9 +1634,6 @@ async function handleReceiptDrop(file){
       }
       if(best)receiptExtracted.order_num=best;
     }
-    // IMEI
-    const im=t.match(/IMEI[:\s]+([0-9]{14,16})/i)||t.match(/\b([0-9]{15})\b/);
-    if(im)receiptExtracted.iccid=im[1];
     // Model
     const mp=[
       /Apple\s+iPhone[\s\d]+(?:Plus|Pro\s*Max|Pro|Mini)?[\s\w]*?(?:128|256|512|64)\s*GB[\s\w]*?(?:Black|White|Blue|Red|Green|Gold|Purple|Midnight|Starlight|Pink|Silver)?/i,
@@ -1644,31 +1641,65 @@ async function handleReceiptDrop(file){
       /Samsung\s+Galaxy\s+[A-Z0-9]+/i,
     ];
     for(const p of mp){const mm=t.match(p);if(mm&&mm[0].length>6){receiptExtracted.model=mm[0].replace(/\b[0-9]{10,}\b/g,'').replace(/\s+/g,' ').trim();break;}}
-    // Price
+    // Price (fallback total, used only if no per-unit price is found near any IMEI)
     const pm=t.match(/\$([0-9]+\.?[0-9]*)\s+Total\s+Purchase/i)||t.match(/Total\s+Purchase.*?\$([0-9]+\.?[0-9]*)/i);
-    if(pm)receiptExtracted.price=parseFloat(pm[1]);
+    const totalPrice=pm?parseFloat(pm[1]):0;
     // Date
     const dm=t.match(/([0-9]{1,2})\/([0-9]{1,2})\/([0-9]{4})/);
     if(dm)receiptExtracted.date=dm[3]+'-'+dm[1].padStart(2,'0')+'-'+dm[2].padStart(2,'0');
 
-    if(!receiptExtracted.order_num&&!receiptExtracted.iccid&&!receiptExtracted.model)
+    // ── Detect EVERY unit in the order, not just the first ──
+    // A single VidaPay order can contain multiple physical phones, each with its own IMEI,
+    // its own per-unit purchase price, its own Activation Order #, and its own rebate
+    // status. Walk every 15-digit IMEI found in the text and pull whatever's near it.
+    const imeiMatches=[...t.matchAll(/\b(\d{15})\b/g)];
+    const seenImei=new Set();
+    receiptExtractedRows=[];
+    imeiMatches.forEach(m=>{
+      const imei=m[1];
+      if(seenImei.has(imei))return; // OCR sometimes repeats a line
+      seenImei.add(imei);
+      const start=m.index,windowTxt=t.slice(start,Math.min(t.length,start+220));
+      const priceM=windowTxt.match(/\$([0-9]+\.\d{2})/); // first $ amount after the IMEI = purchase price
+      const rebateM=windowTxt.match(/\$([0-9]+(?:\.\d{2})?)\s*Earned/i);
+      const actOrderM=windowTxt.match(/Activation\s*Order[:\s]+(\d{7,9})/i);
+      receiptExtractedRows.push({
+        imei,
+        price:priceM?parseFloat(priceM[1]):totalPrice,
+        rebate:rebateM?parseFloat(rebateM[1]):0,
+        activationOrder:actOrderM?actOrderM[1]:'',
+      });
+    });
+    // Fallback: older receipts with an "IMEI:" label but no bare 15-digit number nearby
+    if(!receiptExtractedRows.length){
+      const im=t.match(/IMEI[:\s]+([0-9]{14,16})/i);
+      if(im)receiptExtractedRows.push({imei:im[1],price:totalPrice,rebate:0,activationOrder:''});
+    }
+
+    if(!receiptExtracted.order_num&&!receiptExtractedRows.length&&!receiptExtracted.model)
       throw new Error('Could not read data. Make sure the full VidaPay page is visible.');
 
     const ed=document.getElementById('receiptExtractedData');
+    const rowHtml=()=>receiptExtractedRows.map((r,i)=>`<div style="background:#fff;padding:6px 10px;border-radius:5px;border:1px solid var(--border);display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;align-items:center;">
+        <input value="${r.imei}" placeholder="IMEI" style="border:none;outline:none;font-size:11px;font-weight:800;color:var(--purple);font-family:monospace;background:transparent;" oninput="receiptExtractedRows[${i}].imei=this.value">
+        <input type="number" step="0.01" value="${r.price||''}" placeholder="Cost $" style="border:none;outline:none;font-size:11px;font-weight:700;color:var(--orange);background:transparent;" oninput="receiptExtractedRows[${i}].price=parseFloat(this.value)||0">
+        <input type="number" step="0.01" value="${r.rebate||''}" placeholder="Rebate $" style="border:none;outline:none;font-size:11px;font-weight:700;color:var(--green);background:transparent;" oninput="receiptExtractedRows[${i}].rebate=parseFloat(this.value)||0">
+        <div style="font-size:10px;color:var(--muted);">${r.activationOrder?'Act #'+r.activationOrder:''}</div>
+        <button onclick="receiptExtractedRows.splice(${i},1);rerenderReceiptRows()" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;">✕</button>
+      </div>`).join('');
     if(ed){
-      // Show editable order # field + read-only fields for everything else
       const orderVal=receiptExtracted.order_num||'';
       ed.innerHTML=`
-        <div style="background:#fff;padding:6px 10px;border-radius:5px;border:${orderVal?'1px solid var(--border)':'2px solid var(--red)'};grid-column:span 1;">
-          <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:3px;">Order # ${orderVal?'':'⚠️ Enter manually'}</div>
-          <input id="ocr-order-input" value="${orderVal}" placeholder="type order # here" style="border:none;outline:none;font-size:12px;font-weight:800;color:var(--blue);width:100%;background:transparent;" oninput="receiptExtracted.order_num=this.value">
+        <div style="grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;">
+          <div style="background:#fff;padding:6px 10px;border-radius:5px;border:${orderVal?'1px solid var(--border)':'2px solid var(--red)'};">
+            <div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:3px;">Order # ${orderVal?'':'⚠️ Enter manually'}</div>
+            <input id="ocr-order-input" value="${orderVal}" placeholder="type order # here" style="border:none;outline:none;font-size:12px;font-weight:800;color:var(--blue);width:100%;background:transparent;" oninput="receiptExtracted.order_num=this.value">
+          </div>
+          <div style="background:#fff;padding:6px 10px;border-radius:5px;border:1px solid var(--border)"><div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;">Model</div><input id="ocr-model-input" value="${receiptExtracted.model||''}" placeholder="phone model" style="border:none;outline:none;font-size:12px;font-weight:800;color:var(--text);width:100%;background:transparent;" oninput="receiptExtracted.model=this.value"></div>
+          <div style="background:#fff;padding:6px 10px;border-radius:5px;border:1px solid var(--border)"><div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;">Date</div><input id="ocr-date-input" value="${receiptExtracted.date||''}" placeholder="YYYY-MM-DD" style="border:none;outline:none;font-size:12px;font-weight:800;color:var(--muted);width:100%;background:transparent;" oninput="receiptExtracted.date=this.value"></div>
         </div>
-        ${[
-          {l:'IMEI',v:receiptExtracted.iccid||'—',c:'var(--purple)'},
-          {l:'Model',v:receiptExtracted.model||'—',c:'var(--text)'},
-          {l:'Price',v:receiptExtracted.price?'$'+receiptExtracted.price.toFixed(2):'—',c:'var(--orange)'},
-          {l:'Date',v:receiptExtracted.date||'—',c:'var(--muted)'},
-        ].map(f=>`<div style="background:#fff;padding:6px 10px;border-radius:5px;border:1px solid var(--border)"><div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;">${f.l}</div><div style="font-size:12px;font-weight:800;color:${f.c};">${f.v}</div></div>`).join('')}
+        <div style="grid-column:1/-1;font-size:10px;font-weight:800;color:var(--purple);text-transform:uppercase;margin-bottom:4px;">${receiptExtractedRows.length} unit${receiptExtractedRows.length!==1?'s':''} detected — review before adding</div>
+        <div id="receiptRowsWrap" style="grid-column:1/-1;display:flex;flex-direction:column;gap:4px;">${rowHtml()}</div>
       `;
     }
     if(status)status.style.display='none';
@@ -1678,20 +1709,42 @@ async function handleReceiptDrop(file){
     setTimeout(()=>{if(zone)zone.style.display='block';if(status)status.style.display='none';},4000);
   }
 }
+function rerenderReceiptRows(){
+  const wrap=document.getElementById('receiptRowsWrap');if(!wrap)return;
+  wrap.innerHTML=receiptExtractedRows.map((r,i)=>`<div style="background:#fff;padding:6px 10px;border-radius:5px;border:1px solid var(--border);display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;align-items:center;">
+      <input value="${r.imei}" placeholder="IMEI" style="border:none;outline:none;font-size:11px;font-weight:800;color:var(--purple);font-family:monospace;background:transparent;" oninput="receiptExtractedRows[${i}].imei=this.value">
+      <input type="number" step="0.01" value="${r.price||''}" placeholder="Cost $" style="border:none;outline:none;font-size:11px;font-weight:700;color:var(--orange);background:transparent;" oninput="receiptExtractedRows[${i}].price=parseFloat(this.value)||0">
+      <input type="number" step="0.01" value="${r.rebate||''}" placeholder="Rebate $" style="border:none;outline:none;font-size:11px;font-weight:700;color:var(--green);background:transparent;" oninput="receiptExtractedRows[${i}].rebate=parseFloat(this.value)||0">
+      <div style="font-size:10px;color:var(--muted);">${r.activationOrder?'Act #'+r.activationOrder:''}</div>
+      <button onclick="receiptExtractedRows.splice(${i},1);rerenderReceiptRows()" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;">✕</button>
+    </div>`).join('');
+}
 
-function confirmReceiptImport(){
-  if(!receiptExtracted)return;
-  let model=(receiptExtracted.model||'').replace(/\b[0-9]{10,}\b/g,'').replace(/\s+/g,' ').trim();
-  const set=(id,v)=>{if(!v&&v!==0)return;const el=document.getElementById(id);if(el){el.value=v;el.style.background='#dcfce7';setTimeout(()=>el.style.background='',2000);}};
-  set('ph-order',receiptExtracted.order_num);
-  set('ph-imei',receiptExtracted.iccid);
-  set('ph-model',model);
-  set('ph-cost',receiptExtracted.price);
-  set('ph-pdate',receiptExtracted.date);
+let receiptExtractedRows=[];
+async function confirmReceiptImport(){
+  if(!receiptExtractedRows.length){alert('No units to add — check the IMEI was detected.');return;}
+  const model=(receiptExtracted.model||'').replace(/\b[0-9]{10,}\b/g,'').replace(/\s+/g,' ').trim();
+  if(!model){alert('Model is required — type it into the Model field above.');return;}
+  const orderNum=receiptExtracted.order_num||'';
+  const pdate=receiptExtracted.date||null;
+  let added=0,failed=0;
+  for(const r of receiptExtractedRows){
+    if(!r.imei)continue;
+    const payload={
+      order_num:orderNum,imei:r.imei.trim(),model,
+      purchase_date:pdate,cost:r.price||0,rebate_expected:r.rebate||0,
+      req_plan:'',status:'In Stock',phone:'',sale_price:0,subsidy:0,
+    };
+    const{data,error}=await sb.from('phones').insert(payload).select().single();
+    if(error){failed++;continue;}
+    phones.unshift(data);added++;
+  }
+  renderPhones();renderDashboard();showToast();
   const prev=document.getElementById('receiptPreview');if(prev)prev.style.display='none';
   const dz=document.getElementById('receiptDropZone');if(dz)dz.style.display='block';
   const fi=document.getElementById('receiptFileInput');if(fi)fi.value='';
-  receiptExtracted=null;
+  receiptExtracted=null;receiptExtractedRows=[];
+  alert('✅ Added '+added+' phone'+(added!==1?'s':'')+' to inventory'+(failed?' ('+failed+' failed — check for duplicates)':'')+'.');
 }
 function cancelReceiptImport(){
   const dz=document.getElementById('receiptDropZone');if(dz)dz.style.display='block';

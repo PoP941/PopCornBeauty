@@ -263,8 +263,8 @@ td{padding:10px 12px;vertical-align:middle;}
       <div class="field"><label>Phone # *</label><input class="phone-f" id="ref-phone" type="text" placeholder="(516) 000-0000" oninput="lookupRefillPhone(this.value)"></div>
       <div class="field"><label>Order #</label><input id="ref-order" type="text" placeholder="347798630"></div>
       <div class="field"><label>Date</label><input id="ref-date" type="date"></div>
-      <div class="field"><label>Plan</label><select id="ref-plan"><option value="">Select...</option><option>$20 RTR</option><option>$25 RTR</option><option>$30 RTR</option><option>$40 RTR</option><option>$50 RTR</option><option>$60 RTR</option><option>Other</option></select></div>
-      <div class="field"><label>Amount Collected $</label><input class="money-f" id="ref-amount" type="number" step="0.01" placeholder="25.00"></div>
+      <div class="field"><label>Plan</label><select id="ref-plan" onchange="refPlanChanged(this.value)"><option value="">Select...</option><option>$20 RTR</option><option>$25 RTR</option><option>$30 RTR</option><option>$40 RTR</option><option>$50 RTR</option><option>$60 RTR</option><option>Other</option></select></div>
+      <div class="field" id="ref-amount-field"><label>Amount Collected $</label><input class="money-f" id="ref-amount" type="number" step="0.01" placeholder="Pick a plan above" readonly></div>
     </div>
     <!-- PHONE LOOKUP PANEL -->
     <div id="refLookupPanel" style="display:none;margin-top:12px;border-radius:6px;overflow:hidden;border:1.5px solid var(--border);">
@@ -819,9 +819,25 @@ function renderActivations(){
   document.getElementById('actTotalSpiff').textContent=fmt(totalEarned)+' earned so far';
 }
 
+function refPlanChanged(val){
+  const amtField=document.getElementById('ref-amount');
+  if(val&&val!=='Other'){
+    const m=val.match(/\$([\d.]+)/);
+    amtField.value=m?m[1]:'';
+    amtField.readOnly=true;
+    amtField.placeholder='Pick a plan above';
+  } else {
+    amtField.value='';
+    amtField.readOnly=false;
+    amtField.placeholder=val==='Other'?'Enter amount':'Pick a plan above';
+    if(val==='Other')amtField.focus();
+  }
+}
 async function addRefill(){
   const phone=(document.getElementById('ref-phone')?.value||'').trim();
   if(!phone){alert('Phone # required');return;}
+  const amount=parseFloat(document.getElementById('ref-amount')?.value)||0;
+  if(amount<=0){alert('Pick a plan above (or choose "Other" and enter the amount) before saving.');return;}
   const orderNum=(document.getElementById('ref-order')?.value||'').trim();
   const refDate=document.getElementById('ref-date')?.value||null;
   
@@ -841,7 +857,7 @@ async function addRefill(){
     phone, order_num:orderNum,
     ref_date:refDate,
     plan:document.getElementById('ref-plan')?.value||'',
-    amount:parseFloat(document.getElementById('ref-amount')?.value)||0,
+    amount,
   };
   const{data,error}=await sb.from('refills').insert(payload).select().single();
   if(error){alert('Save Error:\n'+error.message);return;}
@@ -850,7 +866,7 @@ async function addRefill(){
   clearRef();showToast();
   alert('✅ Refill saved!\n'+phone);
 }
-function clearRef(){['ref-phone','ref-order','ref-date','ref-amount'].forEach(id=>document.getElementById(id).value='');document.getElementById('ref-plan').value='';document.getElementById('refLookupPanel').style.display='none';document.getElementById('refLookupHint').style.display='inline';}
+function clearRef(){['ref-phone','ref-order','ref-date','ref-amount'].forEach(id=>document.getElementById(id).value='');document.getElementById('ref-plan').value='';refPlanChanged('');document.getElementById('refLookupPanel').style.display='none';document.getElementById('refLookupHint').style.display='inline';}
 
 function lookupRefillPhone(phone){
   const panel=document.getElementById('refLookupPanel');

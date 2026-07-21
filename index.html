@@ -161,7 +161,18 @@ td{padding:10px 12px;vertical-align:middle;}
     <div class="kpi" style="--acc:var(--lime)"><div class="kpi-label">Refill Profit</div><div class="kpi-value" id="kpiRefillProfit" style="color:var(--lime)">$0</div><div class="kpi-sub">8% kept</div></div>
     <div class="kpi" style="--acc:var(--orange)"><div class="kpi-label">Phone Profit</div><div class="kpi-value" id="kpiPhoneProfit" style="color:var(--orange)">$0</div><div class="kpi-sub">Sale + subsidy</div></div>
   </div>
-  <div class="section-hdr"><div class="section-title">Monthly Goals — 2027</div><div style="font-size:10px;color:var(--muted)">Click the blue number to edit · Syncs live</div></div>
+  <div class="section-hdr">
+    <div class="section-title">📅 Profit Over Time</div>
+    <div style="display:flex;gap:6px;">
+      <button class="btn btn-ghost" id="dpBtnDaily" style="font-size:10px;padding:4px 10px;" onclick="renderDailyProfit('daily')">Daily</button>
+      <button class="btn btn-ghost" id="dpBtnYearly" style="font-size:10px;padding:4px 10px;" onclick="renderDailyProfit('yearly')">Yearly</button>
+    </div>
+  </div>
+  <div class="table-wrap" style="margin-bottom:4px;"><div class="table-scroll"><table>
+    <thead><tr><th id="dpDateHeader">Date</th><th>Commission</th><th>Refill Profit</th><th>Phone Profit</th><th>Total</th></tr></thead>
+    <tbody id="dailyProfitTable"><tr><td colspan="5" class="empty-state">No activity yet</td></tr></tbody>
+  </table></div></div>
+  <div class="section-hdr" style="margin-top:4px"><div class="section-title">Monthly Goals — 2027</div><div style="font-size:10px;color:var(--muted)">Click the blue number to edit · Syncs live</div></div>
   <div class="goal-grid" id="goalGrid"></div>
   <div class="section-hdr" style="margin-top:4px"><div class="section-title">VidaPay Quick Guide</div></div>
   <div class="cheat-grid">
@@ -319,6 +330,16 @@ td{padding:10px 12px;vertical-align:middle;}
     <div style="display:flex;gap:8px;">
       <input id="lookup-q" type="text" placeholder="Phone #, order #, or IMEI..." style="flex:1;padding:10px 12px;border:1.5px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;" oninput="runLookup(this.value)" autocomplete="off">
       <button class="btn btn-ghost" onclick="document.getElementById('lookup-q').value='';runLookup('')">Clear</button>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+      <span style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;">Show:</span>
+      <button class="btn btn-ghost" id="lkBtnAll" style="font-size:10px;padding:4px 10px;" onclick="setLookupRange('all')">All Time</button>
+      <button class="btn btn-ghost" id="lkBtnToday" style="font-size:10px;padding:4px 10px;" onclick="setLookupRange('today')">Today</button>
+      <button class="btn btn-ghost" id="lkBtnYear" style="font-size:10px;padding:4px 10px;" onclick="setLookupRange('year')">This Year</button>
+      <span style="font-size:10px;color:var(--muted);margin-left:4px;">or custom:</span>
+      <input id="lookup-from" type="date" style="padding:4px 6px;border:1.5px solid var(--border);border-radius:5px;font-size:11px;" onchange="setLookupRange('custom')">
+      <span style="font-size:10px;color:var(--muted);">to</span>
+      <input id="lookup-to" type="date" style="padding:4px 6px;border:1.5px solid var(--border);border-radius:5px;font-size:11px;" onchange="setLookupRange('custom')">
     </div>
   </div>
   <div id="lookupResults"></div>
@@ -531,6 +552,22 @@ function spiffEarned(a){
     earned+=amountForPosition(pos,mo_mrc,r.amount);
   });
   return earned;
+}
+// Same math as spiffEarned, but broken out by WHEN each dollar was actually earned — the
+// front-loaded lump lands on the activation date, each later chunk lands on the date of
+// the refill that unlocked it. Used for the Dashboard's daily/yearly profit view.
+function activationCommissionEvents(a){
+  const mo_mrc=monthlyMrc(a);
+  const planMo=planMonths(a.plan);
+  const events=[];
+  let frontLoad=0;
+  for(let pos=1;pos<=planMo;pos++) frontLoad+=amountForPosition(pos,mo_mrc,null);
+  events.push({date:a.act_date,amount:frontLoad});
+  refillsForPhone(a.phone).forEach((r,idx)=>{
+    const pos=planMo+idx+1;
+    events.push({date:r.ref_date,amount:amountForPosition(pos,mo_mrc,r.amount)});
+  });
+  return events;
 }
 
 const plans={
@@ -1788,12 +1825,103 @@ function renderOverdue(){
     <div style="background:${newOffer?'#fef2f2':'var(--red-l)'};color:${newOffer?'#dc2626':'var(--red)'};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;">${newOffer?'🔔 new offer':'needs refill'}</div>
   </div>`).join(''):'<div style="padding:16px;text-align:center;color:var(--green);">✅ All up to date</div>';
 }
-function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();runLookup(document.getElementById('lookup-q')?.value||'');}
+function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDailyProfit();runLookup(document.getElementById('lookup-q')?.value||'');}
 
 // ── Universal Lookup: search by phone #, order #, or IMEI across all three tables ──
 // Merge Activations, Refills, and Sold Phones into one reverse-chronological feed —
 // lets reps scan recent activity the same way they'd scan VidaPay's own Order History,
 // instead of needing to already know a specific number to search for.
+// Buckets every dollar earned (commission, refill margin, phone profit) by the calendar
+// date it was actually earned on — not accrued/cumulative, but per real-world event date.
+function dailyProfitBreakdown(){
+  const days={};
+  const bucket=(date)=>{
+    if(!date)return null;
+    const d=String(date).slice(0,10);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return null;
+    if(!days[d])days[d]={commission:0,refillProfit:0,phoneProfit:0};
+    return days[d];
+  };
+  activations.forEach(a=>{
+    activationCommissionEvents(a).forEach(ev=>{
+      const b=bucket(ev.date);if(b)b.commission+=ev.amount;
+    });
+  });
+  refills.forEach(r=>{
+    const b=bucket(r.ref_date);if(b)b.refillProfit+=(parseFloat(r.amount)||0)*0.08;
+  });
+  phones.filter(p=>p.status==='Sold').forEach(p=>{
+    const b=bucket(p.sale_date);
+    if(b){
+      const cost=parseFloat(p.cost)||0,sale=parseFloat(p.sale_price)||0,sub=parseFloat(p.subsidy)||0;
+      b.phoneProfit+=(sale-cost)+sub;
+    }
+  });
+  return days;
+}
+let dailyProfitMode='daily';
+function renderDailyProfit(mode){
+  if(mode)dailyProfitMode=mode;
+  const tbody=document.getElementById('dailyProfitTable');if(!tbody)return;
+  const header=document.getElementById('dpDateHeader');
+  const dBtn=document.getElementById('dpBtnDaily'),yBtn=document.getElementById('dpBtnYearly');
+  if(dBtn)dBtn.style.cssText=dailyProfitMode==='daily'?'font-size:10px;padding:4px 10px;background:var(--blue);color:#fff;':'font-size:10px;padding:4px 10px;';
+  if(yBtn)yBtn.style.cssText=dailyProfitMode==='yearly'?'font-size:10px;padding:4px 10px;background:var(--blue);color:#fff;':'font-size:10px;padding:4px 10px;';
+  const days=dailyProfitBreakdown();
+  let rows;
+  if(dailyProfitMode==='yearly'){
+    header.textContent='Year';
+    const years={};
+    Object.keys(days).forEach(d=>{
+      const y=d.slice(0,4);
+      if(!years[y])years[y]={commission:0,refillProfit:0,phoneProfit:0};
+      years[y].commission+=days[d].commission;years[y].refillProfit+=days[d].refillProfit;years[y].phoneProfit+=days[d].phoneProfit;
+    });
+    rows=Object.keys(years).sort().reverse().map(y=>({label:y,...years[y]}));
+  } else {
+    header.textContent='Date';
+    rows=Object.keys(days).sort().reverse().map(d=>({label:fmtDate(d),...days[d]}));
+  }
+  if(!rows.length){tbody.innerHTML='<tr><td colspan="5" class="empty-state">No activity yet</td></tr>';return;}
+  tbody.innerHTML=rows.map(r=>{
+    const total=r.commission+r.refillProfit+r.phoneProfit;
+    return`<tr>
+      <td style="font-weight:700;">${r.label}</td>
+      <td class="money-t" style="color:var(--green);">${fmt(r.commission)}</td>
+      <td class="money-t" style="color:var(--lime);">${fmt(r.refillProfit)}</td>
+      <td class="money-t" style="color:var(--orange);">${fmt(r.phoneProfit)}</td>
+      <td class="money-t" style="font-weight:900;color:var(--gold);">${fmt(total)}</td>
+    </tr>`;
+  }).join('');
+}
+// Date-range filter for the Recent Activity feed (search results stay unfiltered — if
+// you're searching for something specific, you want it found regardless of when it happened)
+let lookupRangeMode='all';
+function setLookupRange(mode){
+  lookupRangeMode=mode;
+  const fromEl=document.getElementById('lookup-from'),toEl=document.getElementById('lookup-to');
+  const today=new Date().toISOString().slice(0,10);
+  if(mode==='today'){fromEl.value=today;toEl.value=today;}
+  else if(mode==='year'){fromEl.value=today.slice(0,4)+'-01-01';toEl.value=today.slice(0,4)+'-12-31';}
+  else if(mode==='all'){fromEl.value='';toEl.value='';}
+  updateLookupRangeButtons();
+  runLookup(document.getElementById('lookup-q')?.value||'');
+}
+function updateLookupRangeButtons(){
+  [['lkBtnAll','all'],['lkBtnToday','today'],['lkBtnYear','year']].forEach(([id,mode])=>{
+    const btn=document.getElementById(id);if(!btn)return;
+    btn.style.cssText=lookupRangeMode===mode?'font-size:10px;padding:4px 10px;background:var(--blue);color:#fff;':'font-size:10px;padding:4px 10px;';
+  });
+}
+function inLookupRange(dateStr){
+  const from=document.getElementById('lookup-from')?.value,to=document.getElementById('lookup-to')?.value;
+  if(!from&&!to)return true;
+  if(!dateStr)return false;
+  const d=String(dateStr).slice(0,10);
+  if(from&&d<from)return false;
+  if(to&&d>to)return false;
+  return true;
+}
 function recentActivityEvents(limit){
   const events=[];
   activations.forEach(a=>events.push({
@@ -1818,13 +1946,17 @@ function recentActivityEvents(limit){
     amount:fmt(parseFloat(p.sale_price)||0),
   }));
   events.sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
-  return events.slice(0,limit||30);
+  const filtered=events.filter(e=>inLookupRange(e.date));
+  const cap=lookupRangeMode==='all'?(limit||30):500;
+  return filtered.slice(0,cap);
 }
 function renderRecentActivity(){
   const el=document.getElementById('lookupResults');if(!el)return;
+  updateLookupRangeButtons();
   const events=recentActivityEvents(30);
-  if(!events.length){el.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px;">Nothing logged yet.</div>';return;}
-  el.innerHTML=`<div style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">Recent Activity — tap any row for the full customer story</div>
+  const rangeLabel=lookupRangeMode==='today'?'Today':lookupRangeMode==='year'?'This Year':lookupRangeMode==='custom'?'Custom Range':'All Time';
+  if(!events.length){el.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px;">No activity found for '+rangeLabel+'.</div>';return;}
+  el.innerHTML=`<div style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">Recent Activity — ${rangeLabel} — tap any row for the full customer story</div>
     <div style="background:#fff;border:1.5px solid var(--border);border-radius:8px;overflow:hidden;">
       ${events.map(e=>`<div style="padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="document.getElementById('lookup-q').value='${e.phone||''}';runLookup('${e.phone||''}')">
         <div style="display:flex;gap:10px;align-items:center;">

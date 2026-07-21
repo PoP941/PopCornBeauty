@@ -683,6 +683,7 @@ async function addActivation(){
           ?'\n📦 '+invPhone.model+' pulled from inventory — rebate '+fmt(subsidyToApply)+' applied'+(custPhonePrice>0?', customer paid '+fmt(custPhonePrice)+' for the phone.':', phone free with activation.')
           :'\n⚠️ '+invPhone.model+' pulled from inventory, but the plan selected doesn\'t match the required plan ("'+invPhone.req_plan+'") for its rebate — NO rebate was applied. Delete and redo this activation with the correct plan if that was a mistake.';
       } else {
+        console.error('Phone pull-from-inventory failed:',perr);
         invoiceNote='\n⚠️ Matched '+invPhone.model+' in inventory but failed to mark it Sold ('+perr.message+') — update it manually in the Phones tab.';
       }
     } else if(invPhone&&invPhone.status==='Sold'){
@@ -1382,9 +1383,15 @@ function filterPhones(q){
 
 // ── Delete functions ──
 async function deletePhone(id){
-  if(!confirm('Delete?'))return;
+  const p=phones.find(x=>String(x.id)===String(id));
+  const isSold=p&&p.status==='Sold';
+  const label=p?(p.model||'this phone')+(p.imei?' (IMEI '+p.imei+')':''):'this phone';
+  const msg=isSold
+    ?'⚠️ '+label+' is marked SOLD'+(p.phone?' and linked to customer '+p.phone:'')+'. Deleting it removes that record permanently — the phone will no longer show as sold anywhere, and its link to the customer/activation will be gone. Are you sure?'
+    :'Delete '+label+' from inventory?';
+  if(!confirm(msg))return;
   const{error}=await sb.from('phones').delete().eq('id',id);
-  if(error){alert('Error: '+error.message);return;}
+  if(error){console.error('deletePhone failed:',error);alert('Error: '+error.message);return;}
   phones=phones.filter(p=>String(p.id)!==String(id));
   renderPhones();renderDashboard();showToast();
 }
@@ -1781,13 +1788,60 @@ function renderOverdue(){
     <div style="background:${newOffer?'#fef2f2':'var(--red-l)'};color:${newOffer?'#dc2626':'var(--red)'};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;">${newOffer?'🔔 new offer':'needs refill'}</div>
   </div>`).join(''):'<div style="padding:16px;text-align:center;color:var(--green);">✅ All up to date</div>';
 }
-function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();}
+function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();runLookup(document.getElementById('lookup-q')?.value||'');}
 
 // ── Universal Lookup: search by phone #, order #, or IMEI across all three tables ──
+// Merge Activations, Refills, and Sold Phones into one reverse-chronological feed —
+// lets reps scan recent activity the same way they'd scan VidaPay's own Order History,
+// instead of needing to already know a specific number to search for.
+function recentActivityEvents(limit){
+  const events=[];
+  activations.forEach(a=>events.push({
+    type:'activation',icon:'📱',color:'var(--blue)',
+    date:a.act_date||a.created_at,phone:a.phone,
+    title:'Activation — Order #'+(a.order_num||'—'),
+    sub:(a.plan||'')+(a.customer_name?' · '+a.customer_name:''),
+    amount:fmt(parseFloat(a.mrc)||0),
+  }));
+  refills.forEach(r=>events.push({
+    type:'refill',icon:'💳',color:'var(--gold)',
+    date:r.ref_date||r.created_at,phone:r.phone,
+    title:'Refill — Order #'+(r.order_num||'—'),
+    sub:r.plan||'',
+    amount:fmt(parseFloat(r.amount)||0),
+  }));
+  phones.filter(p=>p.status==='Sold'&&p.phone).forEach(p=>events.push({
+    type:'phone',icon:'📦',color:'var(--purple)',
+    date:p.sale_date||p.created_at,phone:p.phone,
+    title:'Phone Sold — '+(p.model||'—'),
+    sub:'IMEI '+(p.imei||'—'),
+    amount:fmt(parseFloat(p.sale_price)||0),
+  }));
+  events.sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
+  return events.slice(0,limit||30);
+}
+function renderRecentActivity(){
+  const el=document.getElementById('lookupResults');if(!el)return;
+  const events=recentActivityEvents(30);
+  if(!events.length){el.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px;">Nothing logged yet.</div>';return;}
+  el.innerHTML=`<div style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">Recent Activity — tap any row for the full customer story</div>
+    <div style="background:#fff;border:1.5px solid var(--border);border-radius:8px;overflow:hidden;">
+      ${events.map(e=>`<div style="padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="document.getElementById('lookup-q').value='${e.phone||''}';runLookup('${e.phone||''}')">
+        <div style="display:flex;gap:10px;align-items:center;">
+          <div style="font-size:16px;">${e.icon}</div>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:${e.color};">${e.title}</div>
+            <div style="font-size:11px;color:var(--muted);">${e.phone?'<span class="phone-t">'+e.phone+'</span> · ':''}${e.sub}${e.date?' · '+fmtDate(e.date):''}</div>
+          </div>
+        </div>
+        <div style="font-size:13px;font-weight:800;color:${e.color};">${e.amount}</div>
+      </div>`).join('')}
+    </div>`;
+}
 function runLookup(raw){
   const el=document.getElementById('lookupResults');if(!el)return;
   const q=(raw||'').trim();
-  if(q.length<3){el.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px;">Type at least 3 characters — a phone #, order #, or IMEI.</div>';return;}
+  if(q.length<3){renderRecentActivity();return;}
   const qDigits=q.replace(/\D/g,'');
   const matchesText=(v)=>v&&v.toLowerCase().includes(q.toLowerCase());
   const matchesDigits=(v)=>qDigits.length>=3&&v&&(v.replace(/\D/g,'')||'').includes(qDigits);

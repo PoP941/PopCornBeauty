@@ -619,7 +619,13 @@ function clearAct(){
   const banner=document.getElementById('rebateBanner');if(banner)banner.classList.remove('show');
 }
 async function deleteActivation(id){if(!confirm('Delete?'))return;await sb.from('activations').delete().eq('id',id);showToast();}
-function commMonth(phone){const c=refills.filter(r=>r.phone===phone).length;return c===0?'Month 1':'Month '+(c+1);}
+// Human-readable label for "which month position" a slot count lands on — accounts for
+// the plan's front-loaded bundled term, not just a raw refill count.
+function monthPositionLabel(pos){
+  if(pos>PROMO_MONTHS) return 'Month '+pos+' (8%)';
+  if(pos>=PROMO_MONTHS) return 'Month '+pos+' 💰';
+  return 'Month '+pos;
+}
 
 function renderActivations(){
   const tbody=document.getElementById('actTable');
@@ -663,7 +669,7 @@ function renderActivations(){
       <td class="money-t" style="color:var(--gold);font-weight:900">${fmt(earned)}${extraMonths>0?`<div style="font-size:9px;font-weight:700;color:var(--muted)">+${extraMonths} mo past promo</div>`:''}</td>
       <td><span class="badge ${rc>0?'b-green':'b-gray'}">${rc}</span></td>
       <td>
-        <span class="badge b-teal" style="font-size:9px">${commMonth(a.phone)}</span>
+        <span class="badge b-teal" style="font-size:9px">${monthPositionLabel(n)}</span>
         ${newOffer?`<div style="margin-top:3px"><span class="badge" style="font-size:9px;background:#fef2f2;color:#dc2626;font-weight:800">🔔 New Offer Needed</span></div>`:''}
       </td>
       <td><button class="del-btn" onclick="deleteActivation(${a.id})">✕</button></td>
@@ -829,7 +835,15 @@ function lookupRefillPhone(phone){
   }
 }
 async function deleteRefill(id){if(!confirm('Delete?'))return;await sb.from('refills').delete().eq('id',id);showToast();}
-function refillTrigger(phone,rid){const pr=refills.filter(r=>r.phone===phone).sort((a,b)=>a.id-b.id);const pos=pr.findIndex(r=>r.id===rid);return['→Month 2','→Month 3','→Month 4','→Month 5','→Month 6 💰'][Math.min(pos,4)]||'—';}
+function refillTrigger(phone,rid){
+  const act=activations.find(a=>a.phone===phone||a.phone===phone.replace(/\D/g,''));
+  const planMo=act?planMonths(act.plan):1;
+  const pr=refillsForPhone(phone);
+  const idx=pr.findIndex(r=>r.id===rid);
+  if(idx<0) return '—';
+  const pos=planMo+idx+1; // this refill's position in the timeline, AFTER the bundled term
+  return '→'+monthPositionLabel(pos);
+}
 
 function renderRefills(){
   const tbody=document.getElementById('refTable');

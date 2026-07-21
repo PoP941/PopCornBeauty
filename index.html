@@ -1733,14 +1733,14 @@ async function runFullAudit(file){
     const flat=text.replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim();
     const invoiceNum=(flat.match(/Invoice\s*No[:.\s]+(\d{7,12})/i)||[])[1]||'';
     const period=(flat.match(/Period[:\s]+([\d/]+-+[\d/]+)/i)||[])[1]||'';
-    const grandTotal=parseFloat((flat.match(/Grand\s*Total[^\d(]*\$?([\d,]+\.\d{2})/i)||[])[1])||0;
+    const grandTotal=(()=>{const m=flat.match(/Grand\s*Total[^\d(]*\(?\$?([\d,]+\.\d{2})\)?/i);if(!m)return 0;const idx=m.index+m[0].indexOf(m[1]);const isNeg=flat.slice(Math.max(0,idx-3),idx).includes('(');return parseFloat(m[1].replace(/,/g,''))*(isNeg?-1:1);})();
     const totalDebits=parseFloat((flat.match(/Total\s*Debits[^\d$]*\$?([\d,]+\.\d{2})/i)||[])[1])||0;
     const totalCredits=parseFloat((flat.match(/Total\s*Credits[^\d$]*\(?\$?([\d,]+\.\d{2})\)?/i)||[])[1])||0;
 
     // Parse each invoice-detail LINE as its own row, bounded by the next date (or "Total:")
     // so text never bleeds from one row into the next — that bleed is what previously made
     // a Promo Order row get misread as a Sales/RTR order.
-    const rowRe=/(\d{1,2}\/\d{1,2}\/\d{4})\s+(?:\d{1,2}:\d{2}:\d{2}\s*[AP]M\s+)?(\d{7,9})\s+(Activation\s*Order|Postpaid\s*Instant\s*Spiff|Promo\s*Order|Sales\s*Order|Fee)\s+(.*?)(?=\d{1,2}\/\d{1,2}\/\d{4}\s+\d|Total\s*:|$)/gi;
+    const rowRe=/(\d{1,2}\/\d{1,2}\/\d{4})\s+(?:\d{1,2}:\d{2}:\d{2}\s*[AP]M\s+)?(\d{7,9})\s+(Activation\s*Order|Postpaid\s*Instant\s*Spiff|Additional\s*Spiff|Residual\s*Order|Promo\s*Order|Sales\s*Order|Fee)\s+(.*?)(?=\d{1,2}\/\d{1,2}\/\d{4}\s+\d|Total\s*:|$)/gi;
     const rows=[...flat.matchAll(rowRe)].map(m=>{
       const type=m[3].replace(/\s+/g,' ').trim().toLowerCase();
       const rest=m[4]||'';
@@ -1751,7 +1751,13 @@ async function runFullAudit(file){
       return{date:m[1],order:m[2],type,amount,product:rest.replace(/\$[\d,.()]+/g,'').trim().slice(0,60)};
     });
     const actRows=rows.filter(r=>r.type.includes('activation'));
-    const spiffRows=rows.filter(r=>r.type.includes('spiff'));
+    // "Postpaid Instant Spiff" shares its order # with the Activation Order it belongs to,
+    // so it's matched against that activation. "Additional Spiff" (month 2+, on an already-
+    // active line) has its own unrelated order #, so it's shown informationally instead of
+    // flagged as a missing activation.
+    const spiffRows=rows.filter(r=>r.type.includes('spiff')&&!r.type.includes('additional'));
+    const additionalSpiffRows=rows.filter(r=>r.type.includes('additional')&&r.type.includes('spiff'));
+    const residualRows=rows.filter(r=>r.type.includes('residual'));
     const promoRows=rows.filter(r=>r.type.includes('promo'));
     const rtrRows=rows.filter(r=>r.type.includes('sales'));
     const feeRows=rows.filter(r=>r.type==='fee');
@@ -1759,13 +1765,21 @@ async function runFullAudit(file){
     // Cross-check against what's actually logged in the app
     const actResults=actRows.map(r=>({...r,act:activations.find(a=>a.order_num===r.order)}));
     const rtrResults=rtrRows.map(r=>({...r,ref:refills.find(f=>f.order_num===r.order)}));
-    // Postpaid Instant Spiff shares its ORDER # with the Activation Order it belongs to —
-    // so it reconciles against the same activation record, not a separately-logged entry.
     const spiffResults=spiffRows.map(r=>({...r,act:activations.find(a=>a.order_num===r.order)}));
     const issues=actResults.filter(r=>!r.act).length+rtrResults.filter(r=>!r.ref).length;
     const allGood=issues===0&&(actResults.length+rtrResults.length)>0;
     const hColor=allGood?'var(--green)':issues>0?'var(--red)':'var(--gold)';
     const feeTotal=feeRows.reduce((s,r)=>s+r.amount,0);
+    const additionalSpiffTotal=additionalSpiffRows.reduce((s,r)=>s+Math.abs(r.amount),0);
+    const residualTotal=residualRows.reduce((s,r)=>s+r.amount,0);
+    // Reconciliation self-check: does what we parsed out of the itemized rows actually add
+    // up to the invoice's own header totals? If not, some transaction TYPE on this invoice
+    // isn't recognized by rowRe yet and is being silently dropped — same failure mode as the
+    // earlier Promo Order bug, just with a different label next time. Catch it here instead
+    // of finding out from a wrong saved total months later.
+    const reconDebits=actRows.reduce((s,r)=>s+r.amount,0)+rtrRows.reduce((s,r)=>s+r.amount,0)+feeTotal+Math.max(0,residualTotal);
+    const reconCredits=spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)+promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)+additionalSpiffTotal+Math.max(0,-residualTotal);
+    const reconMismatch=Math.abs(reconDebits-totalDebits)>0.02||Math.abs(reconCredits-totalCredits)>0.02;
     if(status)status.style.display='none';
     if(results)results.style.display='block';
     results.innerHTML=`<div style="border-radius:8px;overflow:hidden;border:2px solid ${hColor};">
@@ -1774,6 +1788,7 @@ async function runFullAudit(file){
         <div style="font-size:11px;">${invoiceNum?'Invoice #'+invoiceNum:''} ${period}</div>
       </div>
       <div style="padding:14px;background:#fff;">
+        ${reconMismatch?`<div style="margin-bottom:10px;padding:8px 10px;background:#fef2f2;border:1px solid #fecaca;border-radius:5px;font-size:11px;color:#991b1b;font-weight:700;">⚠️ Parsed line items (${fmt(reconDebits)} debit / ${fmt(reconCredits)} credit) don't match this invoice's own header totals (${fmt(totalDebits)} debit / ${fmt(totalCredits)} credit) — there's a transaction type on this invoice the audit doesn't recognize yet. Don't save until this is resolved; send this invoice over so the parser can be taught the new type.</div>`:''}
         ${actResults.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--blue);text-transform:uppercase;margin-bottom:6px;">Activation Orders</div>
           ${actResults.map(r=>r.act
             ?`<div style="padding:6px 10px;background:var(--green-l);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span><strong>${r.act.phone}</strong> ${r.act.customer_name||''}</span><span style="color:var(--blue);font-family:monospace;">#${r.order} <span class="badge b-green">✅</span></span></div>`
@@ -1785,6 +1800,9 @@ async function runFullAudit(file){
             ?`<div style="padding:6px 10px;background:var(--gold-l,#fff8e1);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span><strong>${r.act.phone}</strong> ${r.act.customer_name||''} · ${r.act.plan||''}</span><span style="color:var(--gold);font-weight:700;">VidaPay paid ${fmt(Math.abs(r.amount))} <span class="badge b-green">✅ linked</span></span></div>`
             :`<div style="padding:6px 10px;background:var(--red-l);border-left:3px solid var(--red);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--red);font-weight:700;">Order #${r.order} — spiff paid, but NO matching activation on file</span><span style="color:var(--red);font-weight:700;">${fmt(Math.abs(r.amount))}</span></div>`
           ).join('')}
+        </div>`:''}
+        ${additionalSpiffRows.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--teal);text-transform:uppercase;margin-bottom:6px;">🔄 Additional Spiff (month 2+ on an existing line — informational)</div>
+          ${additionalSpiffRows.map(r=>`<div style="padding:6px 10px;background:var(--teal-l,#f0fbff);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span>Order #${r.order}${r.product?' · '+r.product:''}</span><span style="color:var(--teal);font-weight:700;">${fmt(Math.abs(r.amount))}</span></div>`).join('')}
         </div>`:''}
         ${promoRows.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--purple);text-transform:uppercase;margin-bottom:6px;">📦 Subsidy / Promo Credits (informational — verify against Phones tab)</div>
           ${promoRows.map(r=>{
@@ -1798,14 +1816,15 @@ async function runFullAudit(file){
             :`<div style="padding:6px 10px;background:#fff8e1;border-left:3px solid var(--gold);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--gold);font-weight:700;">Order #${r.order} — not logged</span><button class="btn btn-ghost" style="font-size:10px;padding:2px 8px;" onclick="document.getElementById('ref-order').value='${r.order}';showTab('refills',document.querySelectorAll('.nav-tab')[3])">Log →</button></div>`
           ).join('')}
         </div>`:''}
+        ${residualRows.length?`<div style="margin-bottom:10px;font-size:11px;color:var(--muted);">Residual orders this period: ${fmt(residualTotal)} (informational, nothing to log)</div>`:''}
         ${feeRows.length?`<div style="margin-bottom:10px;font-size:11px;color:var(--muted);">Fees this period: ${fmt(feeTotal)} (informational, nothing to log)</div>`:''}
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
           <div style="text-align:center;padding:8px;background:var(--red-l);border-radius:5px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">DEBITS</div><div style="font-size:16px;font-weight:900;color:var(--red);">${fmt(totalDebits)}</div></div>
           <div style="text-align:center;padding:8px;background:var(--green-l);border-radius:5px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">CREDITS</div><div style="font-size:16px;font-weight:900;color:var(--green);">${fmt(totalCredits)}</div></div>
-          <div style="text-align:center;padding:8px;background:var(--blue-l);border-radius:5px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">NET</div><div style="font-size:16px;font-weight:900;color:var(--blue);">${fmt(grandTotal)}</div></div>
+          <div style="text-align:center;padding:8px;background:var(--blue-l);border-radius:5px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">NET</div><div style="font-size:16px;font-weight:900;color:var(--blue);">${grandTotal<0?'('+fmt(Math.abs(grandTotal))+')':fmt(grandTotal)}</div></div>
         </div>
         <div style="margin-top:12px;display:flex;gap:8px;">
-          <button class="btn" style="background:var(--green);color:#fff;" onclick="saveAuditResult('${invoiceNum}','${period}',{actOrders:${actRows.reduce((s,r)=>s+r.amount,0)},spiff:${spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)},subsidy:${promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)},rtr:${rtrRows.reduce((s,r)=>s+r.amount,0)},fee:${feeTotal}})">💾 Save to Invoice History</button>
+          <button class="btn" style="background:${reconMismatch?'var(--muted)':'var(--green)'};color:#fff;" ${reconMismatch?'disabled title="Fix the mismatch above first"':''} onclick="saveAuditResult('${invoiceNum}','${period}',{actOrders:${actRows.reduce((s,r)=>s+r.amount,0)},spiff:${spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)+additionalSpiffTotal},subsidy:${promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)},rtr:${rtrRows.reduce((s,r)=>s+r.amount,0)},fee:${feeTotal+Math.max(0,residualTotal)}})">💾 Save to Invoice History</button>
           <button class="btn btn-ghost" onclick="document.getElementById('invAuditResults').style.display='none';document.getElementById('invDropZone').style.display='block';">↩ Another</button>
         </div>
       </div>

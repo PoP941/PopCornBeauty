@@ -450,9 +450,10 @@ td{padding:10px 12px;vertical-align:middle;}
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--teal);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">📱 Activations</div><div style="font-size:24px;font-weight:900;color:var(--teal);" id="invActProfit">$0.00</div></div>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--lime);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">💳 Refills</div><div style="font-size:24px;font-weight:900;color:var(--lime);" id="invRefillProfit">$0.00</div></div>
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--orange);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">📦 Phones</div><div style="font-size:24px;font-weight:900;color:var(--orange);" id="invPhoneProfit">$0.00</div></div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--orange);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">💰 Total Spiff Credit</div><div style="font-size:24px;font-weight:900;color:var(--orange);" id="invSpiffCreditTotal">$0.00</div></div>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--gold);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">Σ Total Net Profit</div><div style="font-size:24px;font-weight:900;color:var(--gold);" id="invTotalProfit">$0.00</div></div>
   </div>
+  <div id="spiffReconBox" style="display:none;margin-bottom:16px;padding:10px 14px;background:#fff;border:1px solid var(--border);border-radius:8px;font-size:11px;"></div>
 
   <!-- INVOICE HISTORY -->
   <div class="section-hdr">
@@ -1343,9 +1344,27 @@ function renderInvoices(){
       <td><button class="del-btn" onclick="deleteInvoice(${inv.id})">✕</button></td>
     </tr>`;
   }).join('');
+  // Total Spiff Credit — sum of the "Spiff Credit" column across every saved invoice,
+  // i.e. what VidaPay has actually reported paying (not our internal projection).
+  const totalSpiffCredit=invoices.reduce((s,i)=>s+(parseFloat(i.spiff)||0),0);
+  const scEl=document.getElementById('invSpiffCreditTotal');if(scEl)scEl.textContent=fmt(totalSpiffCredit);
+  // Reconciliation: what VidaPay's saved invoices actually reported as spiff+subsidy
+  // credits, vs what our own internal tracking (Activations tab) says we've earned. These
+  // are two independent calculations by design — this just shows the gap between them,
+  // rather than silently merging them and hiding any discrepancy.
+  const reconEl=document.getElementById('spiffReconBox');
+  if(reconEl){
+    if(invoices.length){
+      const vidapayReported=invoices.reduce((s,i)=>s+(parseFloat(i.spiff)||0)+(parseFloat(i.subsidy)||0),0);
+      const ourTracking=activations.reduce((s,a)=>s+spiffEarned(a),0)+activations.reduce((s,a)=>s+(parseFloat(a.subsidy)||0),0);
+      const diff=ourTracking-vidapayReported;
+      reconEl.style.display='block';
+      reconEl.innerHTML=`<strong>Reconciliation:</strong> VidaPay's saved invoices report <strong style="color:var(--green)">${fmt(vidapayReported)}</strong> in spiff/subsidy credits · our internal tracking (Activations tab) says <strong style="color:var(--teal)">${fmt(ourTracking)}</strong> earned so far · gap: <strong style="color:${Math.abs(diff)<1?'var(--green)':'var(--red)'}">${diff>=0?'+':''}${fmt(diff)}</strong>${Math.abs(diff)<1?' ✅ matches closely':' — check for un-invoiced activations or unsaved audits'}`;
+    } else {
+      reconEl.style.display='none';
+    }
+  }
 }
-
-async function updateGoal(month,val){await sb.from('goals').upsert({month,target:parseInt(val)||10},{onConflict:'month'});showToast();}
 function renderGoals(){
   const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
   const now=new Date();
@@ -1392,7 +1411,6 @@ function renderDashboard(){
   document.getElementById('kpiPhoneProfit').textContent='$'+Math.round(pp);
   const ap=document.getElementById('invActProfit');if(ap)ap.textContent=fmt(tc+ts);
   const irp=document.getElementById('invRefillProfit');if(irp)irp.textContent=fmt(rp);
-  const ipp=document.getElementById('invPhoneProfit');if(ipp)ipp.textContent=fmt(pp);
   const itp=document.getElementById('invTotalProfit');if(itp)itp.textContent=fmt(net);
 }
 
@@ -1873,7 +1891,7 @@ async function runFullAudit(file){
     // Parse each invoice-detail LINE as its own row, bounded by the next date (or "Total:")
     // so text never bleeds from one row into the next — that bleed is what previously made
     // a Promo Order row get misread as a Sales/RTR order.
-    const rowRe=/(\d{1,2}\/\d{1,2}\/\d{4})\s+(?:\d{1,2}:\d{2}:\d{2}\s*[AP]M\s+)?(\d{7,9})\s+(Activation\s*Order|Postpaid\s*Instant\s*Spiff|Additional\s*Spiff|Retroactive\s*Spiff|Residual\s*Order|Promo\s*Order|Branded\s*MarketPlace|Sales\s*Order|Fee)\s+(.*?)(?=\d{1,2}\/\d{1,2}\/\d{4}\s+\d|Total\s*:|$)/gi;
+    const rowRe=/(\d{1,2}\/\d{1,2}\/\d{4})\s+(?:\d{1,2}:\d{2}:\d{2}\s*[AP]M\s+)?(\d{7,9})\s+(Activation\s*Order|Postpaid\s*Instant\s*Spiff|Additional\s*Spiff|Retroactive\s*Spiff|Residual\s*Order|Promo\s*Order|(?:Branded\s*)?MarketPlace|Sales\s*Order|Fee)\s+(.*?)(?=\d{1,2}\/\d{1,2}\/\d{4}\s+\d|Total\s*:|$)/gi;
     const rows=[...flat.matchAll(rowRe)].map(m=>{
       const type=m[3].replace(/\s+/g,' ').trim().toLowerCase();
       const rest=m[4]||'';

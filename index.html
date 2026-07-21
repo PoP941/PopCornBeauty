@@ -1740,6 +1740,25 @@ async function handleReceiptDrop(file){
     if(!receiptExtracted.order_num&&!receiptExtractedRows.length&&!receiptExtracted.model)
       throw new Error('Could not read data. Make sure the full VidaPay page is visible.');
 
+    if(receiptExtractedRows.length===1){
+      // Just one phone — no need for a separate review list that duplicates the form
+      // below. Fill the real fields directly so the rep only has to add Rebate/Plan/Return.
+      const r=receiptExtractedRows[0];
+      const model=(receiptExtracted.model||'').replace(/\b[0-9]{10,}\b/g,'').replace(/\s+/g,' ').trim();
+      const set=(id,v)=>{if(!v&&v!==0)return;const el=document.getElementById(id);if(el){el.value=v;el.style.background='#dcfce7';setTimeout(()=>el.style.background='',2000);}};
+      set('ph-order',receiptExtracted.order_num);
+      set('ph-imei',r.imei);
+      set('ph-model',model);
+      set('ph-cost',r.price);
+      set('ph-pdate',receiptExtracted.date);
+      if(r.rebate)set('ph-rebate',r.rebate);
+      if(status)status.style.display='none';
+      if(preview)preview.style.display='none';
+      if(zone)zone.style.display='block';
+      const fi=document.getElementById('receiptFileInput');if(fi)fi.value='';
+      receiptExtracted=null;receiptExtractedRows=[];
+      return;
+    }
     const ed=document.getElementById('receiptExtractedData');
     const rowHtml=()=>receiptExtractedRows.map((r,i)=>`<div style="background:#fff;padding:6px 10px;border-radius:5px;border:1px solid var(--border);display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;align-items:center;">
         <input value="${r.imei}" placeholder="IMEI" style="border:none;outline:none;font-size:11px;font-weight:800;color:var(--purple);font-family:monospace;background:transparent;" oninput="receiptExtractedRows[${i}].imei=this.value">

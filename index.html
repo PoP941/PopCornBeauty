@@ -219,7 +219,7 @@ td{padding:10px 12px;vertical-align:middle;}
     <span style="font-size:13px;font-weight:800;color:var(--gold)" id="actTotalSpiff">$0.00 earned</span>
   </div>
   <div class="table-wrap"><div class="table-scroll"><table>
-    <thead><tr><th>Phone #</th><th>Order #</th><th>Customer</th><th>PIN</th><th>IMEI</th><th>Date</th><th>Carrier</th><th>Plan</th><th>MRC</th><th>Subsidy</th><th>Spiff Adj</th><th>Net</th><th>M1</th><th>M2</th><th>M3</th><th>M4</th><th>M5</th><th>M6</th><th>Earned/Max</th><th>Refills</th><th>Status</th><th></th></tr></thead>
+    <thead><tr><th>Phone #</th><th>Order #</th><th>Customer</th><th>PIN</th><th>IMEI</th><th>Date</th><th>Carrier</th><th>Plan</th><th>MRC</th><th>Subsidy</th><th>Spiff Adj</th><th>Net</th><th>M1</th><th>M2</th><th>M3</th><th>M4</th><th>M5</th><th>M6</th><th>Earned to Date</th><th>Refills</th><th>Status</th><th></th></tr></thead>
     <tbody id="actTable"><tr><td colspan="22" class="empty-state">No activations yet</td></tr></tbody>
   </table></div></div>
 </div>
@@ -417,11 +417,18 @@ const SB_URL='https://timtwxrpanjtacstcfvz.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpbXR3eHJwYW5qdGFjc3RjZnZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMTM5MTMsImV4cCI6MjA5OTc4OTkxM30.vfr72cFDKEPQNbFGALSyFFEtQRBHqiF99pmf6J4Dktw';
 const sb=supabase.createClient(SB_URL,SB_KEY);
 let activations=[],refills=[],phones=[],invoices=[],goals={};
-// 6-month postpaid plans unlock spiff over 6 monthly refills (VidaPay's phased schedule).
-// Plans shorter than 6 months (3-month, monthly, etc.) pay their full spiff instantly at
-// activation — confirmed by VidaPay invoices showing "Activation Order" + "Postpaid Instant
-// Spiff" posted at the SAME timestamp for 3-month plans, with no further monthly payout.
+// Every activation uses the same monthly spiff schedule (90/55/55/70/65/65% of MRC) for its
+// first 6 months. A plan's term controls how many months are already PAID FOR — and so
+// unlock immediately — at activation: pay for 1 month, only M1 unlocks; pay for 3 months,
+// M1+M2+M3 unlock right away. Anything past what was paid at activation only unlocks when
+// an actual refill comes in for that phone number (a 4th-month payment unlocks M4, etc.).
+// There is NO cap on how long this keeps going — but past month 6, the MRC-percentage
+// schedule ends and commission switches to a flat 8% of whatever the customer actually
+// pays on each refill (same margin as the Refills tab), regardless of which plan they're
+// on. That's also the cue that the line needs to be moved to a new offer/company.
 const pcts=[0.90,0.55,0.55,0.70,0.65,0.65];
+const PROMO_MONTHS=pcts.length; // 6 — after this, refills earn flat 8% instead of the table
+const POST_PROMO_RATE=0.08;
 const fmt=v=>'$'+(parseFloat(v)||0).toFixed(2);
 const fmtDate=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'}):'—';
 
@@ -430,35 +437,63 @@ function planMonths(planName){
   const m=(planName||'').match(/(\d+)\s*-?\s*Month/i);
   return m?parseInt(m[1],10):1; // default: monthly plan = 1 month
 }
-// Unlock schedule for a given plan duration
-function pctSchedule(months){
-  if(months>=6) return pcts;           // 6-month: phased 90/55/55/70/65/65 over 6 refills
-  return [1.0];                        // 3-month / monthly: full spiff paid at activation
+// VidaPay's spiff table (per this month's promo flyer) applies its % to the plan's TRUE
+// MONTHLY rate — e.g. 90% of $50 for a $50/mo plan — never to a bundled multi-month price.
+// Our "mrc" field stores whatever the plan sells for (e.g. $150 for a 3-month bundle), so we
+// divide by the plan's term to get back to the real monthly rate before applying the table.
+function monthlyMrc(a){
+  const mo=planMonths(a.plan)||1;
+  return (parseFloat(a.mrc)||0)/mo;
 }
-// Max possible spiff for this plan (what it will total once fully unlocked)
-function spiffMax(mrc,months){
-  return pctSchedule(months).reduce((a,p)=>a+(mrc*p),0);
+// Reference total for the 6-month promo period, given a TRUE MONTHLY rate (not a bundle price)
+function spiffMax(mo_mrc){
+  return pcts.reduce((a,p)=>a+(mo_mrc*p),0);
 }
-// Refills actually logged so far for a phone number (real-time source of truth)
-function refillCountFor(phone){
+// All refills logged for a phone number, oldest first — the real-time source of truth for
+// which months have actually been paid beyond what was bundled at activation.
+function refillsForPhone(phone){
   const norm=(phone||'').replace(/\D/g,'');
-  return refills.filter(r=>(r.phone||'').replace(/\D/g,'')===norm).length;
+  return refills.filter(r=>(r.phone||'').replace(/\D/g,'')===norm).sort((a,b)=>a.id-b.id);
 }
-// Spiff actually EARNED so far — M1 is always earned at activation; each later slot only
-// unlocks once that many refills have been logged against this phone number.
+function refillCountFor(phone){
+  return refillsForPhone(phone).length;
+}
+// How many months are unlocked right now: the plan's paid-for term, plus one more for
+// every refill logged beyond that term. No cap — this can grow indefinitely.
+function unlockedSlots(a){
+  return planMonths(a.plan)+refillCountFor(a.phone);
+}
+// True once a line has passed the 6-month promo window — time for a new carrier offer
+function needsNewOffer(a){
+  return unlockedSlots(a)>PROMO_MONTHS;
+}
+// What a given month POSITION (1-based) is worth. `mo_mrc` must be the TRUE MONTHLY rate
+// (use monthlyMrc(a), never the raw bundle price). Months 1-6 use the MRC-percentage table;
+// month 7+ uses flat 8% of whatever dollar amount was actually paid on that refill (falls
+// back to the monthly MRC if no refill amount is on record, e.g. bundled months with no
+// individual dollar entry).
+function amountForPosition(pos,mo_mrc,refillAmount){
+  if(pos<=PROMO_MONTHS) return mo_mrc*pcts[pos-1];
+  const amt=(refillAmount!=null&&refillAmount!=='')?(parseFloat(refillAmount)||0):mo_mrc;
+  return amt*POST_PROMO_RATE;
+}
+// Spiff actually EARNED so far. Bundled months (paid at activation) fill positions
+// 1..planMonths at the table rate applied to the TRUE MONTHLY rate. Each actual refill
+// after that fills the next position — table rate through month 6, flat 8% of what was
+// actually paid from month 7 onward.
 function spiffEarned(a){
-  const mrc=parseFloat(a.mrc)||0;
-  const months=planMonths(a.plan);
-  const schedule=pctSchedule(months);
-  const rc=refillCountFor(a.phone);
+  const mo_mrc=monthlyMrc(a);
+  const planMo=planMonths(a.plan);
   let earned=0;
-  for(let i=0;i<schedule.length;i++){
-    if(i===0||rc>=i) earned+=schedule[i]*mrc;
-  }
+  // Bundled months (no individual dollar record — these were paid as part of the plan)
+  for(let pos=1;pos<=planMo;pos++) earned+=amountForPosition(pos,mo_mrc,null);
+  // Refills beyond the bundled term, in order, each filling the next position
+  refillsForPhone(a.phone).forEach((r,idx)=>{
+    const pos=planMo+idx+1;
+    earned+=amountForPosition(pos,mo_mrc,r.amount);
+  });
   return earned;
 }
-// Backwards-compatible alias (max, not earned) — kept for anything still calling spiff()
-const spiff=(mrc,months)=>spiffMax(mrc,months||6);
 
 const plans={
   monthly:[
@@ -584,7 +619,7 @@ function clearAct(){
   const banner=document.getElementById('rebateBanner');if(banner)banner.classList.remove('show');
 }
 async function deleteActivation(id){if(!confirm('Delete?'))return;await sb.from('activations').delete().eq('id',id);showToast();}
-function commMonth(phone){const c=refills.filter(r=>r.phone===phone).length;return['Month 1','→Month 2','→Month 3','→Month 4','→Month 5','→Month 6','✓ Done'][Math.min(c,6)];}
+function commMonth(phone){const c=refills.filter(r=>r.phone===phone).length;return c===0?'Month 1':'Month '+(c+1);}
 
 function renderActivations(){
   const tbody=document.getElementById('actTable');
@@ -592,19 +627,23 @@ function renderActivations(){
   let totalEarned=0;
   tbody.innerHTML=activations.map(a=>{
     const mrc=parseFloat(a.mrc)||0,sub=parseFloat(a.subsidy)||0,sp=parseFloat(a.spiff)||0;
-    const months=planMonths(a.plan);
-    const schedule=pctSchedule(months);
-    const max=spiffMax(mrc,months);
+    const moMrc=monthlyMrc(a); // true monthly rate the spiff table is actually applied to
+    const promoMax=spiffMax(moMrc);
     const rc=refillCountFor(a.phone);
+    const n=unlockedSlots(a);
     const earned=spiffEarned(a);
+    const extraMonths=Math.max(0,n-PROMO_MONTHS);
+    const newOffer=needsNewOffer(a);
     const net=mrc-sub-sp;totalEarned+=earned;
     const hp=a.imei&&phones.find(p=>p.imei&&p.imei===a.imei);
-    // Render M1-M6 columns: green = unlocked/earned, amber = pending (this plan just hasn't
-    // gotten that many refills yet), dash = not applicable to this plan's duration at all
+    // M1-M6 columns show the 6-month promo schedule applied to the TRUE MONTHLY rate (bundle
+    // price ÷ plan term), matching VidaPay's own payout table — never the full bundle price.
+    // Green = unlocked (front-loaded by the plan's term, or earned via a later refill),
+    // amber = still pending a future refill. Months beyond 6 keep accruing (no cap) but are
+    // summarized, not columned individually.
     const monthCells=[0,1,2,3,4,5].map(i=>{
-      if(i>=schedule.length) return `<td class="money-t" style="color:var(--muted);font-size:11px">—</td>`;
-      const unlocked=(i===0||rc>=i);
-      const amt=mrc*schedule[i];
+      const unlocked=i<n;
+      const amt=moMrc*pcts[i];
       return `<td class="money-t" style="color:${unlocked?'var(--green)':'var(--gold)'};font-size:11px">${amt.toFixed(0)}${unlocked?'':' ⏳'}</td>`;
     }).join('');
     return`<tr style="${hp?'background:#fffbeb;':''}">
@@ -621,9 +660,12 @@ function renderActivations(){
       <td class="money-t" style="color:var(--green)">${sp?fmt(sp):'—'}</td>
       <td class="money-t" style="color:${net<0?'var(--green)':'var(--red)'}">${fmt(net)}</td>
       ${monthCells}
-      <td class="money-t" style="color:var(--gold);font-weight:900">${fmt(earned)} / ${fmt(max)}</td>
+      <td class="money-t" style="color:var(--gold);font-weight:900">${fmt(earned)}${extraMonths>0?`<div style="font-size:9px;font-weight:700;color:var(--muted)">+${extraMonths} mo past promo</div>`:''}</td>
       <td><span class="badge ${rc>0?'b-green':'b-gray'}">${rc}</span></td>
-      <td><span class="badge b-teal" style="font-size:9px">${commMonth(a.phone)}</span></td>
+      <td>
+        <span class="badge b-teal" style="font-size:9px">${commMonth(a.phone)}</span>
+        ${newOffer?`<div style="margin-top:3px"><span class="badge" style="font-size:9px;background:#fef2f2;color:#dc2626;font-weight:800">🔔 New Offer Needed</span></div>`:''}
+      </td>
       <td><button class="del-btn" onclick="deleteActivation(${a.id})">✕</button></td>
     </tr>`;
   }).join('');
@@ -685,79 +727,87 @@ function lookupRefillPhone(phone){
   const phoneRefills=refills.filter(r=>r.phone===phone||r.phone===phone.replace(/\D/g,'')).sort((a,b)=>a.id-b.id);
   const refillCount=phoneRefills.length;
 
-  // Plan-aware schedule: 6-month plans unlock over 6 refills, shorter plans (3-month,
-  // monthly, etc.) are paid in full at activation — no waiting on refills for those.
+  // The plan's term (1, 3, 6 months...) decides how many months are front-loaded/unlocked
+  // immediately at activation; every refill beyond that unlocks one more month. No cap —
+  // this keeps growing for as long as the customer keeps paying, at a flat 8% of each
+  // refill amount after month 6. Past month 6 we flag the line as needing a new offer.
   const planMo=planMonths(act.plan);
-  const schedule=pctSchedule(planMo);
-  const lastIdx=schedule.length-1;
-  const mrcNum=parseFloat(act.mrc)||0;
+  const mrcNum=parseFloat(act.mrc)||0; // full plan/bundle price, for display only
+  const moMrc=monthlyMrc(act); // true monthly rate — this is what the % table is applied to
+  const n=unlockedSlots(act); // months unlocked right now — no ceiling
+  const newOffer=needsNewOffer(act);
+  const lastIdx=5; // the 6-dot promo timeline is fixed at 6; extra months summarized below it
 
-  // Month labels sized to this plan's actual schedule
-  const monthLabels=schedule.length===1
-    ? ['Full Spiff (Paid at Activation)']
-    : Array.from({length:schedule.length},(_,i)=>i===0?'Month 1 (Activation)':'Month '+(i+1));
-  const currentMonthIdx=Math.min(refillCount,lastIdx);
-  const paidLabel=schedule.length===1?monthLabels[0]:monthLabels[currentMonthIdx];
+  const monthLabels=['Month 1','Month 2','Month 3','Month 4','Month 5','Month 6'];
+  const paidLabel=n>PROMO_MONTHS?`Month ${n} (${n-PROMO_MONTHS} past promo)`:n>=PROMO_MONTHS?'Month 6 (Promo Complete)':monthLabels[n-1]+' — through here';
 
-  // Is the customer overdue? Only meaningful for multi-month unlock plans.
+  // Is the customer overdue on refills beyond their plan's paid-for term?
   let overdueAlert='';
   let isOverdue=false;
-  if(schedule.length>1&&act.act_date){
+  if(act.act_date){
     const actDate=new Date(act.act_date+'T12:00:00');
     const today=new Date();
     const monthsSinceAct=Math.floor((today-actDate)/(1000*60*60*24*30));
-    if(monthsSinceAct>refillCount){
+    const monthsOwed=Math.max(0,monthsSinceAct-planMo); // months past the bundled term
+    if(monthsOwed>refillCount){
       isOverdue=true;
-      const monthsBehind=monthsSinceAct-refillCount;
-      overdueAlert=`⚠️ This customer is ${monthsBehind} month${monthsBehind>1?'s':''} behind! Activated ${act.act_date?new Date(act.act_date+'T12:00:00').toLocaleDateString():'unknown'} — ${refillCount} refill${refillCount!==1?'s':''} paid.`;
+      const monthsBehind=monthsOwed-refillCount;
+      overdueAlert=`⚠️ This customer is ${monthsBehind} month${monthsBehind>1?'s':''} behind on refills beyond their ${planMo}-month term! Activated ${act.act_date?new Date(act.act_date+'T12:00:00').toLocaleDateString():'unknown'} — ${refillCount} refill${refillCount!==1?'s':''} paid since.`;
     }
   }
 
-  const allDone=refillCount>=lastIdx||schedule.length===1;
-  // Next commission month this refill will trigger
-  const nextCommission=schedule.length===1?'Already fully paid at activation':
-    (refillCount<lastIdx?monthLabels[refillCount+1]||monthLabels[lastIdx]+' (Final)':'All '+schedule.length+' months complete ✓');
+  const promoDone=n>=PROMO_MONTHS;
+  const nextCommission=monthLabels[Math.min(n,5)]||('Month '+(n+1));
 
-  // Header color
-  const headerBg=isOverdue?'#fff8e1':allDone?'#f0fff4':'#f0f4ff';
-  const headerBorder=isOverdue?'#f59e0b':allDone?'#16a34a':'#1a3fa5';
+  // Header color — new-offer reminder takes priority over the plain "promo complete" state
+  const headerBg=isOverdue?'#fff8e1':newOffer?'#fef2f2':promoDone?'#f0fff4':'#f0f4ff';
+  const headerBorder=isOverdue?'#f59e0b':newOffer?'#dc2626':promoDone?'#16a34a':'#1a3fa5';
   document.getElementById('refLookupHeader').style.background=headerBg;
   document.getElementById('refLookupHeader').style.borderBottom='1px solid '+headerBorder;
 
   // Customer info
-  document.getElementById('refLookupIcon').textContent=allDone?'✅':isOverdue?'⚠️':'📱';
+  document.getElementById('refLookupIcon').textContent=newOffer?'🔔':isOverdue?'⚠️':promoDone?'✅':'📱';
   document.getElementById('refLookupName').textContent=(act.customer_name||'Unknown Customer')+' — '+act.carrier+' '+act.plan;
   document.getElementById('refLookupStatus').textContent=
     'Activated: '+(act.act_date?new Date(act.act_date+'T12:00:00').toLocaleDateString():'Unknown')+
     ' · Order: '+(act.order_num||'—')+
-    ' · MRC: $'+mrcNum.toFixed(2)+
-    ' · '+planMo+'-month plan';
+    ' · Plan price: $'+mrcNum.toFixed(2)+' ($'+moMrc.toFixed(2)+'/mo effective)'+
+    ' · '+planMo+'-month plan ('+planMo+' month'+(planMo!==1?'s':'')+' front-loaded at activation)';
   document.getElementById('refLookupPaidThru').textContent=paidLabel;
 
-  // Timeline dots
+  // Timeline dots — the fixed 6-month promo schedule. First `planMo` are blue (bundled with
+  // the plan itself). Beyond that, each green dot represents an actual logged refill.
   const timeline=document.getElementById('refLookupTimeline');
   timeline.innerHTML=monthLabels.map((label,i)=>{
-    const isPaid=i<=refillCount-1||(i===0); // Month 1 = activation itself
-    const isNext=i===refillCount&&refillCount<lastIdx;
+    const isFrontLoaded=i<planMo;
+    const isPaid=i<n;
+    const isNext=i===n&&n<PROMO_MONTHS;
     let bg,color,border;
-    if(i===0){bg='#dbeafe';color='#1a3fa5';border='#1a3fa5';} // Activation = always blue
-    else if(isPaid){bg='#dcfce7';color='#16a34a';border='#16a34a';}
+    if(isFrontLoaded){bg='#dbeafe';color='#1a3fa5';border='#1a3fa5';} // bundled with the plan = blue
+    else if(isPaid){bg='#dcfce7';color='#16a34a';border='#16a34a';}   // earned via a refill = green
     else if(isNext){bg='#fef3c7';color='#b45309';border='#f59e0b';}
     else{bg='#f3f4f6';color='#9ca3af';border='#e5e7eb';}
-    const label2=i===0?(schedule.length===1?'Activation (Full Amount)':'Activation'):i<refillCount?'✓ Paid':isNext?'← Next':'Pending';
+    const label2=isFrontLoaded?'Bundled':isPaid?'✓ Refill paid':isNext?'← Next refill':'Pending';
     return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:72px">
-      <div style="width:28px;height:28px;border-radius:50%;background:${bg};border:2px solid ${border};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:${color}">${i===0?'A':i+1}</div>
+      <div style="width:28px;height:28px;border-radius:50%;background:${bg};border:2px solid ${border};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:${color}">${i+1}</div>
       <div style="font-size:9px;font-weight:700;color:${color};text-align:center;max-width:72px">${label2}</div>
     </div>${i<lastIdx?'<div style="width:20px;height:2px;background:'+border+';margin-top:14px;opacity:.4"></div>':''}`;
   }).join('');
 
-  // This refill triggers which commission month (or: nothing left to trigger)
-  const triggerColor=allDone?'var(--green)':'var(--blue)';
-  const nextSpiffAmt=schedule.length===1?0:mrcNum*schedule[Math.min(refillCount+1,lastIdx)];
+  // Extra months beyond the 6-month promo, shown as a running total (no per-month dots)
+  if(n>PROMO_MONTHS){
+    const extra=n-PROMO_MONTHS;
+    timeline.innerHTML+=`<div style="margin-top:10px;padding:8px;border-radius:6px;background:#fef2f2;border:1px solid #fecaca;font-size:10px;color:#991b1b;font-weight:700;">
+      🔔 +${extra} month${extra>1?'s':''} paid beyond the 6-month promo, now earning flat 8% of each refill — this line needs a new offer on a new company.
+    </div>`;
+  }
+
+  // Next refill's payout: table rate through month 6, flat 8% of whatever they actually pay after that
+  const triggerColor=newOffer?'#dc2626':'var(--blue)';
+  const nextIsPostPromo=n>=PROMO_MONTHS;
+  const nextSpiffAmt=nextIsPostPromo?null:amountForPosition(n+1,moMrc,null);
   timeline.innerHTML+=`<div style="margin-top:6px;width:100%;padding-top:6px;border-top:1px solid var(--border);font-size:10px;font-weight:700;color:${triggerColor}">
-    ${schedule.length===1
-      ?'This is a '+planMo+'-month plan — full spiff of <strong>'+fmt(mrcNum*schedule[0])+'</strong> was already paid at activation. Refills here are for renewal record-keeping only.'
-      :'This refill will trigger: <strong>'+nextCommission+'</strong> commission payout · Spiff earned: <strong>'+fmt(nextSpiffAmt)+'</strong>'}
+    This refill will trigger: <strong>${nextCommission}${nextIsPostPromo?' (post-promo)':''}</strong> commission payout · Spiff earned: <strong>${nextIsPostPromo?'8% of amount paid':fmt(nextSpiffAmt)}</strong>
   </div>`;
 
   // Alert
@@ -768,12 +818,12 @@ function lookupRefillPhone(phone){
     alertEl.style.color='#92400e';
     alertEl.style.borderTop='1px solid #fcd34d';
     alertEl.textContent=overdueAlert;
-  } else if(refillCount>=5){
+  } else if(newOffer){
     alertEl.style.display='block';
-    alertEl.style.background='#f0fff4';
-    alertEl.style.color='#166534';
-    alertEl.style.borderTop='1px solid #86efac';
-    alertEl.textContent='✅ All 6 commission months complete for this customer.';
+    alertEl.style.background='#fef2f2';
+    alertEl.style.color='#991b1b';
+    alertEl.style.borderTop='1px solid #fecaca';
+    alertEl.textContent='🔔 This customer has passed the 6-month promo window — set them up with a new offer on a new company.';
   } else {
     alertEl.style.display='none';
   }
@@ -1574,31 +1624,29 @@ function renderCommPipeline(){
   const el=document.getElementById('commPipeline');if(!el)return;
   if(!activations.length){el.innerHTML='<div style="padding:16px;text-align:center;color:var(--muted);">No activations yet</div>';return;}
   el.innerHTML=activations.slice(0,6).map(a=>{
-    const mrc=parseFloat(a.mrc)||0;
     const rc=refillCountFor(a.phone);
     const earned=spiffEarned(a);
-    const max=spiffMax(mrc,planMonths(a.plan));
-    const pending=max-earned;
+    const newOffer=needsNewOffer(a);
     return`<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;">
       <div><div style="font-weight:700;color:var(--pink);">${a.phone}</div><div style="font-size:10px;color:var(--muted);">${a.plan||''} · ${rc} return${rc!==1?'s':''}</div></div>
-      <div style="text-align:right;"><div style="font-weight:900;color:var(--green);">${fmt(earned)}</div>${pending>0.01?`<div style="font-size:10px;color:var(--muted);">${fmt(pending)} pending</div>`:''}</div>
+      <div style="text-align:right;"><div style="font-weight:900;color:var(--green);">${fmt(earned)}</div>${newOffer?`<div style="font-size:9px;font-weight:800;color:#dc2626;">🔔 new offer needed</div>`:''}</div>
     </div>`;
   }).join('');
 }
 function renderOverdue(){
   const el=document.getElementById('overdueList');const ce=document.getElementById('overdueCount');if(!el)return;
-  const ov=activations.filter(a=>{
-    if(!a.act_date||!a.phone)return false;
-    const schedule=pctSchedule(planMonths(a.plan));
-    if(schedule.length<=1)return false; // fully paid at activation — nothing to be "overdue" on
-    const lastIdx=schedule.length-1;
+  const items=activations.filter(a=>a.act_date&&a.phone).map(a=>{
+    const planMo=planMonths(a.plan);
     const mo=Math.floor((new Date()-new Date(a.act_date+'T12:00:00'))/(1000*60*60*24*30.5));
-    return Math.min(mo,lastIdx)-refillCountFor(a.phone)>0&&mo>=1;
-  });
-  if(ce){ce.textContent=ov.length;ce.style.background=ov.length?'var(--red)':'var(--green)';}
-  el.innerHTML=ov.length?ov.map(a=>`<div style="padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;display:flex;justify-content:space-between;" onclick="showTab('refills',document.querySelectorAll('.nav-tab')[3]);document.getElementById('ref-phone').value='${a.phone}'">
+    const monthsOwed=Math.max(0,mo-planMo); // months past the bundled term, no cap
+    const behind=monthsOwed-refillCountFor(a.phone)>0;
+    const newOffer=needsNewOffer(a);
+    return{a,behind,newOffer};
+  }).filter(x=>x.behind||x.newOffer);
+  if(ce){ce.textContent=items.length;ce.style.background=items.length?'var(--red)':'var(--green)';}
+  el.innerHTML=items.length?items.map(({a,behind,newOffer})=>`<div style="padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;display:flex;justify-content:space-between;" onclick="showTab('refills',document.querySelectorAll('.nav-tab')[3]);document.getElementById('ref-phone').value='${a.phone}'">
     <div><div style="font-weight:700;color:var(--pink);">${a.phone}</div><div style="font-size:10px;color:var(--muted);">${a.customer_name||''}</div></div>
-    <div style="background:var(--red-l);color:var(--red);padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;">needs refill</div>
+    <div style="background:${newOffer?'#fef2f2':'var(--red-l)'};color:${newOffer?'#dc2626':'var(--red)'};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;">${newOffer?'🔔 new offer':'needs refill'}</div>
   </div>`).join(''):'<div style="padding:16px;text-align:center;color:var(--green);">✅ All up to date</div>';
 }
 function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();}

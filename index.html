@@ -264,7 +264,7 @@ td{padding:10px 12px;vertical-align:middle;}
       <div class="field"><label>Order #</label><input id="ref-order" type="text" placeholder="347798630"></div>
       <div class="field"><label>Date</label><input id="ref-date" type="date"></div>
       <div class="field"><label>Plan</label><select id="ref-plan" onchange="refPlanChanged(this.value)"><option value="">Select...</option><option>$20 RTR</option><option>$25 RTR</option><option>$30 RTR</option><option>$40 RTR</option><option>$50 RTR</option><option>$60 RTR</option><option>Other</option></select></div>
-      <div class="field" id="ref-amount-field"><label>Amount Collected $</label><input class="money-f" id="ref-amount" type="number" step="0.01" placeholder="Pick a plan above" readonly></div>
+      <div class="field" id="ref-amount-field" style="display:none"><label>Amount Collected $</label><input class="money-f" id="ref-amount" type="number" step="0.01" placeholder="Enter amount"></div>
     </div>
     <!-- PHONE LOOKUP PANEL -->
     <div id="refLookupPanel" style="display:none;margin-top:12px;border-radius:6px;overflow:hidden;border:1.5px solid var(--border);">
@@ -821,16 +821,18 @@ function renderActivations(){
 
 function refPlanChanged(val){
   const amtField=document.getElementById('ref-amount');
+  const wrap=document.getElementById('ref-amount-field');
   if(val&&val!=='Other'){
     const m=val.match(/\$([\d.]+)/);
     amtField.value=m?m[1]:'';
-    amtField.readOnly=true;
-    amtField.placeholder='Pick a plan above';
+    wrap.style.display='none';
+  } else if(val==='Other'){
+    amtField.value='';
+    wrap.style.display='';
+    amtField.focus();
   } else {
     amtField.value='';
-    amtField.readOnly=false;
-    amtField.placeholder=val==='Other'?'Enter amount':'Pick a plan above';
-    if(val==='Other')amtField.focus();
+    wrap.style.display='none';
   }
 }
 async function addRefill(){

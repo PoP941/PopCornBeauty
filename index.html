@@ -197,7 +197,7 @@ td{padding:10px 12px;vertical-align:middle;}
       <div class="field"><label>Carrier</label>
         <select id="act-carrier"><option value="">Select...</option><option>Simple Mobile</option><option>Verizon Prepaid</option><option>Postpaid</option></select></div>
       <div class="field"><label>Plan *</label>
-        <select id="act-plan">
+        <select id="act-plan" onchange="checkImei(document.getElementById('act-imei').value)">
           <option value="">Select plan...</option>
           <optgroup label="Monthly"><option>SM $20 Travelers</option><option>SM $25</option><option>SM $30</option><option>SM $40</option><option>SM $50 Unlimited World</option><option>SM $60 Unlimited World+</option></optgroup>
           <optgroup label="3-Month"><option>SM $75 3-Month</option><option>SM $150 Unlimited World 3-Month</option><option>SM $180 Unlimited World+ 3-Month</option></optgroup>
@@ -413,6 +413,28 @@ td{padding:10px 12px;vertical-align:middle;}
   };
   return map[plan]||0;
 }
+// Parses a phone's "Required Plan for Rebate" code (e.g. "3x$50", "3xWorld+", "6x$60") into
+// {months, rate}. Returns null for "— No rebate plan —" (no requirement to check).
+function reqPlanSpec(code){
+  if(!code) return null;
+  const m=(code||'').match(/^(\d+)x(?:\$(\d+)|World(\+?))$/i);
+  if(!m) return null;
+  const months=parseInt(m[1],10);
+  const rate=m[2]?parseInt(m[2],10):(m[3]==='+'?60:50);
+  return{months,rate};
+}
+// Does the plan actually chosen on this activation satisfy the phone's rebate requirement?
+// Compares term length AND true monthly rate (bundle price ÷ term) — a phone that needs
+// "3x$50" only qualifies on a 3-month plan whose monthly-equivalent rate is $50.
+function planMatchesReq(reqCode,planName){
+  const spec=reqPlanSpec(reqCode);
+  if(!spec) return true; // no rebate requirement set on this phone — nothing to fail
+  if(!planName) return false;
+  const months=planMonths(planName);
+  const mrcTotal=getMrcFromPlan(planName)||0;
+  const rate=months?mrcTotal/months:mrcTotal;
+  return months===spec.months&&Math.abs(rate-spec.rate)<0.5;
+}
 
 const SB_URL='https://timtwxrpanjtacstcfvz.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpbXR3eHJwYW5qdGFjc3RjZnZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMTM5MTMsImV4cCI6MjA5OTc4OTkxM30.vfr72cFDKEPQNbFGALSyFFEtQRBHqiF99pmf6J4Dktw';
@@ -546,16 +568,30 @@ function prefillPlan(name,mrc){
 function checkImei(imei){
   const banner=document.getElementById('rebateBanner');
   if(!imei||imei.length<10){banner.classList.remove('show');return;}
-  const match=phones.find(p=>p.imei&&p.imei.trim()===imei.trim());
+  const clean=imei.replace(/[^0-9]/g,'');
+  const match=phones.find(p=>p.imei&&(p.imei||'').replace(/[^0-9]/g,'')===clean);
   if(match){
     const rebate=parseFloat(match.rebate_expected)||parseFloat(match.cost)||0;
-    document.getElementById('rebateTitle').textContent='✅ Rebate Found — '+match.model;
-    document.getElementById('rebateDesc').textContent=
-      'IMEI matches '+match.model+' in your phone inventory. '+
-      'Expected rebate: '+fmt(rebate)+
-      (match.req_plan?' · Required plan: '+match.req_plan:'')+
-      '. Subsidy field auto-filled below.';
-    document.getElementById('act-subsidy').value=rebate;
+    const selectedPlan=document.getElementById('act-plan')?.value||'';
+    const spec=reqPlanSpec(match.req_plan);
+    const qualifies=!spec||!selectedPlan||planMatchesReq(match.req_plan,selectedPlan);
+    if(match.status==='Sold'){
+      document.getElementById('rebateTitle').textContent='⚠️ Already Sold — '+match.model;
+      document.getElementById('rebateDesc').textContent='This IMEI is already marked Sold in inventory. Double-check you have the right phone before saving.';
+    } else if(spec&&selectedPlan&&!qualifies){
+      document.getElementById('rebateTitle').textContent='⚠️ Plan Mismatch — '+match.model;
+      document.getElementById('rebateDesc').textContent=
+        'This phone requires plan "'+match.req_plan+'" for its '+fmt(rebate)+' rebate, but the plan selected above doesn\'t match. '+
+        'The phone will still be pulled from inventory when you save, but the rebate will NOT apply — pick the correct plan first if you want it.';
+    } else {
+      document.getElementById('rebateTitle').textContent='✅ Rebate Found — '+match.model;
+      document.getElementById('rebateDesc').textContent=
+        'IMEI matches '+match.model+' in your phone inventory. '+
+        'Expected rebate: '+fmt(rebate)+
+        (match.req_plan?' · Required plan: '+match.req_plan:'')+
+        '. Subsidy field auto-filled below — this phone will be pulled from inventory automatically when you save.';
+      document.getElementById('act-subsidy').value=rebate;
+    }
     banner.classList.add('show');
   } else {
     banner.classList.remove('show');
@@ -607,9 +643,40 @@ async function addActivation(){
   const{data,error}=await sb.from('activations').insert(payload).select().single();
   if(error){alert('Save Error:\n'+error.message);return;}
   activations.unshift(data);
+
+  // If this IMEI matches a phone in inventory, pull it out automatically — a phone tied to
+  // a rebate can't just be sold on its own, it has to be paired with a real activation.
+  let invoiceNote='';
+  if(imei){
+    const cleanImei=imei.replace(/[^0-9]/g,'');
+    const invPhone=phones.find(p=>p.imei&&(p.imei||'').replace(/[^0-9]/g,'')===cleanImei);
+    if(invPhone&&invPhone.status!=='Sold'){
+      const spec=reqPlanSpec(invPhone.req_plan);
+      const qualifies=!spec||planMatchesReq(invPhone.req_plan,plan);
+      const subsidyEntered=parseFloat(document.getElementById('act-subsidy')?.value)||0;
+      const subsidyToApply=qualifies?(subsidyEntered||parseFloat(invPhone.rebate_expected)||0):0;
+      const{error:perr}=await sb.from('phones').update({
+        phone,sale_date:payload.act_date||new Date().toISOString().split('T')[0],
+        sale_price:mrc,subsidy:subsidyToApply,status:'Sold',
+      }).eq('id',invPhone.id);
+      if(!perr){
+        const pi=phones.findIndex(p=>p.id===invPhone.id);
+        if(pi>=0)phones[pi]={...phones[pi],phone,sale_date:payload.act_date,sale_price:mrc,subsidy:subsidyToApply,status:'Sold'};
+        renderPhones();
+        invoiceNote=qualifies
+          ?'\n📦 '+invPhone.model+' pulled from inventory — rebate '+fmt(subsidyToApply)+' applied.'
+          :'\n⚠️ '+invPhone.model+' pulled from inventory, but the plan selected doesn\'t match the required plan ("'+invPhone.req_plan+'") for its rebate — NO rebate was applied. Delete and redo this activation with the correct plan if that was a mistake.';
+      } else {
+        invoiceNote='\n⚠️ Matched '+invPhone.model+' in inventory but failed to mark it Sold ('+perr.message+') — update it manually in the Phones tab.';
+      }
+    } else if(invPhone&&invPhone.status==='Sold'){
+      invoiceNote='\n⚠️ This IMEI was already marked Sold in inventory — no inventory changes made.';
+    }
+  }
+
   renderActivations();renderDashboard();
   clearAct();showToast();
-  alert('✅ Activation saved!\n'+phone+' — '+plan);
+  alert('✅ Activation saved!\n'+phone+' — '+plan+invoiceNote);
 }
 function clearAct(){
   ['act-phone','act-order','act-name','act-pin','act-imei','act-date'].forEach(id=>{

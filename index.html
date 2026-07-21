@@ -1265,6 +1265,7 @@ async function deleteInvoice(id){if(!confirm('Delete?'))return;await sb.from('in
 
 function renderInvoices(){
   const tbody=document.getElementById('invTable');let td=0,tc=0;
+  const cEl=document.getElementById('invCount');if(cEl)cEl.textContent=invoices.length;
   if(!invoices.length){tbody.innerHTML='<tr><td colspan="13" class="empty-state">No invoices logged yet</td></tr>';}
   else tbody.innerHTML=invoices.map(inv=>{
     const deb=(parseFloat(inv.act_orders)||0)+(parseFloat(inv.rtr)||0)+(parseFloat(inv.fee)||0);
@@ -1786,7 +1787,7 @@ async function runFullAudit(file){
           <div style="text-align:center;padding:8px;background:var(--blue-l);border-radius:5px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">NET</div><div style="font-size:16px;font-weight:900;color:var(--blue);">${fmt(grandTotal)}</div></div>
         </div>
         <div style="margin-top:12px;display:flex;gap:8px;">
-          <button class="btn" style="background:var(--green);color:#fff;" onclick="saveAuditResult('${invoiceNum}','${period}',${totalDebits},${totalCredits},${grandTotal})">💾 Save to Invoice History</button>
+          <button class="btn" style="background:var(--green);color:#fff;" onclick="saveAuditResult('${invoiceNum}','${period}',{actOrders:${actRows.reduce((s,r)=>s+r.amount,0)},spiff:${spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)},subsidy:${promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)},rtr:${rtrRows.reduce((s,r)=>s+r.amount,0)},fee:${feeTotal}})">💾 Save to Invoice History</button>
           <button class="btn btn-ghost" onclick="document.getElementById('invAuditResults').style.display='none';document.getElementById('invDropZone').style.display='block';">↩ Another</button>
         </div>
       </div>
@@ -1801,12 +1802,13 @@ async function runFullAudit(file){
   }
 }
 
-async function saveAuditResult(num,period,debits,credits,net){
+async function saveAuditResult(num,period,cats){
   if(!num){alert('No invoice # found');return;}
   if(invoices.find(i=>i.invoice_num===String(num))){alert('Invoice #'+num+' already saved');return;}
   const{data,error}=await sb.from('invoices').insert({
     invoice_num:String(num),period:period||'',
-    act_orders:debits,spiff:credits,rtr:0,fee:1.50,
+    act_orders:cats.actOrders||0,spiff:cats.spiff||0,subsidy:cats.subsidy||0,
+    rtr:cats.rtr||0,fee:cats.fee||0,
     notes:'Auto-audited'
   }).select().single();
   if(error){alert('Save error: '+error.message);return;}

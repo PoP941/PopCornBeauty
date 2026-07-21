@@ -1854,7 +1854,7 @@ async function runFullAudit(file){
     // Parse each invoice-detail LINE as its own row, bounded by the next date (or "Total:")
     // so text never bleeds from one row into the next — that bleed is what previously made
     // a Promo Order row get misread as a Sales/RTR order.
-    const rowRe=/(\d{1,2}\/\d{1,2}\/\d{4})\s+(?:\d{1,2}:\d{2}:\d{2}\s*[AP]M\s+)?(\d{7,9})\s+(Activation\s*Order|Postpaid\s*Instant\s*Spiff|Additional\s*Spiff|Residual\s*Order|Promo\s*Order|Branded\s*MarketPlace|Sales\s*Order|Fee)\s+(.*?)(?=\d{1,2}\/\d{1,2}\/\d{4}\s+\d|Total\s*:|$)/gi;
+    const rowRe=/(\d{1,2}\/\d{1,2}\/\d{4})\s+(?:\d{1,2}:\d{2}:\d{2}\s*[AP]M\s+)?(\d{7,9})\s+(Activation\s*Order|Postpaid\s*Instant\s*Spiff|Additional\s*Spiff|Retroactive\s*Spiff|Residual\s*Order|Promo\s*Order|Branded\s*MarketPlace|Sales\s*Order|Fee)\s+(.*?)(?=\d{1,2}\/\d{1,2}\/\d{4}\s+\d|Total\s*:|$)/gi;
     const rows=[...flat.matchAll(rowRe)].map(m=>{
       const type=m[3].replace(/\s+/g,' ').trim().toLowerCase();
       const rest=m[4]||'';
@@ -1862,15 +1862,16 @@ async function runFullAudit(file){
       let last=null,mm;
       while((mm=amtRe.exec(rest)))last=mm;
       const amount=last?(last[1]?-parseFloat(last[1].replace(/,/g,'')):parseFloat(last[2].replace(/,/g,''))):0;
-      return{date:m[1],order:m[2],type,amount,product:rest.replace(/\$[\d,.()]+/g,'').trim().slice(0,60)};
+      return{date:m[1],order:m[2],type,amount,product:rest.replace(/\(?\$[\d,.]+\)?/g,'').replace(/\s{2,}/g,' ').trim().slice(0,60)};
     });
     const actRows=rows.filter(r=>r.type.includes('activation'));
     // "Postpaid Instant Spiff" shares its order # with the Activation Order it belongs to,
-    // so it's matched against that activation. "Additional Spiff" (month 2+, on an already-
-    // active line) has its own unrelated order #, so it's shown informationally instead of
-    // flagged as a missing activation.
-    const spiffRows=rows.filter(r=>r.type.includes('spiff')&&!r.type.includes('additional'));
-    const additionalSpiffRows=rows.filter(r=>r.type.includes('additional')&&r.type.includes('spiff'));
+    // so it's matched against that activation. "Additional Spiff" and "Retroactive Spiff"
+    // (month 2+ or a later correction, on an already-active line) each have their own
+    // unrelated order #, so they're shown informationally instead of flagged as a missing
+    // activation.
+    const spiffRows=rows.filter(r=>r.type.includes('spiff')&&!r.type.includes('additional')&&!r.type.includes('retroactive'));
+    const additionalSpiffRows=rows.filter(r=>r.type.includes('spiff')&&(r.type.includes('additional')||r.type.includes('retroactive')));
     const residualRows=rows.filter(r=>r.type.includes('residual'));
     const promoRows=rows.filter(r=>r.type.includes('promo'));
     const marketplaceRows=rows.filter(r=>r.type.includes('marketplace'));
@@ -1921,8 +1922,8 @@ async function runFullAudit(file){
             :`<div style="padding:6px 10px;background:var(--red-l);border-left:3px solid var(--red);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--red);font-weight:700;">Order #${r.order} — spiff paid, but NO matching activation on file</span><span style="color:var(--red);font-weight:700;">${fmt(Math.abs(r.amount))}</span></div>`
           ).join('')}
         </div>`:''}
-        ${additionalSpiffRows.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--teal);text-transform:uppercase;margin-bottom:6px;">🔄 Additional Spiff (month 2+ on an existing line — informational)</div>
-          ${additionalSpiffRows.map(r=>`<div style="padding:6px 10px;background:var(--teal-l,#f0fbff);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span>Order #${r.order}${r.product?' · '+r.product:''}</span><span style="color:var(--teal);font-weight:700;">${fmt(Math.abs(r.amount))}</span></div>`).join('')}
+        ${additionalSpiffRows.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--teal);text-transform:uppercase;margin-bottom:6px;">🔄 Additional / Retroactive Spiff (later months or corrections — informational)</div>
+          ${additionalSpiffRows.map(r=>`<div style="padding:6px 10px;background:var(--teal-l,#f0fbff);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span>Order #${r.order}${r.product?' · '+r.product.replace(/\(+$/,'').trim():''}</span><span style="color:var(--teal);font-weight:700;">${fmt(Math.abs(r.amount))}</span></div>`).join('')}
         </div>`:''}
         ${promoRows.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--purple);text-transform:uppercase;margin-bottom:6px;">📦 Subsidy / Promo Credits (informational — verify against Phones tab)</div>
           ${promoRows.map(r=>{

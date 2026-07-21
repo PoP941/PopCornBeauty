@@ -130,6 +130,7 @@ td{padding:10px 12px;vertical-align:middle;}
   <button class="nav-tab" onclick="showTab('activations',this)">📱 Activations</button>
   <button class="nav-tab" onclick="showTab('refills',this)">💳 Refills</button>
   <button class="nav-tab" onclick="showTab('phones',this)">📲 Phones</button>
+  <button class="nav-tab" onclick="showTab('lookup',this)">🔍 Lookup</button>
   <button class="nav-tab" onclick="showTab('invoices',this)">📄 Invoices</button>
 </div>
 
@@ -206,6 +207,8 @@ td{padding:10px 12px;vertical-align:middle;}
         </select></div>
       <div class="field"><label>Date</label><input id="act-date" type="date"></div>
       <div class="field"><label>IMEI (optional)</label><input class="imei-f" id="act-imei" type="text" placeholder="IMEI if known" oninput="checkImei(this.value)"></div>
+      <div class="field"><label>Rebate/Subsidy Applied $</label><input class="money-f" id="act-subsidy" type="number" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Customer Pays for Phone $</label><input class="money-f" id="act-phone-price" type="number" step="0.01" placeholder="0.00 (blank = free with activation)"></div>
     </div>
     <div class="rebate-banner" id="rebateBanner"><div style="font-size:20px">💡</div><div><div class="rebate-title" id="rebateTitle"></div><div class="rebate-desc" id="rebateDesc"></div></div></div>
     <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -307,6 +310,18 @@ td{padding:10px 12px;vertical-align:middle;}
     <thead><tr><th>Customer Phone #</th><th>IMEI</th><th>Model</th><th>Cost</th><th>Sale Price</th><th>Profit</th><th>Subsidy</th><th>Phone Total</th><th>+ Plan Commission</th><th>Grand Total</th><th>Sale Date</th><th></th></tr></thead>
     <tbody id="soldTable"><tr><td colspan="12" class="empty-state">No sales yet</td></tr></tbody>
   </table></div></div>
+</div>
+
+<div id="tab-lookup" class="tab-panel">
+  <div style="background:#fff;border:2px solid var(--blue);border-radius:8px;padding:20px;margin-bottom:16px;">
+    <div class="section-title" style="margin-bottom:6px;">🔍 Universal Lookup</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">Search by customer phone #, VidaPay order #, or IMEI — pulls the whole story across Activations, Refills, and Phones.</div>
+    <div style="display:flex;gap:8px;">
+      <input id="lookup-q" type="text" placeholder="Phone #, order #, or IMEI..." style="flex:1;padding:10px 12px;border:1.5px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;" oninput="runLookup(this.value)" autocomplete="off">
+      <button class="btn btn-ghost" onclick="document.getElementById('lookup-q').value='';runLookup('')">Clear</button>
+    </div>
+  </div>
+  <div id="lookupResults"></div>
 </div>
 
 <div id="tab-invoices" class="tab-panel">
@@ -655,16 +670,17 @@ async function addActivation(){
       const qualifies=!spec||planMatchesReq(invPhone.req_plan,plan);
       const subsidyEntered=parseFloat(document.getElementById('act-subsidy')?.value)||0;
       const subsidyToApply=qualifies?(subsidyEntered||parseFloat(invPhone.rebate_expected)||0):0;
+      const custPhonePrice=parseFloat(document.getElementById('act-phone-price')?.value)||0;
       const{error:perr}=await sb.from('phones').update({
         phone,sale_date:payload.act_date||new Date().toISOString().split('T')[0],
-        sale_price:0,subsidy:subsidyToApply,status:'Sold',
+        sale_price:custPhonePrice,subsidy:subsidyToApply,status:'Sold',
       }).eq('id',invPhone.id);
       if(!perr){
         const pi=phones.findIndex(p=>p.id===invPhone.id);
-        if(pi>=0)phones[pi]={...phones[pi],phone,sale_date:payload.act_date,sale_price:0,subsidy:subsidyToApply,status:'Sold'};
+        if(pi>=0)phones[pi]={...phones[pi],phone,sale_date:payload.act_date,sale_price:custPhonePrice,subsidy:subsidyToApply,status:'Sold'};
         renderPhones();
         invoiceNote=qualifies
-          ?'\n📦 '+invPhone.model+' pulled from inventory — rebate '+fmt(subsidyToApply)+' applied.'
+          ?'\n📦 '+invPhone.model+' pulled from inventory — rebate '+fmt(subsidyToApply)+' applied'+(custPhonePrice>0?', customer paid '+fmt(custPhonePrice)+' for the phone.':', phone free with activation.')
           :'\n⚠️ '+invPhone.model+' pulled from inventory, but the plan selected doesn\'t match the required plan ("'+invPhone.req_plan+'") for its rebate — NO rebate was applied. Delete and redo this activation with the correct plan if that was a mistake.';
       } else {
         invoiceNote='\n⚠️ Matched '+invPhone.model+' in inventory but failed to mark it Sold ('+perr.message+') — update it manually in the Phones tab.';
@@ -679,7 +695,7 @@ async function addActivation(){
   alert('✅ Activation saved!\n'+phone+' — '+plan+invoiceNote);
 }
 function clearAct(){
-  ['act-phone','act-order','act-name','act-pin','act-imei','act-date'].forEach(id=>{
+  ['act-phone','act-order','act-name','act-pin','act-imei','act-date','act-subsidy','act-phone-price'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.value='';
   });
   const carr=document.getElementById('act-carrier');if(carr)carr.value='';
@@ -1766,6 +1782,77 @@ function renderOverdue(){
   </div>`).join(''):'<div style="padding:16px;text-align:center;color:var(--green);">✅ All up to date</div>';
 }
 function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();}
+
+// ── Universal Lookup: search by phone #, order #, or IMEI across all three tables ──
+function runLookup(raw){
+  const el=document.getElementById('lookupResults');if(!el)return;
+  const q=(raw||'').trim();
+  if(q.length<3){el.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px;">Type at least 3 characters — a phone #, order #, or IMEI.</div>';return;}
+  const qDigits=q.replace(/\D/g,'');
+  const matchesText=(v)=>v&&v.toLowerCase().includes(q.toLowerCase());
+  const matchesDigits=(v)=>qDigits.length>=3&&v&&(v.replace(/\D/g,'')||'').includes(qDigits);
+
+  const actHits=activations.filter(a=>matchesText(a.order_num)||matchesDigits(a.phone)||matchesDigits(a.imei)||matchesText(a.customer_name));
+  const refHits=refills.filter(r=>matchesText(r.order_num)||matchesDigits(r.phone));
+  const phoneHits=phones.filter(p=>matchesText(p.order_num)||matchesDigits(p.imei)||matchesDigits(p.phone));
+
+  // Collect every distinct customer phone # touched by any hit, so we can show the FULL
+  // story per customer (activation + its refills + any linked phone), not just the row
+  // that happened to match the search text.
+  const phoneNums=new Set();
+  actHits.forEach(a=>a.phone&&phoneNums.add(a.phone));
+  refHits.forEach(r=>r.phone&&phoneNums.add(r.phone));
+  phoneHits.forEach(p=>p.phone&&phoneNums.add(p.phone));
+
+  if(!actHits.length&&!refHits.length&&!phoneHits.length){
+    el.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px;">No matches for "'+q+'" in Activations, Refills, or Phones.</div>';
+    return;
+  }
+
+  const cards=[];
+  // One card per customer phone # with a related record
+  phoneNums.forEach(phone=>{
+    const act=activations.find(a=>a.phone===phone);
+    const refs=refillsForPhone(phone);
+    const ph=phones.find(p=>p.phone===phone);
+    const rc=refs.length;
+    const earned=act?spiffEarned(act):0;
+    const newOffer=act?needsNewOffer(act):false;
+    cards.push(`<div style="background:#fff;border:1.5px solid var(--border);border-radius:8px;margin-bottom:12px;overflow:hidden;">
+      <div style="background:var(--blue-l);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
+        <div><span class="phone-t" style="font-size:15px;">${phone}</span>${act?.customer_name?' — '+act.customer_name:''}</div>
+        ${newOffer?'<span class="badge" style="background:#fef2f2;color:#dc2626;font-weight:800;">🔔 New Offer Needed</span>':''}
+      </div>
+      <div style="padding:14px;">
+        ${act?`<div style="margin-bottom:10px;">
+          <div style="font-size:10px;font-weight:800;color:var(--blue);text-transform:uppercase;margin-bottom:4px;">📱 Activation</div>
+          <div style="font-size:12px;">Order <strong>#${act.order_num||'—'}</strong> · ${act.plan||'—'} · ${act.carrier||''} · Activated ${fmtDate(act.act_date)}</div>
+          <div style="font-size:12px;margin-top:2px;">Earned to date: <strong style="color:var(--gold);">${fmt(earned)}</strong> · Refills: <strong>${rc}</strong>${act.imei?' · IMEI: <span style="font-family:monospace;">'+act.imei+'</span>':''}</div>
+        </div>`:'<div style="font-size:11px;color:var(--muted);margin-bottom:10px;">No activation on file for this number.</div>'}
+        ${refs.length?`<div style="margin-bottom:10px;">
+          <div style="font-size:10px;font-weight:800;color:var(--gold);text-transform:uppercase;margin-bottom:4px;">💳 Refills (${refs.length})</div>
+          ${refs.map(r=>`<div style="font-size:12px;padding:3px 0;">${fmtDate(r.ref_date)} · Order #${r.order_num||'—'} · ${fmt(parseFloat(r.amount)||0)} collected</div>`).join('')}
+        </div>`:''}
+        ${ph?`<div>
+          <div style="font-size:10px;font-weight:800;color:var(--purple);text-transform:uppercase;margin-bottom:4px;">📦 Phone</div>
+          <div style="font-size:12px;">${ph.model||'—'} · IMEI <span style="font-family:monospace;">${ph.imei||'—'}</span> · <span class="badge ${ph.status==='Sold'?'b-green':'b-blue'}">${ph.status||'In Stock'}</span></div>
+          <div style="font-size:12px;margin-top:2px;">Cost ${fmt(ph.cost)} · Rebate ${fmt(ph.rebate_expected)}${ph.req_plan?' · Requires '+ph.req_plan:''}</div>
+        </div>`:''}
+      </div>
+    </div>`);
+  });
+
+  // Phones that matched but have no linked customer # yet (still In Stock — no phone tied)
+  const unlinkedPhones=phoneHits.filter(p=>!p.phone);
+  if(unlinkedPhones.length){
+    cards.push(`<div style="background:#fff;border:1.5px solid var(--border);border-radius:8px;margin-bottom:12px;padding:14px;">
+      <div style="font-size:10px;font-weight:800;color:var(--purple);text-transform:uppercase;margin-bottom:6px;">📦 Matching Inventory (not yet sold)</div>
+      ${unlinkedPhones.map(p=>`<div style="font-size:12px;padding:3px 0;">${p.model||'—'} · IMEI <span style="font-family:monospace;">${p.imei||'—'}</span> · Order #${p.order_num||'—'} · <span class="badge b-blue">In Stock</span></div>`).join('')}
+    </div>`);
+  }
+
+  el.innerHTML=cards.join('');
+}
 function renderPL(){}
 function renderLookup(){}
 

@@ -439,10 +439,11 @@ td{padding:10px 12px;vertical-align:middle;}
   </div>
 
   <!-- SUMMARY CARDS -->
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--red);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">Total Debits — You Pay</div><div style="font-size:24px;font-weight:900;color:var(--red);" id="invDebits">$0.00</div></div>
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--green);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">Total Credits — You Earn</div><div style="font-size:24px;font-weight:900;color:var(--green);" id="invCredits">$0.00</div></div>
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--gold);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">Net Balance</div><div style="font-size:24px;font-weight:900;" id="invNet">$0.00</div></div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--teal);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">📱 Activations</div><div style="font-size:24px;font-weight:900;color:var(--teal);" id="invActProfit">$0.00</div></div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--lime);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">💳 Refills</div><div style="font-size:24px;font-weight:900;color:var(--lime);" id="invRefillProfit">$0.00</div></div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--orange);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">📦 Phones</div><div style="font-size:24px;font-weight:900;color:var(--orange);" id="invPhoneProfit">$0.00</div></div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--gold);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">Σ Total Net Profit</div><div style="font-size:24px;font-weight:900;color:var(--gold);" id="invTotalProfit">$0.00</div></div>
   </div>
 
   <!-- INVOICE HISTORY -->
@@ -1334,11 +1335,6 @@ function renderInvoices(){
       <td><button class="del-btn" onclick="deleteInvoice(${inv.id})">✕</button></td>
     </tr>`;
   }).join('');
-  const na=td-tc;
-  document.getElementById('invDebits').textContent=fmt(td);
-  document.getElementById('invCredits').textContent=fmt(tc);
-  const ne=document.getElementById('invNet');ne.textContent=fmt(na);
-  ne.style.color=na<0?'var(--green)':na>0?'var(--red)':'var(--gold)';
 }
 
 async function updateGoal(month,val){await sb.from('goals').upsert({month,target:parseInt(val)||10},{onConflict:'month'});showToast();}
@@ -1383,6 +1379,10 @@ function renderDashboard(){
   document.getElementById('kpiRefills').textContent=refills.length;
   document.getElementById('kpiRefillProfit').textContent='$'+Math.round(rp);
   document.getElementById('kpiPhoneProfit').textContent='$'+Math.round(pp);
+  const ap=document.getElementById('invActProfit');if(ap)ap.textContent=fmt(tc+ts);
+  const irp=document.getElementById('invRefillProfit');if(irp)irp.textContent=fmt(rp);
+  const ipp=document.getElementById('invPhoneProfit');if(ipp)ipp.textContent=fmt(pp);
+  const itp=document.getElementById('invTotalProfit');if(itp)itp.textContent=fmt(net);
 }
 
 function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();}
@@ -1954,6 +1954,10 @@ async function saveAuditResult(num,period,cats){
   }
   if(error){alert('Save error: '+error.message);return;}
   invoices.unshift(data);renderInvoices();showToast();
+  document.getElementById('invAuditResults').style.display='none';
+  document.getElementById('invAuditResults').innerHTML='';
+  document.getElementById('invDropZone').style.display='block';
+  const fi=document.getElementById('invDropInput');if(fi)fi.value='';
   alert('Invoice #'+num+' saved!');
 }
 

@@ -190,6 +190,14 @@ td{padding:10px 12px;vertical-align:middle;}
     <thead><tr><th id="dpDateHeader">Date</th><th>Commission</th><th>Refill Profit</th><th>Phone Profit</th><th>Total</th></tr></thead>
     <tbody id="dailyProfitTable"><tr><td colspan="5" class="empty-state">No activity yet</td></tr></tbody>
   </table></div></div>
+  <div class="section-hdr" style="margin-top:4px">
+    <div class="section-title">📦 Phones In Stock</div>
+    <div style="font-size:10px;color:var(--muted)" id="dashStockCount">0 in stock</div>
+  </div>
+  <div class="table-wrap" style="margin-bottom:4px;"><div class="table-scroll"><table>
+    <thead><tr><th>Model</th><th>IMEI</th><th>Purchased</th><th>Required Plan</th><th>Return By</th><th>Countdown</th></tr></thead>
+    <tbody id="dashStockTable"><tr><td colspan="6" class="empty-state">No phones in stock</td></tr></tbody>
+  </table></div></div>
   <div class="section-hdr" style="margin-top:4px"><div class="section-title">Monthly Goals — 2027</div><div style="font-size:10px;color:var(--muted)">Click the blue number to edit · Syncs live</div></div>
   <div class="goal-grid" id="goalGrid"></div>
   <div class="section-hdr" style="margin-top:4px"><div class="section-title">VidaPay Quick Guide</div></div>
@@ -1366,7 +1374,10 @@ function renderDashboard(){
   const tc=activations.reduce((a,x)=>a+spiffEarned(x),0);
   const ts=activations.reduce((a,x)=>a+(parseFloat(x.subsidy)||0),0);
   const rp=refills.reduce((a,r)=>a+((parseFloat(r.amount)||0)*0.08),0);
-  const pp=phones.reduce((a,p)=>a+((parseFloat(p.sale_price)||0)-(parseFloat(p.cost)||0)+(parseFloat(p.subsidy)||0)),0);
+  // Only phones that have actually SOLD count toward profit — an unsold phone's cost is
+  // still sitting in inventory, not a realized loss, so it shouldn't drag Net Profit down
+  // before it's even had a chance to sell or get its rebate back.
+  const pp=phones.filter(p=>p.status==='Sold').reduce((a,p)=>a+((parseFloat(p.sale_price)||0)-(parseFloat(p.cost)||0)+(parseFloat(p.subsidy)||0)),0);
   const net=tc+ts+rp+pp;
   document.getElementById('netTotal').textContent=fmt(net);
   document.getElementById('dashCommission').textContent=fmt(tc);
@@ -1403,6 +1414,28 @@ function returnCountdown(d){
   if(days<=3)return '<span style="color:var(--red);">'+days+'d left</span>';
   if(days<=7)return '<span style="color:var(--orange);">'+days+'d left</span>';
   return '<span style="color:var(--green);">'+days+'d left</span>';
+}
+function renderDashStock(){
+  const tbody=document.getElementById('dashStockTable');if(!tbody)return;
+  const inStock=phones.filter(p=>p.status!=='Sold');
+  const cEl=document.getElementById('dashStockCount');if(cEl)cEl.textContent=inStock.length+' in stock';
+  if(!inStock.length){tbody.innerHTML='<tr><td colspan="6" class="empty-state">No phones in stock</td></tr>';return;}
+  // Soonest return deadline first — that's the whole point of this view: what needs
+  // attention before it's late, not how much any of it cost.
+  const sorted=[...inStock].sort((a,b)=>{
+    if(!a.return_date&&!b.return_date)return 0;
+    if(!a.return_date)return 1;
+    if(!b.return_date)return -1;
+    return new Date(a.return_date)-new Date(b.return_date);
+  });
+  tbody.innerHTML=sorted.map(p=>`<tr>
+    <td style="font-weight:700;">${p.model||'—'}</td>
+    <td style="font-size:11px;font-family:monospace;color:var(--blue);">${p.imei||'—'}</td>
+    <td>${fmtDate(p.purchase_date)}</td>
+    <td style="font-size:11px;color:var(--muted);">${p.req_plan||'—'}</td>
+    <td style="font-size:11px;">${p.return_date?fmtDate(p.return_date):'—'}</td>
+    <td>${returnCountdown(p.return_date)}</td>
+  </tr>`).join('');
 }
 
 // ── Add Phone to Inventory ──
@@ -1990,7 +2023,7 @@ function renderOverdue(){
     <div style="background:${newOffer?'#fef2f2':'var(--red-l)'};color:${newOffer?'#dc2626':'var(--red)'};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;">${newOffer?'🔔 new offer':'needs refill'}</div>
   </div>`).join(''):'<div style="padding:16px;text-align:center;color:var(--green);">✅ All up to date</div>';
 }
-function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDailyProfit();runLookup(document.getElementById('lookup-q')?.value||'');}
+function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDailyProfit();renderDashStock();runLookup(document.getElementById('lookup-q')?.value||'');}
 
 // ── Universal Lookup: search by phone #, order #, or IMEI across all three tables ──
 // Merge Activations, Refills, and Sold Phones into one reverse-chronological feed —

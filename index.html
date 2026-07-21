@@ -256,6 +256,7 @@ td{padding:10px 12px;vertical-align:middle;}
       <button class="btn btn-ghost" onclick="clearRef()">Clear</button>
       <span style="font-size:10px;color:var(--muted)" id="refLookupHint">💡 Enter phone # to see activation & payment history</span>
     </div>
+    <div style="margin-top:6px;font-size:10px;color:var(--muted)">Every refill earns you the flat 8% margin, no matter who activated the line. The monthly commission schedule (M1–M6, then the flat post-promo rate) only applies to phones you activated yourself — shown as ✅ Linked below.</div>
   </div>
   <div class="ref-stats">
     <div class="kpi" style="--acc:var(--teal)"><div class="kpi-label">Total Refills</div><div class="kpi-value" id="refCount" style="color:var(--teal)">0</div></div>
@@ -721,7 +722,7 @@ function lookupRefillPhone(phone){
   const act=activations.find(a=>a.phone===phone||a.phone===phone.replace(/\D/g,''));
   if(!act){
     panel.style.display='none';
-    hint.textContent='⚠️ No activation found for this number — check Activations tab';
+    hint.textContent='⚠️ No activation on file for this number — this is a refill-only payment (8% margin), not eligible for the monthly commission schedule since we didn\'t activate this line. If it should be linked, check the Activations tab for a typo in the phone #.';
     hint.style.display='inline';
     return;
   }

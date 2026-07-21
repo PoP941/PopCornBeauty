@@ -448,7 +448,7 @@ td{padding:10px 12px;vertical-align:middle;}
     <div class="section-title">📋 Invoice History (<span id="invCount">0</span>)</div>
   </div>
   <div class="table-wrap"><div class="table-scroll"><table>
-    <thead><tr><th>Invoice #</th><th>Date</th><th>Period</th><th>Act. Orders</th><th>Spiff Credit</th><th>Subsidy</th><th>RTR</th><th>Fee</th><th>Total Debits</th><th>Total Credits</th><th>Net Balance</th><th>Notes</th><th>Status</th><th></th></tr></thead>
+    <thead><tr><th>Invoice #</th><th>Date</th><th>Period</th><th>Act. Orders</th><th>Spiff Credit</th><th>Subsidy</th><th>RTR</th><th>Marketplace</th><th>Fee</th><th>Total Debits</th><th>Total Credits</th><th>Net Balance</th><th>Notes</th><th>Status</th><th></th></tr></thead>
     <tbody id="invTable"><tr><td colspan="14" class="empty-state">No invoices yet — drop a PDF above</td></tr></tbody>
   </table></div></div>
 </div>
@@ -1284,9 +1284,9 @@ async function deleteInvoice(id){if(!confirm('Delete?'))return;await sb.from('in
 function renderInvoices(){
   const tbody=document.getElementById('invTable');let td=0,tc=0;
   const cEl=document.getElementById('invCount');if(cEl)cEl.textContent=invoices.length;
-  if(!invoices.length){tbody.innerHTML='<tr><td colspan="13" class="empty-state">No invoices logged yet</td></tr>';}
+  if(!invoices.length){tbody.innerHTML='<tr><td colspan="14" class="empty-state">No invoices logged yet</td></tr>';}
   else tbody.innerHTML=invoices.map(inv=>{
-    const deb=(parseFloat(inv.act_orders)||0)+(parseFloat(inv.rtr)||0)+(parseFloat(inv.fee)||0);
+    const deb=(parseFloat(inv.act_orders)||0)+(parseFloat(inv.rtr)||0)+(parseFloat(inv.fee)||0)+(parseFloat(inv.marketplace)||0);
     const cred=(parseFloat(inv.spiff)||0)+(parseFloat(inv.subsidy)||0);
     const net=deb-cred;td+=deb;tc+=cred;
     const nc=net<0?'var(--green)':net>0?'var(--red)':'var(--muted)';
@@ -1298,6 +1298,7 @@ function renderInvoices(){
       <td class="money-t" style="color:var(--green)">${inv.spiff?fmt(inv.spiff):'—'}</td>
       <td class="money-t" style="color:var(--purple)">${inv.subsidy?fmt(inv.subsidy):'—'}</td>
       <td class="money-t" style="color:var(--gold)">${inv.rtr?fmt(inv.rtr):'—'}</td>
+      <td class="money-t" style="color:var(--orange)">${inv.marketplace?fmt(inv.marketplace):'—'}</td>
       <td class="money-t" style="color:var(--muted)">${fmt(inv.fee)}</td>
       <td class="money-t" style="color:var(--red)">${fmt(deb)}</td>
       <td class="money-t" style="color:var(--green)">${fmt(cred)}</td>
@@ -1793,7 +1794,7 @@ async function runFullAudit(file){
     // Parse each invoice-detail LINE as its own row, bounded by the next date (or "Total:")
     // so text never bleeds from one row into the next — that bleed is what previously made
     // a Promo Order row get misread as a Sales/RTR order.
-    const rowRe=/(\d{1,2}\/\d{1,2}\/\d{4})\s+(?:\d{1,2}:\d{2}:\d{2}\s*[AP]M\s+)?(\d{7,9})\s+(Activation\s*Order|Postpaid\s*Instant\s*Spiff|Additional\s*Spiff|Residual\s*Order|Promo\s*Order|Sales\s*Order|Fee)\s+(.*?)(?=\d{1,2}\/\d{1,2}\/\d{4}\s+\d|Total\s*:|$)/gi;
+    const rowRe=/(\d{1,2}\/\d{1,2}\/\d{4})\s+(?:\d{1,2}:\d{2}:\d{2}\s*[AP]M\s+)?(\d{7,9})\s+(Activation\s*Order|Postpaid\s*Instant\s*Spiff|Additional\s*Spiff|Residual\s*Order|Promo\s*Order|Branded\s*MarketPlace|Sales\s*Order|Fee)\s+(.*?)(?=\d{1,2}\/\d{1,2}\/\d{4}\s+\d|Total\s*:|$)/gi;
     const rows=[...flat.matchAll(rowRe)].map(m=>{
       const type=m[3].replace(/\s+/g,' ').trim().toLowerCase();
       const rest=m[4]||'';
@@ -1812,6 +1813,7 @@ async function runFullAudit(file){
     const additionalSpiffRows=rows.filter(r=>r.type.includes('additional')&&r.type.includes('spiff'));
     const residualRows=rows.filter(r=>r.type.includes('residual'));
     const promoRows=rows.filter(r=>r.type.includes('promo'));
+    const marketplaceRows=rows.filter(r=>r.type.includes('marketplace'));
     const rtrRows=rows.filter(r=>r.type.includes('sales'));
     const feeRows=rows.filter(r=>r.type==='fee');
 
@@ -1819,18 +1821,23 @@ async function runFullAudit(file){
     const actResults=actRows.map(r=>({...r,act:activations.find(a=>a.order_num===r.order)}));
     const rtrResults=rtrRows.map(r=>({...r,ref:refills.find(f=>f.order_num===r.order)}));
     const spiffResults=spiffRows.map(r=>({...r,act:activations.find(a=>a.order_num===r.order)}));
-    const issues=actResults.filter(r=>!r.act).length+rtrResults.filter(r=>!r.ref).length;
-    const allGood=issues===0&&(actResults.length+rtrResults.length)>0;
+    // Branded MarketPlace = device/phone purchases. One order # can cover multiple physical
+    // units (see the multi-IMEI inventory import), so it's a match as long as AT LEAST ONE
+    // phone in inventory carries this order #.
+    const marketplaceResults=marketplaceRows.map(r=>({...r,phone:phones.find(p=>p.order_num===r.order)}));
+    const issues=actResults.filter(r=>!r.act).length+rtrResults.filter(r=>!r.ref).length+marketplaceResults.filter(r=>!r.phone).length;
+    const allGood=issues===0&&(actResults.length+rtrResults.length+marketplaceResults.length)>0;
     const hColor=allGood?'var(--green)':issues>0?'var(--red)':'var(--gold)';
     const feeTotal=feeRows.reduce((s,r)=>s+r.amount,0);
     const additionalSpiffTotal=additionalSpiffRows.reduce((s,r)=>s+Math.abs(r.amount),0);
     const residualTotal=residualRows.reduce((s,r)=>s+r.amount,0);
+    const marketplaceTotal=marketplaceRows.reduce((s,r)=>s+r.amount,0);
     // Reconciliation self-check: does what we parsed out of the itemized rows actually add
     // up to the invoice's own header totals? If not, some transaction TYPE on this invoice
     // isn't recognized by rowRe yet and is being silently dropped — same failure mode as the
     // earlier Promo Order bug, just with a different label next time. Catch it here instead
     // of finding out from a wrong saved total months later.
-    const reconDebits=actRows.reduce((s,r)=>s+r.amount,0)+rtrRows.reduce((s,r)=>s+r.amount,0)+feeTotal+Math.max(0,residualTotal);
+    const reconDebits=actRows.reduce((s,r)=>s+r.amount,0)+rtrRows.reduce((s,r)=>s+r.amount,0)+feeTotal+marketplaceTotal+Math.max(0,residualTotal);
     const reconCredits=spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)+promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)+additionalSpiffTotal+Math.max(0,-residualTotal);
     const reconMismatch=Math.abs(reconDebits-totalDebits)>0.02||Math.abs(reconCredits-totalCredits)>0.02;
     if(status)status.style.display='none';
@@ -1869,6 +1876,12 @@ async function runFullAudit(file){
             :`<div style="padding:6px 10px;background:#fff8e1;border-left:3px solid var(--gold);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--gold);font-weight:700;">Order #${r.order} — not logged</span><button class="btn btn-ghost" style="font-size:10px;padding:2px 8px;" onclick="document.getElementById('ref-order').value='${r.order}';showTab('refills',document.querySelectorAll('.nav-tab')[3])">Log →</button></div>`
           ).join('')}
         </div>`:''}
+        ${marketplaceResults.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--orange);text-transform:uppercase;margin-bottom:6px;">📱 Device / MarketPlace Purchases</div>
+          ${marketplaceResults.map(r=>r.phone
+            ?`<div style="padding:6px 10px;background:var(--green-l);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span><strong>${r.phone.model||'Phone'}</strong>${r.product?' · '+r.product:''}</span><span style="color:var(--orange);font-family:monospace;">#${r.order} ${fmt(r.amount)} <span class="badge b-green">✅</span></span></div>`
+            :`<div style="padding:6px 10px;background:var(--red-l);border-left:3px solid var(--red);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--red);font-weight:700;">Order #${r.order} — ${fmt(r.amount)} device purchase NOT in Phones inventory</span><button class="btn" style="font-size:10px;padding:2px 8px;background:var(--blue);color:#fff;" onclick="document.getElementById('ph-order').value='${r.order}';showTab('phones',document.querySelectorAll('.nav-tab')[4])">Log →</button></div>`
+          ).join('')}
+        </div>`:''}
         ${residualRows.length?`<div style="margin-bottom:10px;font-size:11px;color:var(--muted);">Residual orders this period: ${fmt(residualTotal)} (informational, nothing to log)</div>`:''}
         ${feeRows.length?`<div style="margin-bottom:10px;font-size:11px;color:var(--muted);">Fees this period: ${fmt(feeTotal)} (informational, nothing to log)</div>`:''}
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
@@ -1877,7 +1890,7 @@ async function runFullAudit(file){
           <div style="text-align:center;padding:8px;background:var(--blue-l);border-radius:5px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">NET</div><div style="font-size:16px;font-weight:900;color:var(--blue);">${grandTotal<0?'('+fmt(Math.abs(grandTotal))+')':fmt(grandTotal)}</div></div>
         </div>
         <div style="margin-top:12px;display:flex;gap:8px;">
-          <button class="btn" style="background:${reconMismatch?'var(--muted)':'var(--green)'};color:#fff;" ${reconMismatch?'disabled title="Fix the mismatch above first"':''} onclick="saveAuditResult('${invoiceNum}','${period}',{actOrders:${actRows.reduce((s,r)=>s+r.amount,0)},spiff:${spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)+additionalSpiffTotal},subsidy:${promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)},rtr:${rtrRows.reduce((s,r)=>s+r.amount,0)},fee:${feeTotal+Math.max(0,residualTotal)}})">💾 Save to Invoice History</button>
+          <button class="btn" style="background:${reconMismatch?'var(--muted)':'var(--green)'};color:#fff;" ${reconMismatch?'disabled title="Fix the mismatch above first"':''} onclick="saveAuditResult('${invoiceNum}','${period}',{actOrders:${actRows.reduce((s,r)=>s+r.amount,0)},spiff:${spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)+additionalSpiffTotal},subsidy:${promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)+Math.max(0,-residualTotal)},rtr:${rtrRows.reduce((s,r)=>s+r.amount,0)},fee:${feeTotal+Math.max(0,residualTotal)},marketplace:${marketplaceTotal}})">💾 Save to Invoice History</button>
           <button class="btn btn-ghost" onclick="document.getElementById('invAuditResults').style.display='none';document.getElementById('invDropZone').style.display='block';">↩ Another</button>
         </div>
       </div>
@@ -1895,12 +1908,23 @@ async function runFullAudit(file){
 async function saveAuditResult(num,period,cats){
   if(!num){alert('No invoice # found');return;}
   if(invoices.find(i=>i.invoice_num===String(num))){alert('Invoice #'+num+' already saved');return;}
-  const{data,error}=await sb.from('invoices').insert({
+  const basePayload={
     invoice_num:String(num),period:period||'',
     act_orders:cats.actOrders||0,spiff:cats.spiff||0,subsidy:cats.subsidy||0,
-    rtr:cats.rtr||0,fee:cats.fee||0,
+    rtr:cats.rtr||0,fee:cats.fee||0,marketplace:cats.marketplace||0,
     notes:'Auto-audited'
-  }).select().single();
+  };
+  let{data,error}=await sb.from('invoices').insert(basePayload).select().single();
+  if(error&&/marketplace/i.test(error.message||'')){
+    // The 'marketplace' column doesn't exist in this Supabase project yet — fall back to
+    // folding it into 'fee' so the save still succeeds and the total still reconciles,
+    // rather than blocking the save entirely. Run the SQL to add the real column so future
+    // saves keep device purchases separate from actual invoice fees.
+    const fallback={...basePayload};
+    delete fallback.marketplace;
+    fallback.fee=(cats.fee||0)+(cats.marketplace||0);
+    ({data,error}=await sb.from('invoices').insert(fallback).select().single());
+  }
   if(error){alert('Save error: '+error.message);return;}
   invoices.unshift(data);renderInvoices();showToast();
   alert('Invoice #'+num+' saved!');

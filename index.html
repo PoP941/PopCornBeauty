@@ -304,8 +304,8 @@ td{padding:10px 12px;vertical-align:middle;}
     <span style="font-size:13px;font-weight:800;color:var(--gold)" id="totalSaleProfit">Total Profit: $0.00</span>
   </div>
   <div class="table-wrap"><div class="table-scroll"><table>
-    <thead><tr><th>Customer Phone #</th><th>IMEI</th><th>Model</th><th>Cost</th><th>Sale Price</th><th>Profit</th><th>Subsidy</th><th>Total Profit</th><th>Sale Date</th><th></th></tr></thead>
-    <tbody id="soldTable"><tr><td colspan="10" class="empty-state">No sales yet</td></tr></tbody>
+    <thead><tr><th>Customer Phone #</th><th>IMEI</th><th>Model</th><th>Cost</th><th>Sale Price</th><th>Profit</th><th>Subsidy</th><th>Phone Total</th><th>+ Plan Commission</th><th>Grand Total</th><th>Sale Date</th><th></th></tr></thead>
+    <tbody id="soldTable"><tr><td colspan="12" class="empty-state">No sales yet</td></tr></tbody>
   </table></div></div>
 </div>
 
@@ -657,11 +657,11 @@ async function addActivation(){
       const subsidyToApply=qualifies?(subsidyEntered||parseFloat(invPhone.rebate_expected)||0):0;
       const{error:perr}=await sb.from('phones').update({
         phone,sale_date:payload.act_date||new Date().toISOString().split('T')[0],
-        sale_price:mrc,subsidy:subsidyToApply,status:'Sold',
+        sale_price:0,subsidy:subsidyToApply,status:'Sold',
       }).eq('id',invPhone.id);
       if(!perr){
         const pi=phones.findIndex(p=>p.id===invPhone.id);
-        if(pi>=0)phones[pi]={...phones[pi],phone,sale_date:payload.act_date,sale_price:mrc,subsidy:subsidyToApply,status:'Sold'};
+        if(pi>=0)phones[pi]={...phones[pi],phone,sale_date:payload.act_date,sale_price:0,subsidy:subsidyToApply,status:'Sold'};
         renderPhones();
         invoiceNote=qualifies
           ?'\n📦 '+invPhone.model+' pulled from inventory — rebate '+fmt(subsidyToApply)+' applied.'
@@ -1422,10 +1422,17 @@ function renderPhones(){
   let totalProfit=0;
   if(soldBody){
     soldBody.innerHTML=!sold.length
-      ?'<tr><td colspan="10" class="empty-state">No sales yet</td></tr>'
+      ?'<tr><td colspan="12" class="empty-state">No sales yet</td></tr>'
       :sold.map(p=>{
         const cost=parseFloat(p.cost)||0,sale=parseFloat(p.sale_price)||0,sub=parseFloat(p.subsidy)||0;
         const profit=sale-cost,total=profit+sub;totalProfit+=total;
+        // Phones sold as part of a bundled activation deal make their real money on the
+        // linked plan's commission, not the phone leg alone — show both here for the full
+        // picture. This is informational only and does NOT get added into the Dashboard's
+        // separate Commission/Phone Profit KPIs, to avoid double-counting.
+        const linkedAct=p.phone?activations.find(a=>a.phone===p.phone):null;
+        const commission=linkedAct?spiffEarned(linkedAct):0;
+        const grandTotal=total+commission;
         return`<tr style="background:#f0fff4;">
           <td><span class="phone-t">${p.phone||'—'}</span></td>
           <td style="font-size:10px;font-family:monospace;">${p.imei||'—'}</td>
@@ -1435,6 +1442,8 @@ function renderPhones(){
           <td class="money-t" style="color:${profit>=0?'var(--gold)':'var(--red)'};">${fmt(profit)}</td>
           <td class="money-t" style="color:var(--purple);">${fmt(sub)}</td>
           <td class="money-t" style="font-weight:900;color:var(--gold);">${fmt(total)}</td>
+          <td class="money-t" style="color:var(--teal);">${linkedAct?'+'+fmt(commission):'—'}</td>
+          <td class="money-t" style="font-weight:900;color:var(--green);">${fmt(grandTotal)}</td>
           <td>${fmtDate(p.sale_date)}</td>
           <td><button class="del-btn" onclick="deletePhone(${p.id})">✕</button></td>
         </tr>`;

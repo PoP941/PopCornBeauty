@@ -147,7 +147,6 @@ td{padding:10px 12px;vertical-align:middle;}
 
 <div class="nav">
   <button class="nav-tab active" onclick="showTab('dashboard',this)">📊 Dashboard</button>
-  <button class="nav-tab" onclick="showTab('plans',this)">📋 Plans</button>
   <button class="nav-tab" onclick="showTab('activations',this)">📱 Activations</button>
   <button class="nav-tab" onclick="showTab('refills',this)">💳 Refills</button>
   <button class="nav-tab" onclick="showTab('phones',this)">📲 Phones</button>
@@ -159,6 +158,7 @@ td{padding:10px 12px;vertical-align:middle;}
 
 <!-- DASHBOARD -->
 <div id="tab-dashboard" class="tab-panel active">
+  <div id="returnWarningBannerDash" style="display:none;"></div>
   <div class="net-hero">
     <div>
       <div class="net-label">Total Net Profit — All Sources</div>
@@ -182,13 +182,32 @@ td{padding:10px 12px;vertical-align:middle;}
     <div class="kpi" style="--acc:var(--lime)"><div class="kpi-label">Refill Profit</div><div class="kpi-value" id="kpiRefillProfit" style="color:var(--lime)">$0</div><div class="kpi-sub">8% kept</div></div>
     <div class="kpi" style="--acc:var(--orange)"><div class="kpi-label">Phone Profit</div><div class="kpi-value" id="kpiPhoneProfit" style="color:var(--orange)">$0</div><div class="kpi-sub">Sale + subsidy</div></div>
   </div>
-  <div class="section-hdr">
+
+  <!-- THIS MONTH SNAPSHOT — quick real-time read on the current period -->
+  <div class="section-hdr" style="margin-top:4px"><div class="section-title">📆 This Month So Far</div></div>
+  <div class="kpi-grid" style="margin-bottom:4px;">
+    <div class="kpi" style="--acc:var(--teal)"><div class="kpi-label">Commission</div><div class="kpi-value" id="monCommission" style="color:var(--teal)">$0</div><div class="kpi-sub" id="monCommissionSub">—</div></div>
+    <div class="kpi" style="--acc:var(--lime)"><div class="kpi-label">Refill Profit</div><div class="kpi-value" id="monRefillProfit" style="color:var(--lime)">$0</div><div class="kpi-sub" id="monRefillSub">—</div></div>
+    <div class="kpi" style="--acc:var(--orange)"><div class="kpi-label">Phone Profit</div><div class="kpi-value" id="monPhoneProfit" style="color:var(--orange)">$0</div><div class="kpi-sub" id="monPhoneSub">—</div></div>
+    <div class="kpi" style="--acc:var(--gold)"><div class="kpi-label">Total This Month</div><div class="kpi-value" id="monTotal" style="color:var(--gold)">$0</div><div class="kpi-sub">vs last month below</div></div>
+  </div>
+
+  <!-- LIVE RECENT TRANSACTIONS — real-time feed, most recent first -->
+  <div class="section-hdr" style="margin-top:4px">
+    <div class="section-title">🔴 Live — Recent Transactions</div>
+    <a href="#" onclick="showTab('lookup');return false;" style="font-size:10px;color:var(--blue);font-weight:700;">See all in Lookup →</a>
+  </div>
+  <div id="dashRecentFeed" style="background:#fff;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:4px;"></div>
+
+  <div class="section-hdr" style="margin-top:4px">
     <div class="section-title">📅 Profit Over Time</div>
     <div style="display:flex;gap:6px;">
       <button class="btn btn-ghost" id="dpBtnDaily" style="font-size:10px;padding:4px 10px;" onclick="renderDailyProfit('daily')">Daily</button>
+      <button class="btn btn-ghost" id="dpBtnMonthly" style="font-size:10px;padding:4px 10px;" onclick="renderDailyProfit('monthly')">Monthly</button>
       <button class="btn btn-ghost" id="dpBtnYearly" style="font-size:10px;padding:4px 10px;" onclick="renderDailyProfit('yearly')">Yearly</button>
     </div>
   </div>
+  <div id="dpScopeNote" style="font-size:10px;color:var(--muted);margin-bottom:4px;"></div>
   <div class="table-wrap" style="margin-bottom:4px;"><div class="table-scroll"><table>
     <thead><tr><th id="dpDateHeader">Date</th><th>Commission</th><th>Refill Profit</th><th>Phone Profit</th><th>Total</th></tr></thead>
     <tbody id="dailyProfitTable"><tr><td colspan="5" class="empty-state">No activity yet</td></tr></tbody>
@@ -203,8 +222,10 @@ td{padding:10px 12px;vertical-align:middle;}
   </table></div></div>
   <div class="section-hdr" style="margin-top:4px"><div class="section-title">Monthly Goals — 2027</div><div style="font-size:10px;color:var(--muted)">Click the blue number to edit · Syncs live</div></div>
   <div class="goal-grid" id="goalGrid"></div>
-  <div class="section-hdr" style="margin-top:4px"><div class="section-title">VidaPay Quick Guide</div></div>
-  <div class="cheat-grid">
+  <div class="section-hdr" style="margin-top:4px;cursor:pointer;" onclick="const g=document.getElementById('quickGuideBody');const open=g.style.display!=='none';g.style.display=open?'none':'grid';document.getElementById('quickGuideArrow').textContent=open?'▸':'▾';">
+    <div class="section-title">VidaPay Quick Guide <span id="quickGuideArrow" style="font-size:10px;">▸</span></div>
+  </div>
+  <div class="cheat-grid" id="quickGuideBody" style="display:none;">
     <div class="cheat-card" style="--acc:var(--red)"><div class="cheat-term" style="color:var(--red)">⬆️ Activation — You Pay</div><div class="cheat-desc">When you activate a customer, VidaPay charges you a fee — less than the plan price.</div><div class="cheat-ex" style="background:var(--red-l);color:var(--red)">$150 plan → you pay $138</div></div>
     <div class="cheat-card" style="--acc:var(--green)"><div class="cheat-term" style="color:var(--green)">⬇️ Instant Spiff — You Get Paid</div><div class="cheat-desc">Right after activation VidaPay sends commission back. More comes over 6 months.</div><div class="cheat-ex" style="background:var(--green-l);color:var(--green)">$88 paid back on $150 plan</div></div>
     <div class="cheat-card" style="--acc:var(--purple)"><div class="cheat-term" style="color:var(--purple)">📦 Subsidy — Phone Refund</div><div class="cheat-desc">If you gave the customer a phone, VidaPay refunds the phone cost after activation. Enter the IMEI and it auto-fills.</div><div class="cheat-ex" style="background:var(--purple-l);color:var(--purple)">iPhone 13 IMEI entered → $259.99 auto-filled</div></div>
@@ -214,19 +235,21 @@ td{padding:10px 12px;vertical-align:middle;}
   </div>
 </div>
 
-<!-- PLANS -->
-<div id="tab-plans" class="tab-panel">
-  <div class="alert-box"><div class="alert-icon">🔥</div><div><div class="alert-title">400% MRC Bonus Active — Activate Now Through 7/31!</div><div class="alert-desc">Every qualifying activation earns 4x MRC. Click any plan below to use it in an activation.</div></div></div>
-  <div class="plan-sec-title">Monthly Plans</div>
-  <div class="plan-grid" id="monthlyPlans"></div>
-  <div class="plan-sec-title">3-Month Plans</div>
-  <div class="plan-grid" id="threeMonthPlans"></div>
-  <div class="plan-sec-title">6-Month Plans</div>
-  <div class="plan-grid" id="sixMonthPlans"></div>
-</div>
 
 <!-- ACTIVATIONS -->
 <div id="tab-activations" class="tab-panel">
+  <div class="section-hdr" style="cursor:pointer;margin-bottom:8px;" onclick="const g=document.getElementById('planBrowserBody');const open=g.style.display!=='none';g.style.display=open?'none':'block';document.getElementById('planBrowserArrow').textContent=open?'▸':'▾';">
+    <div class="section-title">📋 Browse Plans <span id="planBrowserArrow" style="font-size:10px;">▸</span></div>
+  </div>
+  <div id="planBrowserBody" style="display:none;margin-bottom:16px;">
+    <div class="alert-box"><div class="alert-icon">🔥</div><div><div class="alert-title">400% MRC Bonus Active — Activate Now Through 7/31!</div><div class="alert-desc">Every qualifying activation earns 4x MRC. Click any plan below to use it below.</div></div></div>
+    <div class="plan-sec-title">Monthly Plans</div>
+    <div class="plan-grid" id="monthlyPlans"></div>
+    <div class="plan-sec-title">3-Month Plans</div>
+    <div class="plan-grid" id="threeMonthPlans"></div>
+    <div class="plan-sec-title">6-Month Plans</div>
+    <div class="plan-grid" id="sixMonthPlans"></div>
+  </div>
   <div style="background:#eff6ff;border:2px solid var(--blue);border-radius:10px;padding:18px;margin-bottom:16px;">
     <div style="font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px;">📱 Log Activation — Sales Rep Entry</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Enter Phone #, Order #, and Plan. Commission calculates automatically.</div>
@@ -310,7 +333,20 @@ td{padding:10px 12px;vertical-align:middle;}
     <div class="kpi" style="--acc:var(--red)"><div class="kpi-label">SM Payout 92%</div><div class="kpi-value" id="refSM" style="color:var(--red);font-size:16px">$0.00</div></div>
     <div class="kpi" style="--acc:var(--pink)"><div class="kpi-label">Linked Acts.</div><div class="kpi-value" id="refLinked" style="color:var(--pink)">0</div></div>
   </div>
-  <div class="section-hdr"><div class="section-title">Refill Log</div></div>
+  <div class="section-hdr">
+    <div class="section-title">Refill Log</div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+      <button class="btn btn-ghost" id="refBtnAll" style="font-size:10px;padding:4px 10px;" onclick="setRefillRange('all')">All Time</button>
+      <button class="btn btn-ghost" id="refBtnToday" style="font-size:10px;padding:4px 10px;" onclick="setRefillRange('today')">Today</button>
+      <button class="btn btn-ghost" id="refBtnMonth" style="font-size:10px;padding:4px 10px;" onclick="setRefillRange('month')">This Month</button>
+      <button class="btn btn-ghost" id="refBtnYear" style="font-size:10px;padding:4px 10px;" onclick="setRefillRange('year')">This Year</button>
+      <span style="font-size:10px;color:var(--muted);">or:</span>
+      <input id="refill-from" type="date" style="padding:3px 5px;border:1.5px solid var(--border);border-radius:5px;font-size:11px;" onchange="setRefillRange('custom')">
+      <span style="font-size:10px;color:var(--muted);">to</span>
+      <input id="refill-to" type="date" style="padding:3px 5px;border:1.5px solid var(--border);border-radius:5px;font-size:11px;" onchange="setRefillRange('custom')">
+    </div>
+  </div>
+  <div style="font-size:10px;color:var(--muted);margin-bottom:6px;" id="refFilterCount"></div>
   <div class="table-wrap"><div class="table-scroll"><table>
     <thead><tr><th>Phone #</th><th>Order #</th><th>Date</th><th>Plan</th><th>Collected</th><th>SM 92%</th><th>Your Profit 8%</th><th>Linked?</th><th>Customer</th><th>Commission Month</th><th></th></tr></thead>
     <tbody id="refTable"><tr><td colspan="11" class="empty-state">No refills logged yet</td></tr></tbody>
@@ -319,6 +355,7 @@ td{padding:10px 12px;vertical-align:middle;}
 
 <!-- PHONES -->
 <div id="tab-phones" class="tab-panel">
+  <div id="returnWarningBanner" style="display:none;"></div>
   <div style="background:var(--green-l);border:2px solid var(--green);border-radius:10px;padding:18px;margin-bottom:16px;">
     <div style="font-size:12px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">💰 Log a Phone Sale</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Enter customer phone # and IMEI — finds phone from inventory and logs the sale</div>
@@ -461,7 +498,17 @@ td{padding:10px 12px;vertical-align:middle;}
   <!-- INVOICE HISTORY -->
   <div class="section-hdr">
     <div class="section-title">📋 Invoice History (<span id="invCount">0</span>)</div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+      <button class="btn btn-ghost" id="invBtnAll" style="font-size:10px;padding:4px 10px;" onclick="setInvoiceRange('all')">All Time</button>
+      <button class="btn btn-ghost" id="invBtnMonth" style="font-size:10px;padding:4px 10px;" onclick="setInvoiceRange('month')">This Month</button>
+      <button class="btn btn-ghost" id="invBtnYear" style="font-size:10px;padding:4px 10px;" onclick="setInvoiceRange('year')">This Year</button>
+      <span style="font-size:10px;color:var(--muted);">or:</span>
+      <input id="invoice-from" type="date" style="padding:3px 5px;border:1.5px solid var(--border);border-radius:5px;font-size:11px;" onchange="setInvoiceRange('custom')">
+      <span style="font-size:10px;color:var(--muted);">to</span>
+      <input id="invoice-to" type="date" style="padding:3px 5px;border:1.5px solid var(--border);border-radius:5px;font-size:11px;" onchange="setInvoiceRange('custom')">
+    </div>
   </div>
+  <div style="font-size:10px;color:var(--muted);margin-bottom:6px;" id="invFilterCount"></div>
   <div class="table-wrap"><div class="table-scroll"><table>
     <thead><tr><th>Invoice #</th><th>Date</th><th>Period</th><th>Act. Orders</th><th>Spiff Credit</th><th>Subsidy</th><th>Residual</th><th>RTR</th><th>Marketplace</th><th>Fee</th><th>Total Debits</th><th>Total Credits</th><th>Net Balance</th><th>Notes</th><th>Status</th><th></th></tr></thead>
     <tbody id="invTable"><tr><td colspan="15" class="empty-state">No invoices yet — drop a PDF above</td></tr></tbody>
@@ -644,9 +691,10 @@ function renderPlans(){
 }
 
 function prefillPlan(name,mrc){
-  showTab('activations',document.querySelectorAll('.nav-tab')[2]);
   document.getElementById('act-mrc').value=mrc;
   document.getElementById('act-carrier').value='Simple Mobile';
+  const g=document.getElementById('planBrowserBody');if(g)g.style.display='none';
+  const arrow=document.getElementById('planBrowserArrow');if(arrow)arrow.textContent='▸';
   document.getElementById('act-phone').focus();
 }
 
@@ -690,7 +738,8 @@ function showTab(name,el){
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
-  if(el)el.classList.add('active');
+  const btn=el||[...document.querySelectorAll('.nav-tab')].find(t=>(t.getAttribute('onclick')||'').includes(`showTab('${name}'`));
+  if(btn)btn.classList.add('active');
 }
 
 async function loadAll(){
@@ -1043,11 +1092,41 @@ function refillTrigger(phone,rid){
   return '→'+monthPositionLabel(pos);
 }
 
+let refillRangeMode='all';
+function setRefillRange(mode){
+  refillRangeMode=mode;
+  const fromEl=document.getElementById('refill-from'),toEl=document.getElementById('refill-to');
+  const today=new Date().toISOString().slice(0,10);
+  if(mode==='today'){fromEl.value=today;toEl.value=today;}
+  else if(mode==='month'){fromEl.value=today.slice(0,8)+'01';toEl.value=today;}
+  else if(mode==='year'){fromEl.value=today.slice(0,4)+'-01-01';toEl.value=today.slice(0,4)+'-12-31';}
+  else if(mode==='all'){fromEl.value='';toEl.value='';}
+  renderRefills();
+}
+function updateRefillRangeButtons(){
+  [['refBtnAll','all'],['refBtnToday','today'],['refBtnMonth','month'],['refBtnYear','year']].forEach(([id,mode])=>{
+    const btn=document.getElementById(id);if(!btn)return;
+    btn.style.cssText=refillRangeMode===mode?'font-size:10px;padding:4px 10px;background:var(--blue);color:#fff;':'font-size:10px;padding:4px 10px;';
+  });
+}
+function inRefillRange(dateStr){
+  const from=document.getElementById('refill-from')?.value,to=document.getElementById('refill-to')?.value;
+  if(!from&&!to)return true;
+  if(!dateStr)return false;
+  const d=String(dateStr).slice(0,10);
+  if(from&&d<from)return false;
+  if(to&&d>to)return false;
+  return true;
+}
 function renderRefills(){
+  updateRefillRangeButtons();
   const tbody=document.getElementById('refTable');
+  const filtered=refills.filter(r=>inRefillRange(r.ref_date));
+  const cEl=document.getElementById('refFilterCount');
+  if(cEl)cEl.textContent=refillRangeMode==='all'?'':`Showing ${filtered.length} of ${refills.length} refills`;
   let col=0,prof=0,sm=0,lnk=0;
-  if(!refills.length){tbody.innerHTML='<tr><td colspan="11" class="empty-state">No refills logged yet</td></tr>';}
-  else tbody.innerHTML=refills.map(r=>{
+  if(!filtered.length){tbody.innerHTML=`<tr><td colspan="11" class="empty-state">${refills.length?'No refills in this range':'No refills logged yet'}</td></tr>`;}
+  else tbody.innerHTML=filtered.map(r=>{
     const amt=parseFloat(r.amount)||0,myP=amt*0.08,smP=amt*0.92;
     col+=amt;prof+=myP;sm+=smP;
     const isL=activations.some(a=>a.phone===r.phone);if(isL)lnk++;
@@ -1066,7 +1145,7 @@ function renderRefills(){
       <td><button class="del-btn" onclick="deleteRefill(${r.id})">✕</button></td>
     </tr>`;
   }).join('');
-  document.getElementById('refCount').textContent=refills.length;
+  document.getElementById('refCount').textContent=filtered.length;
   document.getElementById('refCollected').textContent=fmt(col);
   document.getElementById('refProfit').textContent=fmt(prof);
   document.getElementById('refSM').textContent=fmt(sm);
@@ -1321,11 +1400,40 @@ function cancelPdfImport() {
 }
 async function deleteInvoice(id){if(!confirm('Delete?'))return;await sb.from('invoices').delete().eq('id',id);showToast();}
 
+let invoiceRangeMode='all';
+function setInvoiceRange(mode){
+  invoiceRangeMode=mode;
+  const fromEl=document.getElementById('invoice-from'),toEl=document.getElementById('invoice-to');
+  const today=new Date().toISOString().slice(0,10);
+  if(mode==='month'){fromEl.value=today.slice(0,8)+'01';toEl.value=today;}
+  else if(mode==='year'){fromEl.value=today.slice(0,4)+'-01-01';toEl.value=today.slice(0,4)+'-12-31';}
+  else if(mode==='all'){fromEl.value='';toEl.value='';}
+  renderInvoices();
+}
+function updateInvoiceRangeButtons(){
+  [['invBtnAll','all'],['invBtnMonth','month'],['invBtnYear','year']].forEach(([id,mode])=>{
+    const btn=document.getElementById(id);if(!btn)return;
+    btn.style.cssText=invoiceRangeMode===mode?'font-size:10px;padding:4px 10px;background:var(--blue);color:#fff;':'font-size:10px;padding:4px 10px;';
+  });
+}
+function inInvoiceRange(dateStr){
+  const from=document.getElementById('invoice-from')?.value,to=document.getElementById('invoice-to')?.value;
+  if(!from&&!to)return true;
+  if(!dateStr)return false;
+  const d=String(dateStr).slice(0,10);
+  if(from&&d<from)return false;
+  if(to&&d>to)return false;
+  return true;
+}
 function renderInvoices(){
+  updateInvoiceRangeButtons();
   const tbody=document.getElementById('invTable');let td=0,tc=0;
   const cEl=document.getElementById('invCount');if(cEl)cEl.textContent=invoices.length;
-  if(!invoices.length){tbody.innerHTML='<tr><td colspan="15" class="empty-state">No invoices logged yet</td></tr>';}
-  else tbody.innerHTML=invoices.map(inv=>{
+  const visible=invoices.filter(inv=>inInvoiceRange(inv.invoice_date));
+  const fEl=document.getElementById('invFilterCount');
+  if(fEl)fEl.textContent=invoiceRangeMode==='all'?'':`Showing ${visible.length} of ${invoices.length} invoices`;
+  if(!visible.length){tbody.innerHTML=`<tr><td colspan="15" class="empty-state">${invoices.length?'No invoices in this range':'No invoices logged yet'}</td></tr>`;}
+  else tbody.innerHTML=visible.map(inv=>{
     const deb=(parseFloat(inv.act_orders)||0)+(parseFloat(inv.rtr)||0)+(parseFloat(inv.fee)||0)+(parseFloat(inv.marketplace)||0);
     const cred=(parseFloat(inv.spiff)||0)+(parseFloat(inv.subsidy)||0)+(parseFloat(inv.residual)||0);
     const net=deb-cred;td+=deb;tc+=cred;
@@ -1336,8 +1444,8 @@ function renderInvoices(){
       <td style="font-size:11px;color:var(--muted)">${inv.period||'—'}</td>
       <td class="money-t" style="color:var(--red)">${fmt(inv.act_orders)}</td>
       <td class="money-t" style="color:var(--green)">${inv.spiff?fmt(inv.spiff):'—'}</td>
-      <td class="money-t" style="color:var(--purple)">${inv.subsidy?fmt(inv.subsidy):'—'}</td>
-      <td class="money-t" style="color:var(--orange)">${inv.residual?fmt(inv.residual):'—'}</td>
+      <td><input type="number" step="0.01" value="${inv.subsidy||''}" placeholder="0.00" style="width:70px;border:1px solid var(--border);background:transparent;font-size:11px;font-family:inherit;color:var(--purple);padding:2px;border-radius:3px;" onchange="updateInvoiceField(${inv.id},'subsidy',parseFloat(this.value)||0)"></td>
+      <td><input type="number" step="0.01" value="${inv.residual||''}" placeholder="0.00" style="width:70px;border:1px solid var(--border);background:transparent;font-size:11px;font-family:inherit;color:var(--orange);padding:2px;border-radius:3px;" onchange="updateInvoiceField(${inv.id},'residual',parseFloat(this.value)||0)"></td>
       <td class="money-t" style="color:var(--gold)">${inv.rtr?fmt(inv.rtr):'—'}</td>
       <td class="money-t" style="color:var(--orange)">${inv.marketplace?fmt(inv.marketplace):'—'}</td>
       <td class="money-t" style="color:var(--muted)">${fmt(inv.fee)}</td>
@@ -1466,6 +1574,25 @@ function returnCountdown(d){
   if(days<=3)return '<span style="color:var(--red);">'+days+'d left</span>';
   if(days<=7)return '<span style="color:var(--orange);">'+days+'d left</span>';
   return '<span style="color:var(--green);">'+days+'d left</span>';
+}
+function renderReturnWarning(){
+  const inStock=phones.filter(p=>p.status!=='Sold'&&p.return_date);
+  const dueSoon=inStock.filter(p=>{
+    const days=Math.round((new Date(p.return_date+'T12:00:00')-new Date())/86400000);
+    return days<=10; // includes overdue (negative days)
+  }).sort((a,b)=>new Date(a.return_date)-new Date(b.return_date));
+  const html=dueSoon.length?`
+    <div style="background:#fef2f2;border:2px solid var(--red);border-radius:10px;padding:14px 18px;margin-bottom:16px;">
+      <div style="font-size:12px;font-weight:800;color:var(--red);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;">⚠️ ${dueSoon.length} Phone${dueSoon.length!==1?'s':''} Due For Return Soon</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        ${dueSoon.map(p=>`<div style="display:flex;justify-content:space-between;align-items:center;background:#fff;padding:8px 12px;border-radius:6px;">
+          <div style="font-size:12px;"><strong>${p.model||'Phone'}</strong> <span style="font-family:monospace;color:var(--muted);">${p.imei||''}</span></div>
+          <div style="font-size:12px;">${fmtDate(p.return_date)} — ${returnCountdown(p.return_date)}</div>
+        </div>`).join('')}
+      </div>
+    </div>`:'';
+  const b1=document.getElementById('returnWarningBanner');if(b1){b1.innerHTML=html;b1.style.display=dueSoon.length?'block':'none';}
+  const b2=document.getElementById('returnWarningBannerDash');if(b2){b2.innerHTML=html;b2.style.display=dueSoon.length?'block':'none';}
 }
 function renderDashStock(){
   const tbody=document.getElementById('dashStockTable');if(!tbody)return;
@@ -1993,7 +2120,7 @@ async function runFullAudit(file){
         ${actResults.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--blue);text-transform:uppercase;margin-bottom:6px;">Activation Orders</div>
           ${actResults.map(r=>r.act
             ?`<div style="padding:6px 10px;background:var(--green-l);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span><strong>${r.act.phone}</strong> ${r.act.customer_name||''}</span><span style="color:var(--blue);font-family:monospace;">#${r.order} <span class="badge b-green">✅</span></span></div>`
-            :`<div style="padding:6px 10px;background:var(--red-l);border-left:3px solid var(--red);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--red);font-weight:700;">Order #${r.order} — NOT LOGGED</span><button class="btn" style="font-size:10px;padding:2px 8px;background:var(--blue);color:#fff;" onclick="document.getElementById('act-order').value='${r.order}';showTab('activations',document.querySelectorAll('.nav-tab')[2])">Log →</button></div>`
+            :`<div style="padding:6px 10px;background:var(--red-l);border-left:3px solid var(--red);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--red);font-weight:700;">Order #${r.order} — NOT LOGGED</span><button class="btn" style="font-size:10px;padding:2px 8px;background:var(--blue);color:#fff;" onclick="document.getElementById('act-order').value='${r.order}';showTab('activations')">Log →</button></div>`
           ).join('')}
         </div>`:''}
         ${spiffResults.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--gold);text-transform:uppercase;margin-bottom:6px;">💰 Instant Spiff (matched by Order #, not separately logged)</div>
@@ -2014,13 +2141,13 @@ async function runFullAudit(file){
         ${rtrResults.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--gold);text-transform:uppercase;margin-bottom:6px;">RTR/Refill Orders</div>
           ${rtrResults.map(r=>r.ref
             ?`<div style="padding:6px 10px;background:var(--green-l);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span><strong>${r.ref.phone}</strong></span><span style="color:var(--blue);font-family:monospace;">#${r.order} <span class="badge b-green">✅</span></span></div>`
-            :`<div style="padding:6px 10px;background:#fff8e1;border-left:3px solid var(--gold);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--gold);font-weight:700;">Order #${r.order} — not logged</span><button class="btn btn-ghost" style="font-size:10px;padding:2px 8px;" onclick="document.getElementById('ref-order').value='${r.order}';showTab('refills',document.querySelectorAll('.nav-tab')[3])">Log →</button></div>`
+            :`<div style="padding:6px 10px;background:#fff8e1;border-left:3px solid var(--gold);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--gold);font-weight:700;">Order #${r.order} — not logged</span><button class="btn btn-ghost" style="font-size:10px;padding:2px 8px;" onclick="document.getElementById('ref-order').value='${r.order}';showTab('refills')">Log →</button></div>`
           ).join('')}
         </div>`:''}
         ${marketplaceResults.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--orange);text-transform:uppercase;margin-bottom:6px;">📱 Device / MarketPlace Purchases</div>
           ${marketplaceResults.map(r=>r.phone
             ?`<div style="padding:6px 10px;background:var(--green-l);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span><strong>${r.phone.model||'Phone'}</strong>${r.product?' · '+r.product:''}</span><span style="color:var(--orange);font-family:monospace;">#${r.order} ${fmt(r.amount)} <span class="badge b-green">✅</span></span></div>`
-            :`<div style="padding:6px 10px;background:var(--red-l);border-left:3px solid var(--red);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--red);font-weight:700;">Order #${r.order} — ${fmt(r.amount)} device purchase NOT in Phones inventory</span><button class="btn" style="font-size:10px;padding:2px 8px;background:var(--blue);color:#fff;" onclick="document.getElementById('ph-order').value='${r.order}';showTab('phones',document.querySelectorAll('.nav-tab')[4])">Log →</button></div>`
+            :`<div style="padding:6px 10px;background:var(--red-l);border-left:3px solid var(--red);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--red);font-weight:700;">Order #${r.order} — ${fmt(r.amount)} device purchase NOT in Phones inventory</span><button class="btn" style="font-size:10px;padding:2px 8px;background:var(--blue);color:#fff;" onclick="document.getElementById('ph-order').value='${r.order}';showTab('phones')">Log →</button></div>`
           ).join('')}
         </div>`:''}
         ${residualRows.length?`<div style="margin-bottom:10px;font-size:11px;color:var(--muted);">Residual orders this period: ${fmt(residualTotal)} (informational, nothing to log)</div>`:''}
@@ -2123,12 +2250,12 @@ function renderOverdue(){
     return{a,behind,newOffer};
   }).filter(x=>x.behind||x.newOffer);
   if(ce){ce.textContent=items.length;ce.style.background=items.length?'var(--red)':'var(--green)';}
-  el.innerHTML=items.length?items.map(({a,behind,newOffer})=>`<div style="padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;display:flex;justify-content:space-between;" onclick="showTab('refills',document.querySelectorAll('.nav-tab')[3]);document.getElementById('ref-phone').value='${a.phone}'">
+  el.innerHTML=items.length?items.map(({a,behind,newOffer})=>`<div style="padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;display:flex;justify-content:space-between;" onclick="showTab('refills');document.getElementById('ref-phone').value='${a.phone}'">
     <div><div style="font-weight:700;color:var(--pink);">${a.phone}</div><div style="font-size:10px;color:var(--muted);">${a.customer_name||''}</div></div>
     <div style="background:${newOffer?'#fef2f2':'var(--red-l)'};color:${newOffer?'#dc2626':'var(--red)'};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;">${newOffer?'🔔 new offer':'needs refill'}</div>
   </div>`).join(''):'<div style="padding:16px;text-align:center;color:var(--green);">✅ All up to date</div>';
 }
-function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDailyProfit();renderDashStock();runLookup(document.getElementById('lookup-q')?.value||'');}
+function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDailyProfit();renderDashStock();renderMonthSnapshot();renderDashRecentFeed();renderReturnWarning();runLookup(document.getElementById('lookup-q')?.value||'');}
 
 // ── Universal Lookup: search by phone #, order #, or IMEI across all three tables ──
 // Merge Activations, Refills, and Sold Phones into one reverse-chronological feed —
@@ -2167,13 +2294,16 @@ function renderDailyProfit(mode){
   if(mode)dailyProfitMode=mode;
   const tbody=document.getElementById('dailyProfitTable');if(!tbody)return;
   const header=document.getElementById('dpDateHeader');
-  const dBtn=document.getElementById('dpBtnDaily'),yBtn=document.getElementById('dpBtnYearly');
-  if(dBtn)dBtn.style.cssText=dailyProfitMode==='daily'?'font-size:10px;padding:4px 10px;background:var(--blue);color:#fff;':'font-size:10px;padding:4px 10px;';
-  if(yBtn)yBtn.style.cssText=dailyProfitMode==='yearly'?'font-size:10px;padding:4px 10px;background:var(--blue);color:#fff;':'font-size:10px;padding:4px 10px;';
+  const note=document.getElementById('dpScopeNote');
+  const dBtn=document.getElementById('dpBtnDaily'),mBtn=document.getElementById('dpBtnMonthly'),yBtn=document.getElementById('dpBtnYearly');
+  [[dBtn,'daily'],[mBtn,'monthly'],[yBtn,'yearly']].forEach(([btn,m])=>{
+    if(btn)btn.style.cssText=dailyProfitMode===m?'font-size:10px;padding:4px 10px;background:var(--blue);color:#fff;':'font-size:10px;padding:4px 10px;';
+  });
   const days=dailyProfitBreakdown();
   let rows;
   if(dailyProfitMode==='yearly'){
     header.textContent='Year';
+    if(note)note.textContent='';
     const years={};
     Object.keys(days).forEach(d=>{
       const y=d.slice(0,4);
@@ -2181,9 +2311,25 @@ function renderDailyProfit(mode){
       years[y].commission+=days[d].commission;years[y].refillProfit+=days[d].refillProfit;years[y].phoneProfit+=days[d].phoneProfit;
     });
     rows=Object.keys(years).sort().reverse().map(y=>({label:y,...years[y]}));
+  } else if(dailyProfitMode==='monthly'){
+    header.textContent='Month';
+    if(note)note.textContent='';
+    const monthNames=['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const months={};
+    Object.keys(days).forEach(d=>{
+      const m=d.slice(0,7); // YYYY-MM
+      if(!months[m])months[m]={commission:0,refillProfit:0,phoneProfit:0};
+      months[m].commission+=days[d].commission;months[m].refillProfit+=days[d].refillProfit;months[m].phoneProfit+=days[d].phoneProfit;
+    });
+    rows=Object.keys(months).sort().reverse().map(m=>{
+      const[y,mo]=m.split('-');
+      return{label:monthNames[parseInt(mo,10)-1]+' '+y,...months[m]};
+    });
   } else {
     header.textContent='Date';
-    rows=Object.keys(days).sort().reverse().map(d=>({label:fmtDate(d),...days[d]}));
+    const allDays=Object.keys(days).sort().reverse();
+    if(note)note.textContent=allDays.length>30?`Showing the most recent 30 days — use Monthly or Yearly to see further back.`:'';
+    rows=allDays.slice(0,30).map(d=>({label:fmtDate(d),...days[d]}));
   }
   if(!rows.length){tbody.innerHTML='<tr><td colspan="5" class="empty-state">No activity yet</td></tr>';return;}
   tbody.innerHTML=rows.map(r=>{
@@ -2196,6 +2342,50 @@ function renderDailyProfit(mode){
       <td class="money-t" style="font-weight:900;color:var(--gold);">${fmt(total)}</td>
     </tr>`;
   }).join('');
+}
+function renderMonthSnapshot(){
+  const days=dailyProfitBreakdown();
+  const now=new Date();
+  const thisMonthKey=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  const lastMonthDate=new Date(now.getFullYear(),now.getMonth()-1,1);
+  const lastMonthKey=lastMonthDate.getFullYear()+'-'+String(lastMonthDate.getMonth()+1).padStart(2,'0');
+  const sum=(key)=>Object.keys(days).filter(d=>d.startsWith(key)).reduce((acc,d)=>({
+    commission:acc.commission+days[d].commission,
+    refillProfit:acc.refillProfit+days[d].refillProfit,
+    phoneProfit:acc.phoneProfit+days[d].phoneProfit,
+  }),{commission:0,refillProfit:0,phoneProfit:0});
+  const thisMonth=sum(thisMonthKey),lastMonth=sum(lastMonthKey);
+  const thisTotal=thisMonth.commission+thisMonth.refillProfit+thisMonth.phoneProfit;
+  const lastTotal=lastMonth.commission+lastMonth.refillProfit+lastMonth.phoneProfit;
+  const vsLast=(cur,prev)=>{
+    if(!prev)return cur>0?'no data last month to compare':'—';
+    const pct=Math.round(((cur-prev)/Math.abs(prev))*100);
+    return (pct>=0?'▲ +':'▼ ')+pct+'% vs last month';
+  };
+  const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=fmt(v);};
+  set('monCommission',thisMonth.commission);
+  set('monRefillProfit',thisMonth.refillProfit);
+  set('monPhoneProfit',thisMonth.phoneProfit);
+  set('monTotal',thisTotal);
+  const setSub=(id,cur,prev)=>{const el=document.getElementById(id);if(el)el.textContent=vsLast(cur,prev);};
+  setSub('monCommissionSub',thisMonth.commission,lastMonth.commission);
+  setSub('monRefillSub',thisMonth.refillProfit,lastMonth.refillProfit);
+  setSub('monPhoneSub',thisMonth.phoneProfit,lastMonth.phoneProfit);
+}
+function renderDashRecentFeed(){
+  const el=document.getElementById('dashRecentFeed');if(!el)return;
+  const events=recentActivityEvents(6);
+  if(!events.length){el.innerHTML='<div style="padding:16px;text-align:center;color:var(--muted);font-size:12px;">Nothing logged yet.</div>';return;}
+  el.innerHTML=events.map(e=>`<div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="showTab('lookup');setTimeout(()=>{document.getElementById('lookup-q').value='${e.phone||''}';runLookup('${e.phone||''}');},50)">
+    <div style="display:flex;gap:8px;align-items:center;">
+      <div style="font-size:14px;">${e.icon}</div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:${e.color};">${e.title}</div>
+        <div style="font-size:10px;color:var(--muted);">${e.phone?e.phone+' · ':''}${e.sub}${e.date?' · '+fmtDate(e.date):''}</div>
+      </div>
+    </div>
+    <div style="font-size:12px;font-weight:800;color:${e.color};">${e.amount}</div>
+  </div>`).join('');
 }
 // Date-range filter for the Recent Activity feed (search results stay unfiltered — if
 // you're searching for something specific, you want it found regardless of when it happened)
@@ -2256,22 +2446,7 @@ function recentActivityEvents(limit){
 function renderRecentActivity(){
   const el=document.getElementById('lookupResults');if(!el)return;
   updateLookupRangeButtons();
-  const events=recentActivityEvents(30);
-  const rangeLabel=lookupRangeMode==='today'?'Today':lookupRangeMode==='year'?'This Year':lookupRangeMode==='custom'?'Custom Range':'All Time';
-  if(!events.length){el.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px;">No activity found for '+rangeLabel+'.</div>';return;}
-  el.innerHTML=`<div style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">Recent Activity — ${rangeLabel} — tap any row for the full customer story</div>
-    <div style="background:#fff;border:1.5px solid var(--border);border-radius:8px;overflow:hidden;">
-      ${events.map(e=>`<div style="padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="document.getElementById('lookup-q').value='${e.phone||''}';runLookup('${e.phone||''}')">
-        <div style="display:flex;gap:10px;align-items:center;">
-          <div style="font-size:16px;">${e.icon}</div>
-          <div>
-            <div style="font-size:12px;font-weight:700;color:${e.color};">${e.title}</div>
-            <div style="font-size:11px;color:var(--muted);">${e.phone?'<span class="phone-t">'+e.phone+'</span> · ':''}${e.sub}${e.date?' · '+fmtDate(e.date):''}</div>
-          </div>
-        </div>
-        <div style="font-size:13px;font-weight:800;color:${e.color};">${e.amount}</div>
-      </div>`).join('')}
-    </div>`;
+  el.innerHTML=`<div style="padding:40px 20px;text-align:center;color:var(--muted);font-size:13px;">🔍 Type a phone #, order #, or IMEI above to look up a customer's full story.</div>`;
 }
 function runLookup(raw){
   const el=document.getElementById('lookupResults');if(!el)return;

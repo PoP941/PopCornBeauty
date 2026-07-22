@@ -1784,6 +1784,7 @@ async function updateInvoiceField(id,field,value){
   if(error){alert('Update failed: '+error.message);return;}
   const inv=invoices.find(i=>String(i.id)===String(id));
   if(inv)inv[field]=value||null;
+  renderDashboard();renderInvoices();
   showToast();
 }
 

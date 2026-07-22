@@ -1442,7 +1442,7 @@ function renderInvoices(){
       <td style="font-size:11px;color:var(--muted)">${inv.period||'—'}</td>
       <td class="money-t" style="color:var(--red)">${fmt(inv.act_orders)}</td>
       <td class="money-t" style="color:var(--green)">${inv.spiff?fmt(inv.spiff):'—'}</td>
-      <td><input type="number" step="0.01" value="${inv.subsidy||''}" placeholder="0.00" style="width:70px;border:1px solid var(--border);background:transparent;font-size:11px;font-family:inherit;color:var(--purple);padding:2px;border-radius:3px;" onchange="updateInvoiceField(${inv.id},'subsidy',parseFloat(this.value)||0)"></td>
+      <td class="money-t" style="color:var(--purple)">${inv.subsidy?fmt(inv.subsidy):'—'}</td>
       <td><input type="number" step="0.01" value="${inv.residual||''}" placeholder="0.00" style="width:70px;border:1px solid var(--border);background:transparent;font-size:11px;font-family:inherit;color:var(--orange);padding:2px;border-radius:3px;" onchange="updateInvoiceField(${inv.id},'residual',parseFloat(this.value)||0)"></td>
       <td class="money-t" style="color:var(--gold)">${inv.rtr?fmt(inv.rtr):'—'}</td>
       <td class="money-t" style="color:var(--orange)">${inv.marketplace?fmt(inv.marketplace):'—'}</td>

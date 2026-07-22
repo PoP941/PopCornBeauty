@@ -1435,7 +1435,7 @@ function renderInvoices(){
     const net=deb-cred;td+=deb;tc+=cred;
     const nc=net<0?'var(--green)':net>0?'var(--red)':'var(--muted)';
     return`<tr>
-      <td style="font-size:11px;color:var(--blue);font-family:monospace">${inv.invoice_num}</td>
+      <td style="font-size:11px;font-family:monospace">${inv.file_url?`<a href="${inv.file_url}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:underline;" title="Open original invoice file">${inv.invoice_num} 📄</a>`:`<span style="color:var(--blue);">${inv.invoice_num}</span>`}</td>
       <td><input type="date" value="${inv.invoice_date||''}" style="border:1px solid ${inv.invoice_date?'transparent':'var(--red)'};background:transparent;font-size:11px;font-family:inherit;color:var(--text);padding:2px;border-radius:3px;" onchange="updateInvoiceField(${inv.id},'invoice_date',this.value)"></td>
       <td style="font-size:11px;color:var(--muted)">${inv.period||'—'}</td>
       <td class="money-t" style="color:var(--red)">${fmt(inv.act_orders)}</td>
@@ -1600,7 +1600,14 @@ function renderDashboard(){
 
 function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();}
 document.getElementById('headerDate').textContent=new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
-document.querySelectorAll('input[type="date"]').forEach(el=>{el.value=new Date().toISOString().split('T')[0];});
+document.querySelectorAll('input[type="date"]').forEach(el=>{
+  // Range-filter inputs (Refills/Invoices "All Time" pickers) must start EMPTY, not
+  // today's date — an empty from/to is what tells the filter to show everything. Setting
+  // them to today by mistake was exactly why "All Time" looked selected but showed nothing
+  // until a range was toggled.
+  if(['invoice-from','invoice-to','refill-from','refill-to'].includes(el.id))return;
+  el.value=new Date().toISOString().split('T')[0];
+});
 renderPlans();
 
 // ══ NEW FUNCTIONS FOR UPDATED TABS ══
@@ -2078,8 +2085,10 @@ function cancelReceiptImport(){
 }
 
 // ── Invoice Audit ──
+let currentAuditFile=null;
 async function runFullAudit(file){
   if(!file)return;
+  currentAuditFile=file;
   const zone=document.getElementById('invDropZone');
   const status=document.getElementById('invAuditStatus');
   const results=document.getElementById('invAuditResults');
@@ -2246,20 +2255,43 @@ async function runFullAudit(file){
 async function saveAuditResult(num,period,cats,invoiceDate){
   if(!num){alert('No invoice # found');return;}
   if(invoices.find(i=>i.invoice_num===String(num))){alert('Invoice #'+num+' already saved');return;}
+  // Upload the original file (PDF or screenshot) so the invoice # can link back to it
+  // later. Non-fatal if storage isn't set up yet — the invoice still saves either way.
+  let fileUrl=null;
+  if(currentAuditFile){
+    try{
+      const ext=(currentAuditFile.name.split('.').pop()||'pdf').toLowerCase();
+      const path=String(num)+'.'+ext;
+      const{error:upErr}=await sb.storage.from('invoice-files').upload(path,currentAuditFile,{upsert:true});
+      if(!upErr){
+        const{data:pub}=sb.storage.from('invoice-files').getPublicUrl(path);
+        fileUrl=pub?.publicUrl||null;
+      } else {
+        console.warn('Invoice file upload failed (storage bucket may not exist yet):',upErr);
+      }
+    }catch(e){console.warn('Invoice file upload error:',e);}
+  }
   const basePayload={
     invoice_num:String(num),period:period||'',invoice_date:invoiceDate||null,
     act_orders:cats.actOrders||0,spiff:cats.spiff||0,subsidy:cats.subsidy||0,
     residual:cats.residual||0,
     rtr:cats.rtr||0,fee:cats.fee||0,marketplace:cats.marketplace||0,
+    file_url:fileUrl,
     notes:'Auto-audited'
   };
   let{data,error}=await sb.from('invoices').insert(basePayload).select().single();
+  if(error&&/file_url/i.test(error.message||'')){
+    // The 'file_url' column doesn't exist in this Supabase project yet — save without it
+    // rather than blocking. Run the SQL to add it so invoice numbers can link to their PDF.
+    const fb1={...basePayload};delete fb1.file_url;
+    ({data,error}=await sb.from('invoices').insert(fb1).select().single());
+  }
   if(error&&/residual/i.test(error.message||'')){
     // The 'residual' column doesn't exist in this Supabase project yet — fall back to
     // folding it into 'subsidy' so the save still succeeds, rather than blocking it.
     // Run the SQL to add the real column so Residual tracks as its own category.
     const fb2={...basePayload};
-    delete fb2.residual;
+    delete fb2.residual;delete fb2.file_url;
     fb2.subsidy=(cats.subsidy||0)+(cats.residual||0);
     ({data,error}=await sb.from('invoices').insert(fb2).select().single());
   }
@@ -2269,7 +2301,7 @@ async function saveAuditResult(num,period,cats,invoiceDate){
     // rather than blocking the save entirely. Run the SQL to add the real column so future
     // saves keep device purchases separate from actual invoice fees.
     const fallback={...basePayload};
-    delete fallback.marketplace;delete fallback.residual;
+    delete fallback.marketplace;delete fallback.residual;delete fallback.file_url;
     fallback.fee=(cats.fee||0)+(cats.marketplace||0);
     fallback.subsidy=(cats.subsidy||0)+(cats.residual||0);
     ({data,error}=await sb.from('invoices').insert(fallback).select().single());
@@ -2280,7 +2312,8 @@ async function saveAuditResult(num,period,cats,invoiceDate){
   document.getElementById('invAuditResults').innerHTML='';
   document.getElementById('invDropZone').style.display='block';
   const fi=document.getElementById('invDropInput');if(fi)fi.value='';
-  alert('Invoice #'+num+' saved!');
+  currentAuditFile=null;
+  alert('Invoice #'+num+' saved!'+(fileUrl?'':' (file wasn\'t attached — storage may need setup, see notes)'));
 }
 
 function renderCommPipeline(){

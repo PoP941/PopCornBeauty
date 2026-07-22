@@ -200,7 +200,7 @@ td{padding:10px 12px;vertical-align:middle;}
     <thead><tr><th>Model</th><th>IMEI</th><th>Purchased</th><th>Required Plan</th><th>Return By</th><th>Countdown</th></tr></thead>
     <tbody id="dashStockTable"><tr><td colspan="6" class="empty-state">No phones in stock</td></tr></tbody>
   </table></div></div>
-  <div class="section-hdr" style="margin-top:4px"><div class="section-title">Monthly Goals — 2027</div><div style="font-size:10px;color:var(--muted)">Click a month to see its transactions · Click the blue number to edit goal</div></div>
+  <div class="section-hdr" style="margin-top:4px"><div class="section-title" id="goalGridTitle">Monthly Goals</div><div style="font-size:10px;color:var(--muted)">Click a month to see its transactions · Click the blue number to edit goal</div></div>
   <div class="goal-grid" id="goalGrid"></div>
   <div id="monthDrillDown" style="display:none;margin-top:12px;"></div>
   <div class="section-hdr" style="margin-top:4px;cursor:pointer;" onclick="const g=document.getElementById('quickGuideBody');const open=g.style.display!=='none';g.style.display=open?'none':'grid';document.getElementById('quickGuideArrow').textContent=open?'▸':'▾';">
@@ -851,7 +851,7 @@ function renderActivations(){
       <td>${a.customer_name||'—'}</td>
       <td><span class="badge b-purple">${a.pin||'—'}</span></td>
       <td style="font-size:10px;color:var(--blue);font-family:monospace">${a.imei?a.imei.substring(0,8)+'…':'—'}${hp?' <span class="badge b-gold" style="font-size:9px">📦 Rebate</span>':''}</td>
-      <td>${fmtDate(a.act_date)}</td>
+      <td><input type="date" value="${a.act_date||''}" style="border:1px solid var(--border);background:transparent;font-size:11px;font-family:inherit;color:var(--text);padding:2px;border-radius:3px;" onchange="updateActivationField(${a.id},'act_date',this.value)"></td>
       <td><span class="badge ${a.carrier==='Simple Mobile'?'b-green':'b-blue'}">${a.carrier||'—'}</span></td>
       <td style="font-size:11px">${a.plan||'—'}</td>
       <td class="money-t" style="color:var(--purple)">${fmt(mrc)}</td>
@@ -1123,7 +1123,7 @@ function renderRefills(){
     return`<tr>
       <td><span class="phone-t">${r.phone}</span>${r.group_tag?`<div><span class="badge b-blue" style="font-size:9px;margin-top:2px;">👨‍👩‍👧 ${r.group_tag}</span></div>`:''}</td>
       <td><span class="order-t">${r.order_num||'—'}</span></td>
-      <td>${fmtDate(r.ref_date)}</td>
+      <td><input type="date" value="${r.ref_date||''}" style="border:1px solid var(--border);background:transparent;font-size:11px;font-family:inherit;color:var(--text);padding:2px;border-radius:3px;" onchange="updateRefillField(${r.id},'ref_date',this.value)"></td>
       <td>${r.plan||'—'}</td>
       <td class="money-t" style="color:var(--green)">${fmt(amt)}</td>
       <td class="money-t" style="color:var(--red)">${fmt(smP)}</td>
@@ -1490,13 +1490,14 @@ function renderInvoices(){
 function renderGoals(){
   const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
   const now=new Date();
+  const goalYear=now.getFullYear();
   document.getElementById('goalGrid').innerHTML=months.map((month,idx)=>{
-    const m=idx+1,done=activations.filter(a=>{if(!a.act_date)return false;const d=new Date(a.act_date+'T12:00:00');return d.getMonth()+1===m&&d.getFullYear()===2027;}).length;
+    const m=idx+1,done=activations.filter(a=>{if(!a.act_date)return false;const d=new Date(a.act_date+'T12:00:00');return d.getMonth()+1===m&&d.getFullYear()===goalYear;}).length;
     const goal=goals[month]||10,pv=Math.min((done/goal)*100,100),isCur=now.getMonth()+1===m;
     const status=done>=goal?'✅ Goal Hit — 400% MRC!':done>=goal*0.8?'⚡ Almost':'Behind';
     const sc=done>=goal?'var(--green)':done>=goal*0.8?'var(--gold)':'var(--red)';
     const bc=done>=goal?'var(--green)':done>=goal*0.8?'var(--gold)':'var(--blue)';
-    return`<div class="goal-card${isCur?' current':''}" style="cursor:pointer;" onclick="showMonthDrillDown('${month}',${m},2027)">
+    return`<div class="goal-card${isCur?' current':''}" style="cursor:pointer;" onclick="showMonthDrillDown('${month}',${m},${goalYear})">
       <div class="goal-month">${month}${isCur?' — Current':''}</div>
       <div class="goal-row">
         <div style="font-size:11px;color:var(--muted)">Goal: <input class="goal-input" value="${goal}" onclick="event.stopPropagation()" onchange="updateGoal('${month}',this.value)" type="number" min="1" max="99"></div>
@@ -1509,6 +1510,7 @@ function renderGoals(){
       </div>
     </div>`;
   }).join('');
+  const titleEl=document.getElementById('goalGridTitle');if(titleEl)titleEl.textContent='Monthly Goals — '+goalYear;
 }
 function showMonthDrillDown(month,m,year){
   const el=document.getElementById('monthDrillDown');if(!el)return;
@@ -1749,12 +1751,26 @@ async function deleteRefill(id){
   refills=refills.filter(r=>String(r.id)!==String(id));
   renderRefills();renderDashboard();showToast();
 }
+async function updateRefillField(id,field,value){
+  const{error}=await sb.from('refills').update({[field]:value||null}).eq('id',id);
+  if(error){alert('Update failed: '+error.message);return;}
+  const r=refills.find(x=>String(x.id)===String(id));
+  if(r)r[field]=value||null;
+  renderRefills();renderDashboard();showToast();
+}
 async function deleteActivation(id){
   if(!confirm('Delete?'))return;
   const{error}=await sb.from('activations').delete().eq('id',id);
   if(error){alert('Error: '+error.message);return;}
   activations=activations.filter(a=>String(a.id)!==String(id));
   renderActivations();renderDashboard();showToast();
+}
+async function updateActivationField(id,field,value){
+  const{error}=await sb.from('activations').update({[field]:value||null}).eq('id',id);
+  if(error){alert('Update failed: '+error.message);return;}
+  const a=activations.find(x=>String(x.id)===String(id));
+  if(a)a[field]=value||null;
+  renderActivations();renderDashboard();renderGoals();showToast();
 }
 async function deleteInvoice(id){
   if(!confirm('Delete?'))return;

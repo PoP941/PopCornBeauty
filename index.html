@@ -73,6 +73,9 @@ body{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;background:var(--bg
 .field input.phone-f{color:var(--pink);font-weight:700;font-size:13px;}
 .field input.money-f{color:var(--green);font-weight:700;}
 .field input.imei-f{color:var(--blue);font-weight:700;letter-spacing:.5px;}
+/* Placeholder hint text must never look like real typed data — override every field's
+   bold/colored styling above so an empty field is obviously empty at a glance. */
+.field input::placeholder{color:var(--muted)!important;font-weight:400!important;font-style:italic;opacity:.75;letter-spacing:normal!important;}
 .rebate-banner{background:#fffbeb;border:2px solid #f59e0b;border-radius:8px;padding:12px 16px;margin-bottom:14px;display:none;align-items:center;gap:12px;}
 .rebate-banner.show{display:flex;}
 .rebate-title{font-size:13px;font-weight:800;color:#92400e;margin-bottom:3px;}
@@ -1359,14 +1362,36 @@ function renderInvoices(){
       const invSpiff=invoices.reduce((s,i)=>s+(parseFloat(i.spiff)||0),0);
       const invSubsidy=invoices.reduce((s,i)=>s+(parseFloat(i.subsidy)||0),0);
       const invActCost=invoices.reduce((s,i)=>s+(parseFloat(i.act_orders)||0),0);
+      const total=invSpiff+invSubsidy-invActCost;
       const unverified=activations.filter(a=>!a.verified);
+      const prettyPhone=p=>{const d=(p||'').replace(/\D/g,'');return d.length===10?'('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6):p||'—';};
       reconEl.style.display='block';
-      reconEl.innerHTML=`<strong>Activations profit source:</strong> ${fmt(invSpiff)} spiff/residual credits + ${fmt(invSubsidy)} subsidy − ${fmt(invActCost)} activation order cost = <strong style="color:var(--gold)">${fmt(invSpiff+invSubsidy-invActCost)}</strong>, from ${invoices.length} saved invoice${invoices.length!==1?'s':''}.`+
-        (unverified.length?` <span style="color:var(--red);font-weight:700;">⚠️ ${unverified.length} activation${unverified.length!==1?'s have':' has'} not shown up matched in any audited invoice yet (${unverified.slice(0,5).map(a=>a.phone).join(', ')}${unverified.length>5?', ...':''}) — audit the invoice covering ${unverified.length!==1?'them':'it'} to include ${unverified.length!==1?'their':'its'} commission.</span>`
-          :` <span style="color:var(--green);font-weight:700;">✅ Every logged activation has been matched in an audited invoice.</span>`);
+      reconEl.innerHTML=`
+        <div style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Where "Activations" Profit Comes From</div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px;margin-bottom:6px;">
+          <span style="padding:5px 10px;background:var(--green-l);color:var(--green);border-radius:5px;font-weight:700;">${fmt(invSpiff)} <span style="font-weight:400;font-size:11px;">spiff/residual</span></span>
+          <span style="color:var(--muted);">+</span>
+          <span style="padding:5px 10px;background:var(--purple-l);color:var(--purple);border-radius:5px;font-weight:700;">${fmt(invSubsidy)} <span style="font-weight:400;font-size:11px;">subsidy</span></span>
+          <span style="color:var(--muted);">−</span>
+          <span style="padding:5px 10px;background:var(--red-l);color:var(--red);border-radius:5px;font-weight:700;">${fmt(invActCost)} <span style="font-weight:400;font-size:11px;">activation cost</span></span>
+          <span style="color:var(--muted);">=</span>
+          <span style="padding:5px 10px;background:var(--gold-l);color:var(--gold);border-radius:5px;font-weight:900;">${fmt(total)}</span>
+          <span style="color:var(--muted);font-size:11px;">from ${invoices.length} saved invoice${invoices.length!==1?'s':''}</span>
+        </div>
+        ${unverified.length?`
+          <div style="margin-top:8px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;">
+            <div style="font-size:12px;font-weight:800;color:var(--red);margin-bottom:6px;">⚠️ ${unverified.length} activation${unverified.length!==1?'s':''} not yet confirmed by an audited invoice — commission not included above</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              ${unverified.slice(0,8).map(a=>`<span class="badge b-red" style="font-family:monospace;">${prettyPhone(a.phone)}</span>`).join('')}
+              ${unverified.length>8?`<span style="font-size:11px;color:var(--muted);align-self:center;">+${unverified.length-8} more</span>`:''}
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:6px;">Audit the VidaPay invoice that covers ${unverified.length!==1?'these lines':'this line'} to pull ${unverified.length!==1?'their':'its'} commission into the total.</div>
+          </div>`
+          :`<div style="margin-top:6px;font-size:11px;color:var(--green);font-weight:700;">✅ Every logged activation has been matched in an audited invoice.</div>`}
+      `;
     } else {
       reconEl.style.display='block';
-      reconEl.innerHTML=`No invoices saved yet — Activations profit is showing internal projections only. Audit and save your VidaPay invoices to switch to confirmed real numbers.`;
+      reconEl.innerHTML=`<div style="font-size:12px;color:var(--muted);">No invoices saved yet — "Activations" profit is showing internal projections only. Audit and save your VidaPay invoices to switch to confirmed real numbers.</div>`;
     }
   }
 }

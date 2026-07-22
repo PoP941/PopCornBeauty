@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Popcorn Beauty — Wireless Command Center</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#c0392b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PB Wireless">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js"></script>
@@ -2609,6 +2616,29 @@ sb.auth.onAuthStateChange((event,session)=>{
 sb.auth.getSession().then(({data})=>{
   if(data.session)showApp();else showAuthGate();
 });
+
+// ── PWA: register the service worker, and force a reload the moment a new version
+// takes over. This is the client-side half of the anti-staleness safeguard — without
+// this, a person could have the app "installed" and never see a fix land until they
+// happened to fully quit and reopen it.
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('service-worker.js').then(reg=>{
+      reg.addEventListener('updatefound',()=>{
+        const newWorker=reg.installing;
+        newWorker.addEventListener('statechange',()=>{
+          if(newWorker.state==='activated')location.reload();
+        });
+      });
+    }).catch(err=>console.log('Service worker registration failed:',err));
+  });
+  let reloadedForUpdate=false;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    if(reloadedForUpdate)return;
+    reloadedForUpdate=true;
+    location.reload();
+  });
+}
 </script>
 </div>
 </body>

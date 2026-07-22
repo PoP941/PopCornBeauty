@@ -1380,12 +1380,13 @@ function renderInvoices(){
         </div>
         ${unverified.length?`
           <div style="margin-top:8px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;">
-            <div style="font-size:12px;font-weight:800;color:var(--red);margin-bottom:6px;">⚠️ ${unverified.length} activation${unverified.length!==1?'s':''} not yet confirmed by an audited invoice — commission not included above</div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;">
-              ${unverified.slice(0,8).map(a=>`<span class="badge b-red" style="font-family:monospace;">${prettyPhone(a.phone)}</span>`).join('')}
-              ${unverified.length>8?`<span style="font-size:11px;color:var(--muted);align-self:center;">+${unverified.length-8} more</span>`:''}
+            <div style="font-size:12px;font-weight:800;color:var(--red);margin-bottom:4px;">⚠️ ${unverified.length} activation${unverified.length!==1?'s':''} not yet confirmed by an audited invoice — commission not included above</div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">These are fully logged in your Activations tab — that's not the issue. "Confirmed" specifically means this Order # has shown up as an <strong>Activation Order</strong> line on an invoice you've dropped into the audit tool. If it hasn't been, either that invoice hasn't come in yet, or hasn't been audited here yet.</div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              ${unverified.slice(0,8).map(a=>`<div style="font-size:11px;font-family:monospace;"><span class="badge b-red">Order #${a.order_num||'—'}</span> <span style="color:var(--muted);">${prettyPhone(a.phone)}</span></div>`).join('')}
+              ${unverified.length>8?`<span style="font-size:11px;color:var(--muted);">+${unverified.length-8} more</span>`:''}
             </div>
-            <div style="font-size:11px;color:var(--muted);margin-top:6px;">Audit the VidaPay invoice that covers ${unverified.length!==1?'these lines':'this line'} to pull ${unverified.length!==1?'their':'its'} commission into the total.</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:6px;">Drop the VidaPay invoice showing ${unverified.length!==1?'these Order #s':'this Order #'} through the audit tool to pull ${unverified.length!==1?'their':'its'} commission into the total.</div>
           </div>`
           :`<div style="margin-top:6px;font-size:11px;color:var(--green);font-weight:700;">✅ Every logged activation has been matched in an audited invoice.</div>`}
       `;
@@ -2044,10 +2045,23 @@ async function runFullAudit(file){
         </div>
       </div>
     </div>`;
+    let verifyFailed=false;
     for(const r of actResults){
-      if(r.act){await sb.from('activations').update({verified:true}).eq('id',r.act.id).catch(()=>{});const i=activations.findIndex(a=>a.id===r.act.id);if(i>=0)activations[i].verified=true;}
+      if(r.act){
+        const{error:verr}=await sb.from('activations').update({verified:true}).eq('id',r.act.id);
+        if(verr){
+          verifyFailed=true;
+          console.error('Failed to mark activation verified:',verr);
+        } else {
+          const i=activations.findIndex(a=>a.id===r.act.id);if(i>=0)activations[i].verified=true;
+        }
+      }
     }
-    renderActivations();
+    if(verifyFailed){
+      const el=document.getElementById('invAuditResults');
+      if(el)el.innerHTML+='<div style="margin-top:10px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;font-size:11px;color:#991b1b;">⚠️ Matched activations were found, but marking them "confirmed" failed to save — most likely the <code>verified</code> column doesn\'t exist on the <code>activations</code> table yet. Run the SQL to add it, then re-drop this invoice.</div>';
+    }
+    renderActivations();renderInvoices();
   }catch(err){
     setMsg('❌',err.message||'Could not read invoice');
     setTimeout(()=>{if(zone)zone.style.display='block';if(status)status.style.display='none';},4000);

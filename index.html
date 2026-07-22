@@ -1329,7 +1329,7 @@ function renderInvoices(){
     const nc=net<0?'var(--green)':net>0?'var(--red)':'var(--muted)';
     return`<tr>
       <td style="font-size:11px;color:var(--blue);font-family:monospace">${inv.invoice_num}</td>
-      <td>${fmtDate(inv.invoice_date)}</td>
+      <td><input type="date" value="${inv.invoice_date||''}" style="border:1px solid ${inv.invoice_date?'transparent':'var(--red)'};background:transparent;font-size:11px;font-family:inherit;color:var(--text);padding:2px;border-radius:3px;" onchange="updateInvoiceField(${inv.id},'invoice_date',this.value)"></td>
       <td style="font-size:11px;color:var(--muted)">${inv.period||'—'}</td>
       <td class="money-t" style="color:var(--red)">${fmt(inv.act_orders)}</td>
       <td class="money-t" style="color:var(--green)">${inv.spiff?fmt(inv.spiff):'—'}</td>
@@ -1568,6 +1568,13 @@ async function deleteInvoice(id){
   if(error){alert('Error: '+error.message);return;}
   invoices=invoices.filter(i=>String(i.id)!==String(id));
   renderInvoices();renderDashboard();showToast();
+}
+async function updateInvoiceField(id,field,value){
+  const{error}=await sb.from('invoices').update({[field]:value||null}).eq('id',id);
+  if(error){alert('Update failed: '+error.message);return;}
+  const inv=invoices.find(i=>String(i.id)===String(id));
+  if(inv)inv[field]=value||null;
+  showToast();
 }
 
 // ── renderPhones with two tables ──
@@ -1883,7 +1890,9 @@ async function runFullAudit(file){
     setMsg('⏳','Auditing...');
     const flat=text.replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim();
     const invoiceNum=(flat.match(/Invoice\s*No[:.\s]+(\d{7,12})/i)||[])[1]||'';
-    const period=(flat.match(/Period[:\s]+([\d/]+-+[\d/]+)/i)||[])[1]||'';
+    const period=(flat.match(/Period[:\s]+([\d/]+\s*-+\s*[\d/]+)/i)||[])[1]||'';
+    const invDateM=flat.match(/Invoice\s*Date[:\s]+(\d{1,2})\/(\d{1,2})\/(\d{4})/i);
+    const invoiceDate=invDateM?invDateM[3]+'-'+invDateM[1].padStart(2,'0')+'-'+invDateM[2].padStart(2,'0'):null;
     const grandTotal=(()=>{const m=flat.match(/Grand\s*Total[^\d(]*\(?\$?([\d,]+\.\d{2})\)?/i);if(!m)return 0;const idx=m.index+m[0].indexOf(m[1]);const isNeg=flat.slice(Math.max(0,idx-3),idx).includes('(');return parseFloat(m[1].replace(/,/g,''))*(isNeg?-1:1);})();
     const totalDebits=parseFloat((flat.match(/Total\s*Debits[^\d$]*\$?([\d,]+\.\d{2})/i)||[])[1])||0;
     const totalCredits=parseFloat((flat.match(/Total\s*Credits[^\d$]*\(?\$?([\d,]+\.\d{2})\)?/i)||[])[1])||0;
@@ -1988,7 +1997,7 @@ async function runFullAudit(file){
           <div style="text-align:center;padding:8px;background:var(--blue-l);border-radius:5px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">NET</div><div style="font-size:16px;font-weight:900;color:var(--blue);">${grandTotal<0?'('+fmt(Math.abs(grandTotal))+')':fmt(grandTotal)}</div></div>
         </div>
         <div style="margin-top:12px;display:flex;gap:8px;">
-          <button class="btn" style="background:${reconMismatch?'var(--muted)':'var(--green)'};color:#fff;" ${reconMismatch?'disabled title="Fix the mismatch above first"':''} onclick="saveAuditResult('${invoiceNum}','${period}',{actOrders:${actRows.reduce((s,r)=>s+r.amount,0)},spiff:${spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)+additionalSpiffTotal},subsidy:${promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)+Math.max(0,-residualTotal)},rtr:${rtrRows.reduce((s,r)=>s+r.amount,0)},fee:${feeTotal+Math.max(0,residualTotal)},marketplace:${marketplaceTotal}})">💾 Save to Invoice History</button>
+          <button class="btn" style="background:${reconMismatch?'var(--muted)':'var(--green)'};color:#fff;" ${reconMismatch?'disabled title="Fix the mismatch above first"':''} onclick="saveAuditResult('${invoiceNum}','${period}',{actOrders:${actRows.reduce((s,r)=>s+r.amount,0)},spiff:${spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)+additionalSpiffTotal},subsidy:${promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)+Math.max(0,-residualTotal)},rtr:${rtrRows.reduce((s,r)=>s+r.amount,0)},fee:${feeTotal+Math.max(0,residualTotal)},marketplace:${marketplaceTotal}},${invoiceDate?"'"+invoiceDate+"'":'null'})">💾 Save to Invoice History</button>
           <button class="btn btn-ghost" onclick="document.getElementById('invAuditResults').style.display='none';document.getElementById('invDropZone').style.display='block';">↩ Another</button>
         </div>
       </div>
@@ -2003,11 +2012,11 @@ async function runFullAudit(file){
   }
 }
 
-async function saveAuditResult(num,period,cats){
+async function saveAuditResult(num,period,cats,invoiceDate){
   if(!num){alert('No invoice # found');return;}
   if(invoices.find(i=>i.invoice_num===String(num))){alert('Invoice #'+num+' already saved');return;}
   const basePayload={
-    invoice_num:String(num),period:period||'',
+    invoice_num:String(num),period:period||'',invoice_date:invoiceDate||null,
     act_orders:cats.actOrders||0,spiff:cats.spiff||0,subsidy:cats.subsidy||0,
     rtr:cats.rtr||0,fee:cats.fee||0,marketplace:cats.marketplace||0,
     notes:'Auto-audited'

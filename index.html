@@ -1435,7 +1435,9 @@ function renderInvoices(){
     const net=deb-cred;td+=deb;tc+=cred;
     const nc=net<0?'var(--green)':net>0?'var(--red)':'var(--muted)';
     return`<tr>
-      <td style="font-size:11px;font-family:monospace">${inv.file_url?`<a href="${inv.file_url}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:underline;" title="Open original invoice file">${inv.invoice_num} 📄</a>`:`<span style="color:var(--blue);">${inv.invoice_num}</span>`}</td>
+      <td style="font-size:11px;font-family:monospace">${inv.file_url
+        ?`<a href="${inv.file_url}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:underline;" title="Open original invoice file">${inv.invoice_num} 📄</a>`
+        :`<span style="color:var(--blue);">${inv.invoice_num}</span> <label style="cursor:pointer;font-size:10px;color:var(--muted);text-decoration:underline;" title="Attach the original PDF/screenshot for this invoice">📎 attach<input type="file" accept=".pdf,image/*" style="display:none" onchange="attachInvoiceFile(${inv.id},'${inv.invoice_num}',this.files[0])"></label>`}</td>
       <td><input type="date" value="${inv.invoice_date||''}" style="border:1px solid ${inv.invoice_date?'transparent':'var(--red)'};background:transparent;font-size:11px;font-family:inherit;color:var(--text);padding:2px;border-radius:3px;" onchange="updateInvoiceField(${inv.id},'invoice_date',this.value)"></td>
       <td style="font-size:11px;color:var(--muted)">${inv.period||'—'}</td>
       <td class="money-t" style="color:var(--red)">${fmt(inv.act_orders)}</td>
@@ -1792,6 +1794,30 @@ async function deleteInvoice(id){
   if(error){alert('Error: '+error.message);return;}
   invoices=invoices.filter(i=>String(i.id)!==String(id));
   renderInvoices();renderDashboard();showToast();
+}
+async function attachInvoiceFile(id,invoiceNum,file){
+  if(!file)return;
+  try{
+    const ext=(file.name.split('.').pop()||'pdf').toLowerCase();
+    const path=String(invoiceNum)+'.'+ext;
+    const{error:upErr}=await sb.storage.from('invoice-files').upload(path,file,{upsert:true});
+    if(upErr){
+      alert('Upload failed: '+upErr.message+'\n\nMost likely the invoice-files storage bucket hasn\'t been set up yet — run add-invoice-file-storage.sql first.');
+      return;
+    }
+    const{data:pub}=sb.storage.from('invoice-files').getPublicUrl(path);
+    const fileUrl=pub?.publicUrl||null;
+    const{error:updErr}=await sb.from('invoices').update({file_url:fileUrl}).eq('id',id);
+    if(updErr){
+      alert('File uploaded, but saving the link failed: '+updErr.message+'\n\nMost likely the file_url column hasn\'t been added yet — run add-invoice-file-storage.sql first.');
+      return;
+    }
+    const inv=invoices.find(i=>String(i.id)===String(id));
+    if(inv)inv.file_url=fileUrl;
+    renderInvoices();showToast();
+  }catch(e){
+    alert('Attach failed: '+e.message);
+  }
 }
 async function updateInvoiceField(id,field,value){
   const{error}=await sb.from('invoices').update({[field]:value||null}).eq('id',id);

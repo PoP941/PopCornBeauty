@@ -192,26 +192,6 @@ td{padding:10px 12px;vertical-align:middle;}
     <div class="kpi" style="--acc:var(--gold)"><div class="kpi-label">Total This Month</div><div class="kpi-value" id="monTotal" style="color:var(--gold)">$0</div><div class="kpi-sub">vs last month below</div></div>
   </div>
 
-  <!-- LIVE RECENT TRANSACTIONS — real-time feed, most recent first -->
-  <div class="section-hdr" style="margin-top:4px">
-    <div class="section-title">🔴 Live — Recent Transactions</div>
-    <a href="#" onclick="showTab('lookup');return false;" style="font-size:10px;color:var(--blue);font-weight:700;">See all in Lookup →</a>
-  </div>
-  <div id="dashRecentFeed" style="background:#fff;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:4px;"></div>
-
-  <div class="section-hdr" style="margin-top:4px">
-    <div class="section-title">📅 Profit Over Time</div>
-    <div style="display:flex;gap:6px;">
-      <button class="btn btn-ghost" id="dpBtnDaily" style="font-size:10px;padding:4px 10px;" onclick="renderDailyProfit('daily')">Daily</button>
-      <button class="btn btn-ghost" id="dpBtnMonthly" style="font-size:10px;padding:4px 10px;" onclick="renderDailyProfit('monthly')">Monthly</button>
-      <button class="btn btn-ghost" id="dpBtnYearly" style="font-size:10px;padding:4px 10px;" onclick="renderDailyProfit('yearly')">Yearly</button>
-    </div>
-  </div>
-  <div id="dpScopeNote" style="font-size:10px;color:var(--muted);margin-bottom:4px;"></div>
-  <div class="table-wrap" style="margin-bottom:4px;"><div class="table-scroll"><table>
-    <thead><tr><th id="dpDateHeader">Date</th><th>Commission</th><th>Refill Profit</th><th>Phone Profit</th><th>Total</th></tr></thead>
-    <tbody id="dailyProfitTable"><tr><td colspan="5" class="empty-state">No activity yet</td></tr></tbody>
-  </table></div></div>
   <div class="section-hdr" style="margin-top:4px">
     <div class="section-title">📦 Phones In Stock</div>
     <div style="font-size:10px;color:var(--muted)" id="dashStockCount">0 in stock</div>
@@ -220,8 +200,9 @@ td{padding:10px 12px;vertical-align:middle;}
     <thead><tr><th>Model</th><th>IMEI</th><th>Purchased</th><th>Required Plan</th><th>Return By</th><th>Countdown</th></tr></thead>
     <tbody id="dashStockTable"><tr><td colspan="6" class="empty-state">No phones in stock</td></tr></tbody>
   </table></div></div>
-  <div class="section-hdr" style="margin-top:4px"><div class="section-title">Monthly Goals — 2027</div><div style="font-size:10px;color:var(--muted)">Click the blue number to edit · Syncs live</div></div>
+  <div class="section-hdr" style="margin-top:4px"><div class="section-title">Monthly Goals — 2027</div><div style="font-size:10px;color:var(--muted)">Click a month to see its transactions · Click the blue number to edit goal</div></div>
   <div class="goal-grid" id="goalGrid"></div>
+  <div id="monthDrillDown" style="display:none;margin-top:12px;"></div>
   <div class="section-hdr" style="margin-top:4px;cursor:pointer;" onclick="const g=document.getElementById('quickGuideBody');const open=g.style.display!=='none';g.style.display=open?'none':'grid';document.getElementById('quickGuideArrow').textContent=open?'▸':'▾';">
     <div class="section-title">VidaPay Quick Guide <span id="quickGuideArrow" style="font-size:10px;">▸</span></div>
   </div>
@@ -570,6 +551,14 @@ const PROMO_MONTHS=pcts.length; // 6 — after this, refills earn flat 8% instea
 const POST_PROMO_RATE=0.08;
 const fmt=v=>'$'+(parseFloat(v)||0).toFixed(2);
 const fmtDate=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'}):'—';
+// Converts a VidaPay invoice date like "7/12/2026" into the "2026-07-12" format HTML date
+// inputs require. Used so "Log →" quick-actions carry over the REAL transaction date
+// instead of leaving the date field defaulted to today.
+function mdyToIso(mdy){
+  const m=String(mdy||'').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(!m)return '';
+  return m[3]+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0');
+}
 
 // Parse plan duration in months from the plan name, e.g. "SM $150 Unlimited World 3-Month" -> 3
 function planMonths(planName){
@@ -1507,10 +1496,10 @@ function renderGoals(){
     const status=done>=goal?'✅ Goal Hit — 400% MRC!':done>=goal*0.8?'⚡ Almost':'Behind';
     const sc=done>=goal?'var(--green)':done>=goal*0.8?'var(--gold)':'var(--red)';
     const bc=done>=goal?'var(--green)':done>=goal*0.8?'var(--gold)':'var(--blue)';
-    return`<div class="goal-card${isCur?' current':''}">
+    return`<div class="goal-card${isCur?' current':''}" style="cursor:pointer;" onclick="showMonthDrillDown('${month}',${m},2027)">
       <div class="goal-month">${month}${isCur?' — Current':''}</div>
       <div class="goal-row">
-        <div style="font-size:11px;color:var(--muted)">Goal: <input class="goal-input" value="${goal}" onchange="updateGoal('${month}',this.value)" type="number" min="1" max="99"></div>
+        <div style="font-size:11px;color:var(--muted)">Goal: <input class="goal-input" value="${goal}" onclick="event.stopPropagation()" onchange="updateGoal('${month}',this.value)" type="number" min="1" max="99"></div>
         <div style="font-size:20px;font-weight:900;color:var(--green)">${done}</div>
       </div>
       <div class="goal-bar-track"><div class="goal-bar-fill" style="width:${pv}%;background:${bc}"></div></div>
@@ -1520,6 +1509,50 @@ function renderGoals(){
       </div>
     </div>`;
   }).join('');
+}
+function showMonthDrillDown(month,m,year){
+  const el=document.getElementById('monthDrillDown');if(!el)return;
+  const mStr=String(m).padStart(2,'0');
+  const inMonth=(d)=>d&&String(d).slice(0,7)===`${year}-${mStr}`;
+  const acts=activations.filter(a=>inMonth(a.act_date));
+  const refs=refills.filter(r=>inMonth(r.ref_date));
+  const soldPhones=phones.filter(p=>p.status==='Sold'&&inMonth(p.sale_date));
+  const commission=acts.reduce((s,a)=>s+spiffEarned(a),0);
+  const refillProfit=refs.reduce((s,r)=>s+(parseFloat(r.amount)||0)*0.08,0);
+  const phoneProfit=soldPhones.reduce((s,p)=>s+((parseFloat(p.sale_price)||0)-(parseFloat(p.cost)||0)+(parseFloat(p.subsidy)||0)),0);
+  const total=commission+refillProfit+phoneProfit;
+  const rows=[
+    ...acts.map(a=>({type:'📱 Activation',icon:'📱',color:'var(--teal)',phone:a.phone,detail:a.plan||'',date:a.act_date,amount:spiffEarned(a)})),
+    ...refs.map(r=>({type:'💳 Refill',icon:'💳',color:'var(--gold)',phone:r.phone,detail:r.plan||'',date:r.ref_date,amount:(parseFloat(r.amount)||0)*0.08})),
+    ...soldPhones.map(p=>({type:'📦 Phone Sold',icon:'📦',color:'var(--orange)',phone:p.phone,detail:p.model||'',date:p.sale_date,amount:(parseFloat(p.sale_price)||0)-(parseFloat(p.cost)||0)+(parseFloat(p.subsidy)||0)})),
+  ].sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
+  el.style.display='block';
+  el.innerHTML=`
+    <div style="background:#fff;border:2px solid var(--blue);border-radius:10px;padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="font-size:13px;font-weight:800;color:var(--blue);">${month} ${year} — Transactions &amp; Profit</div>
+        <button class="btn btn-ghost" style="font-size:10px;padding:3px 10px;" onclick="document.getElementById('monthDrillDown').style.display='none';">✕ Close</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;">
+        <div style="text-align:center;padding:8px;background:var(--teal-l,#f0fbff);border-radius:6px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">COMMISSION</div><div style="font-size:15px;font-weight:900;color:var(--teal);">${fmt(commission)}</div></div>
+        <div style="text-align:center;padding:8px;background:var(--gold-l);border-radius:6px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">REFILL PROFIT</div><div style="font-size:15px;font-weight:900;color:var(--gold);">${fmt(refillProfit)}</div></div>
+        <div style="text-align:center;padding:8px;background:var(--orange-l);border-radius:6px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">PHONE PROFIT</div><div style="font-size:15px;font-weight:900;color:var(--orange);">${fmt(phoneProfit)}</div></div>
+        <div style="text-align:center;padding:8px;background:#fff8e1;border-radius:6px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">TOTAL</div><div style="font-size:15px;font-weight:900;color:#b45309;">${fmt(total)}</div></div>
+      </div>
+      ${rows.length?`<div style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;">
+        ${rows.map(r=>`<div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+          <div style="display:flex;gap:8px;align-items:center;">
+            <div style="font-size:14px;">${r.icon}</div>
+            <div>
+              <div style="font-size:11px;font-weight:700;color:${r.color};">${r.type}</div>
+              <div style="font-size:10px;color:var(--muted);">${r.phone?r.phone+' · ':''}${r.detail}${r.date?' · '+fmtDate(r.date):''}</div>
+            </div>
+          </div>
+          <div style="font-size:12px;font-weight:800;color:${r.color};">${fmt(r.amount)}</div>
+        </div>`).join('')}
+      </div>`:`<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;">No transactions logged for ${month} ${year} yet.</div>`}
+    </div>`;
+  el.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 
 function renderDashboard(){
@@ -2120,7 +2153,7 @@ async function runFullAudit(file){
         ${actResults.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--blue);text-transform:uppercase;margin-bottom:6px;">Activation Orders</div>
           ${actResults.map(r=>r.act
             ?`<div style="padding:6px 10px;background:var(--green-l);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span><strong>${r.act.phone}</strong> ${r.act.customer_name||''}</span><span style="color:var(--blue);font-family:monospace;">#${r.order} <span class="badge b-green">✅</span></span></div>`
-            :`<div style="padding:6px 10px;background:var(--red-l);border-left:3px solid var(--red);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--red);font-weight:700;">Order #${r.order} — NOT LOGGED</span><button class="btn" style="font-size:10px;padding:2px 8px;background:var(--blue);color:#fff;" onclick="document.getElementById('act-order').value='${r.order}';showTab('activations')">Log →</button></div>`
+            :`<div style="padding:6px 10px;background:var(--red-l);border-left:3px solid var(--red);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--red);font-weight:700;">Order #${r.order} — NOT LOGGED</span><button class="btn" style="font-size:10px;padding:2px 8px;background:var(--blue);color:#fff;" onclick="document.getElementById('act-order').value='${r.order}';document.getElementById('act-date').value=mdyToIso('${r.date}');showTab('activations')">Log →</button></div>`
           ).join('')}
         </div>`:''}
         ${spiffResults.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--gold);text-transform:uppercase;margin-bottom:6px;">💰 Instant Spiff (matched by Order #, not separately logged)</div>
@@ -2141,13 +2174,13 @@ async function runFullAudit(file){
         ${rtrResults.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--gold);text-transform:uppercase;margin-bottom:6px;">RTR/Refill Orders</div>
           ${rtrResults.map(r=>r.ref
             ?`<div style="padding:6px 10px;background:var(--green-l);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span><strong>${r.ref.phone}</strong></span><span style="color:var(--blue);font-family:monospace;">#${r.order} <span class="badge b-green">✅</span></span></div>`
-            :`<div style="padding:6px 10px;background:#fff8e1;border-left:3px solid var(--gold);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--gold);font-weight:700;">Order #${r.order} — not logged</span><button class="btn btn-ghost" style="font-size:10px;padding:2px 8px;" onclick="document.getElementById('ref-order').value='${r.order}';showTab('refills')">Log →</button></div>`
+            :`<div style="padding:6px 10px;background:#fff8e1;border-left:3px solid var(--gold);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--gold);font-weight:700;">Order #${r.order} — not logged</span><button class="btn btn-ghost" style="font-size:10px;padding:2px 8px;" onclick="document.getElementById('ref-order').value='${r.order}';document.getElementById('ref-date').value=mdyToIso('${r.date}');showTab('refills')">Log →</button></div>`
           ).join('')}
         </div>`:''}
         ${marketplaceResults.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--orange);text-transform:uppercase;margin-bottom:6px;">📱 Device / MarketPlace Purchases</div>
           ${marketplaceResults.map(r=>r.phone
             ?`<div style="padding:6px 10px;background:var(--green-l);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span><strong>${r.phone.model||'Phone'}</strong>${r.product?' · '+r.product:''}</span><span style="color:var(--orange);font-family:monospace;">#${r.order} ${fmt(r.amount)} <span class="badge b-green">✅</span></span></div>`
-            :`<div style="padding:6px 10px;background:var(--red-l);border-left:3px solid var(--red);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--red);font-weight:700;">Order #${r.order} — ${fmt(r.amount)} device purchase NOT in Phones inventory</span><button class="btn" style="font-size:10px;padding:2px 8px;background:var(--blue);color:#fff;" onclick="document.getElementById('ph-order').value='${r.order}';showTab('phones')">Log →</button></div>`
+            :`<div style="padding:6px 10px;background:var(--red-l);border-left:3px solid var(--red);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--red);font-weight:700;">Order #${r.order} — ${fmt(r.amount)} device purchase NOT in Phones inventory</span><button class="btn" style="font-size:10px;padding:2px 8px;background:var(--blue);color:#fff;" onclick="document.getElementById('ph-order').value='${r.order}';document.getElementById('ph-pdate').value=mdyToIso('${r.date}');showTab('phones')">Log →</button></div>`
           ).join('')}
         </div>`:''}
         ${residualRows.length?`<div style="margin-bottom:10px;font-size:11px;color:var(--muted);">Residual orders this period: ${fmt(residualTotal)} (informational, nothing to log)</div>`:''}
@@ -2255,7 +2288,7 @@ function renderOverdue(){
     <div style="background:${newOffer?'#fef2f2':'var(--red-l)'};color:${newOffer?'#dc2626':'var(--red)'};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;">${newOffer?'🔔 new offer':'needs refill'}</div>
   </div>`).join(''):'<div style="padding:16px;text-align:center;color:var(--green);">✅ All up to date</div>';
 }
-function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDailyProfit();renderDashStock();renderMonthSnapshot();renderDashRecentFeed();renderReturnWarning();runLookup(document.getElementById('lookup-q')?.value||'');}
+function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDashStock();renderMonthSnapshot();renderReturnWarning();runLookup(document.getElementById('lookup-q')?.value||'');}
 
 // ── Universal Lookup: search by phone #, order #, or IMEI across all three tables ──
 // Merge Activations, Refills, and Sold Phones into one reverse-chronological feed —

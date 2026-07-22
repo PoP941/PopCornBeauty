@@ -167,7 +167,7 @@ td{padding:10px 12px;vertical-align:middle;}
     <div class="net-breakdown">
       <div class="net-item"><div class="net-item-val" id="dashCommission" style="color:#86efac">$0.00</div><div class="net-item-lbl">Commission</div></div>
       <div class="net-div"></div>
-      <div class="net-item"><div class="net-item-val" id="dashSubsidy" style="color:#c4b5fd">$0.00</div><div class="net-item-lbl">Subsidies</div></div>
+      <div class="net-item"><div class="net-item-val" id="dashSubsidy" style="color:#c4b5fd">$0.00</div><div class="net-item-lbl">Residual</div></div>
       <div class="net-div"></div>
       <div class="net-item"><div class="net-item-val" id="dashRefillProfit" style="color:#fcd34d">$0.00</div><div class="net-item-lbl">Refill Profit</div></div>
       <div class="net-div"></div>
@@ -177,7 +177,7 @@ td{padding:10px 12px;vertical-align:middle;}
   <div class="kpi-grid">
     <div class="kpi" style="--acc:var(--teal)"><div class="kpi-label">Activations</div><div class="kpi-value" id="kpiActivations" style="color:var(--teal)">0</div><div class="kpi-sub">Total logged</div></div>
     <div class="kpi" style="--acc:var(--green)"><div class="kpi-label">Commission</div><div class="kpi-value" id="kpiCommission" style="color:var(--green)">$0</div><div class="kpi-sub">earned so far</div></div>
-    <div class="kpi" style="--acc:var(--purple)"><div class="kpi-label">Subsidies</div><div class="kpi-value" id="kpiSubsidy" style="color:var(--purple)">$0</div><div class="kpi-sub">Phone rebates</div></div>
+    <div class="kpi" style="--acc:var(--purple)"><div class="kpi-label">Residual</div><div class="kpi-value" id="kpiSubsidy" style="color:var(--purple)">$0</div><div class="kpi-sub">From invoices</div></div>
     <div class="kpi" style="--acc:var(--gold)"><div class="kpi-label">Refills</div><div class="kpi-value" id="kpiRefills" style="color:var(--gold)">0</div><div class="kpi-sub">Processed</div></div>
     <div class="kpi" style="--acc:var(--lime)"><div class="kpi-label">Refill Profit</div><div class="kpi-value" id="kpiRefillProfit" style="color:var(--lime)">$0</div><div class="kpi-sub">8% kept</div></div>
     <div class="kpi" style="--acc:var(--orange)"><div class="kpi-label">Phone Profit</div><div class="kpi-value" id="kpiPhoneProfit" style="color:var(--orange)">$0</div><div class="kpi-sub">Sale + subsidy</div></div>
@@ -453,7 +453,7 @@ td{padding:10px 12px;vertical-align:middle;}
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--teal);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">📱 Activations</div><div style="font-size:24px;font-weight:900;color:var(--teal);" id="invActProfit">$0.00</div></div>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--lime);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">💳 Refills</div><div style="font-size:24px;font-weight:900;color:var(--lime);" id="invRefillProfit">$0.00</div></div>
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--orange);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">💰 Total Spiff Credit</div><div style="font-size:24px;font-weight:900;color:var(--orange);" id="invSpiffCreditTotal">$0.00</div></div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--orange);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">🔄 Residual Credits</div><div style="font-size:24px;font-weight:900;color:var(--orange);" id="invSpiffCreditTotal">$0.00</div></div>
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;border-top:3px solid var(--gold);"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:700;">Σ Total Net Profit</div><div style="font-size:24px;font-weight:900;color:var(--gold);" id="invTotalProfit">$0.00</div></div>
   </div>
   <div id="spiffReconBox" style="display:none;margin-bottom:16px;padding:10px 14px;background:#fff;border:1px solid var(--border);border-radius:8px;font-size:11px;"></div>
@@ -463,8 +463,8 @@ td{padding:10px 12px;vertical-align:middle;}
     <div class="section-title">📋 Invoice History (<span id="invCount">0</span>)</div>
   </div>
   <div class="table-wrap"><div class="table-scroll"><table>
-    <thead><tr><th>Invoice #</th><th>Date</th><th>Period</th><th>Act. Orders</th><th>Spiff Credit</th><th>Subsidy</th><th>RTR</th><th>Marketplace</th><th>Fee</th><th>Total Debits</th><th>Total Credits</th><th>Net Balance</th><th>Notes</th><th>Status</th><th></th></tr></thead>
-    <tbody id="invTable"><tr><td colspan="14" class="empty-state">No invoices yet — drop a PDF above</td></tr></tbody>
+    <thead><tr><th>Invoice #</th><th>Date</th><th>Period</th><th>Act. Orders</th><th>Spiff Credit</th><th>Subsidy</th><th>Residual</th><th>RTR</th><th>Marketplace</th><th>Fee</th><th>Total Debits</th><th>Total Credits</th><th>Net Balance</th><th>Notes</th><th>Status</th><th></th></tr></thead>
+    <tbody id="invTable"><tr><td colspan="15" class="empty-state">No invoices yet — drop a PDF above</td></tr></tbody>
   </table></div></div>
 </div>
 
@@ -1324,10 +1324,10 @@ async function deleteInvoice(id){if(!confirm('Delete?'))return;await sb.from('in
 function renderInvoices(){
   const tbody=document.getElementById('invTable');let td=0,tc=0;
   const cEl=document.getElementById('invCount');if(cEl)cEl.textContent=invoices.length;
-  if(!invoices.length){tbody.innerHTML='<tr><td colspan="14" class="empty-state">No invoices logged yet</td></tr>';}
+  if(!invoices.length){tbody.innerHTML='<tr><td colspan="15" class="empty-state">No invoices logged yet</td></tr>';}
   else tbody.innerHTML=invoices.map(inv=>{
     const deb=(parseFloat(inv.act_orders)||0)+(parseFloat(inv.rtr)||0)+(parseFloat(inv.fee)||0)+(parseFloat(inv.marketplace)||0);
-    const cred=(parseFloat(inv.spiff)||0)+(parseFloat(inv.subsidy)||0);
+    const cred=(parseFloat(inv.spiff)||0)+(parseFloat(inv.subsidy)||0)+(parseFloat(inv.residual)||0);
     const net=deb-cred;td+=deb;tc+=cred;
     const nc=net<0?'var(--green)':net>0?'var(--red)':'var(--muted)';
     return`<tr>
@@ -1337,6 +1337,7 @@ function renderInvoices(){
       <td class="money-t" style="color:var(--red)">${fmt(inv.act_orders)}</td>
       <td class="money-t" style="color:var(--green)">${inv.spiff?fmt(inv.spiff):'—'}</td>
       <td class="money-t" style="color:var(--purple)">${inv.subsidy?fmt(inv.subsidy):'—'}</td>
+      <td class="money-t" style="color:var(--orange)">${inv.residual?fmt(inv.residual):'—'}</td>
       <td class="money-t" style="color:var(--gold)">${inv.rtr?fmt(inv.rtr):'—'}</td>
       <td class="money-t" style="color:var(--orange)">${inv.marketplace?fmt(inv.marketplace):'—'}</td>
       <td class="money-t" style="color:var(--muted)">${fmt(inv.fee)}</td>
@@ -1349,51 +1350,44 @@ function renderInvoices(){
   }).join('');
   // Total Spiff Credit — sum of the "Spiff Credit" column across every saved invoice,
   // i.e. what VidaPay has actually reported paying (not our internal projection).
-  const totalSpiffCredit=invoices.reduce((s,i)=>s+(parseFloat(i.spiff)||0),0);
-  const scEl=document.getElementById('invSpiffCreditTotal');if(scEl)scEl.textContent=fmt(totalSpiffCredit);
-  // Activations profit is now driven by saved invoices (Spiff + Residual credits minus the
-  // Activation Order cost) rather than internal projection alone. This box explains that
-  // and — more usefully than a vague dollar gap — lists any activation whose Order # has
-  // never actually shown up matched in an audited invoice, so it's clear whose commission
-  // isn't reflected in Total Net Profit yet.
+  const totalResidualCredit=invoices.reduce((s,i)=>s+(parseFloat(i.residual)||0),0);
+  const scEl=document.getElementById('invSpiffCreditTotal');if(scEl)scEl.textContent=fmt(totalResidualCredit);
+  // Activations profit is our own internal per-plan schedule (matches the Activation Log's
+  // own "earned so far" figure) — not derived from invoices. Residual is tracked as its own
+  // category from saved invoices. Subsidy is intentionally excluded from profit anywhere
+  // here — it's the reimbursement for a phone we already paid for, and it's already
+  // reflected once, correctly, inside Phone Profit. This box explains that breakdown and
+  // — separately, for audit purposes only — lists any activation whose Order # has never
+  // shown up matched on an audited invoice, so you can spot-check for missing invoices.
   const reconEl=document.getElementById('spiffReconBox');
   if(reconEl){
-    if(invoices.length){
-      const invSpiff=invoices.reduce((s,i)=>s+(parseFloat(i.spiff)||0),0);
-      const invSubsidy=invoices.reduce((s,i)=>s+(parseFloat(i.subsidy)||0),0);
-      const invActCost=invoices.reduce((s,i)=>s+(parseFloat(i.act_orders)||0),0);
-      const total=invSpiff+invSubsidy-invActCost;
-      const unverified=activations.filter(a=>!a.verified);
-      const prettyPhone=p=>{const d=(p||'').replace(/\D/g,'');return d.length===10?'('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6):p||'—';};
-      reconEl.style.display='block';
-      reconEl.innerHTML=`
-        <div style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Where "Activations" Profit Comes From</div>
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px;margin-bottom:6px;">
-          <span style="padding:5px 10px;background:var(--green-l);color:var(--green);border-radius:5px;font-weight:700;">${fmt(invSpiff)} <span style="font-weight:400;font-size:11px;">spiff/residual</span></span>
-          <span style="color:var(--muted);">+</span>
-          <span style="padding:5px 10px;background:var(--purple-l);color:var(--purple);border-radius:5px;font-weight:700;">${fmt(invSubsidy)} <span style="font-weight:400;font-size:11px;">subsidy</span></span>
-          <span style="color:var(--muted);">−</span>
-          <span style="padding:5px 10px;background:var(--red-l);color:var(--red);border-radius:5px;font-weight:700;">${fmt(invActCost)} <span style="font-weight:400;font-size:11px;">activation cost</span></span>
-          <span style="color:var(--muted);">=</span>
-          <span style="padding:5px 10px;background:var(--gold-l);color:var(--gold);border-radius:5px;font-weight:900;">${fmt(total)}</span>
-          <span style="color:var(--muted);font-size:11px;">from ${invoices.length} saved invoice${invoices.length!==1?'s':''}</span>
-        </div>
-        ${unverified.length?`
-          <div style="margin-top:8px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;">
-            <div style="font-size:12px;font-weight:800;color:var(--red);margin-bottom:4px;">⚠️ ${unverified.length} activation${unverified.length!==1?'s':''} not yet confirmed by an audited invoice — commission not included above</div>
-            <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">These are fully logged in your Activations tab — that's not the issue. "Confirmed" specifically means this Order # has shown up as an <strong>Activation Order</strong> line on an invoice you've dropped into the audit tool. If it hasn't been, either that invoice hasn't come in yet, or hasn't been audited here yet.</div>
-            <div style="display:flex;flex-direction:column;gap:4px;">
-              ${unverified.slice(0,8).map(a=>`<div style="font-size:11px;font-family:monospace;"><span class="badge b-red">Order #${a.order_num||'—'}</span> <span style="color:var(--muted);">${prettyPhone(a.phone)}</span></div>`).join('')}
-              ${unverified.length>8?`<span style="font-size:11px;color:var(--muted);">+${unverified.length-8} more</span>`:''}
-            </div>
-            <div style="font-size:11px;color:var(--muted);margin-top:6px;">Drop the VidaPay invoice showing ${unverified.length!==1?'these Order #s':'this Order #'} through the audit tool to pull ${unverified.length!==1?'their':'its'} commission into the total.</div>
-          </div>`
-          :`<div style="margin-top:6px;font-size:11px;color:var(--green);font-weight:700;">✅ Every logged activation has been matched in an audited invoice.</div>`}
-      `;
-    } else {
-      reconEl.style.display='block';
-      reconEl.innerHTML=`<div style="font-size:12px;color:var(--muted);">No invoices saved yet — "Activations" profit is showing internal projections only. Audit and save your VidaPay invoices to switch to confirmed real numbers.</div>`;
-    }
+    const tcBox=activations.reduce((a,x)=>a+spiffEarned(x),0);
+    const residBox=invoices.reduce((s,i)=>s+(parseFloat(i.residual)||0),0);
+    const subsidyBox=invoices.reduce((s,i)=>s+(parseFloat(i.subsidy)||0),0);
+    const unverified=activations.filter(a=>!a.verified);
+    const prettyPhone=p=>{const d=(p||'').replace(/\D/g,'');return d.length===10?'('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6):p||'—';};
+    reconEl.style.display='block';
+    reconEl.innerHTML=`
+      <div style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Where "Activations" + "Residual" Profit Comes From</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px;margin-bottom:6px;">
+        <span style="padding:5px 10px;background:var(--teal-l,#f0fbff);color:var(--teal);border-radius:5px;font-weight:700;">${fmt(tcBox)} <span style="font-weight:400;font-size:11px;">Activations (M1–M6 schedule)</span></span>
+        <span style="color:var(--muted);">+</span>
+        <span style="padding:5px 10px;background:var(--orange-l);color:var(--orange);border-radius:5px;font-weight:700;">${fmt(residBox)} <span style="font-weight:400;font-size:11px;">Residual credits</span></span>
+        <span style="color:var(--muted);">=</span>
+        <span style="padding:5px 10px;background:var(--gold-l);color:var(--gold);border-radius:5px;font-weight:900;">${fmt(tcBox+residBox)}</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Activations profit comes from your own per-plan commission tracking, not from invoices — matches the "earned so far" figure on the Activation Log. Residual credits come straight from ${invoices.length} saved invoice${invoices.length!==1?'s':''}. <strong>Subsidy (${fmt(subsidyBox)} across saved invoices) is intentionally not counted here</strong> — it's the rebate that reimburses a phone we already paid for, and it's already reflected once, correctly, inside Phone Profit.</div>
+      ${unverified.length?`
+        <div style="margin-top:4px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;">
+          <div style="font-size:12px;font-weight:800;color:var(--red);margin-bottom:4px;">🔍 ${unverified.length} activation${unverified.length!==1?'s':''} not yet confirmed by an audited invoice</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">This is just an audit check, not a missing-profit warning — commission for these is already counted above via your internal tracking either way.</div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            ${unverified.slice(0,8).map(a=>`<div style="font-size:11px;font-family:monospace;"><span class="badge b-red">Order #${a.order_num||'—'}</span> <span style="color:var(--muted);">${prettyPhone(a.phone)}</span></div>`).join('')}
+            ${unverified.length>8?`<span style="font-size:11px;color:var(--muted);">+${unverified.length-8} more</span>`:''}
+          </div>
+        </div>`
+        :`<div style="font-size:11px;color:var(--green);font-weight:700;">✅ Every logged activation has been matched in an audited invoice.</div>`}
+    `;
   }
 }
 function renderGoals(){
@@ -1421,38 +1415,35 @@ function renderGoals(){
 }
 
 function renderDashboard(){
-  // Activations profit now comes from what VidaPay's saved invoices actually report —
-  // Postpaid Instant Spiff + Residual credits (both land in the 'spiff'/'subsidy' columns
-  // when an invoice is saved) minus the Activation Order cost we paid VidaPay. That's a
-  // confirmed, real number rather than a projection. If no invoices have been saved yet,
-  // fall back to our internal per-activation tracking so the dashboard isn't just $0.
-  const invSpiffTotal=invoices.reduce((s,i)=>s+(parseFloat(i.spiff)||0),0);
-  const invSubsidyTotal=invoices.reduce((s,i)=>s+(parseFloat(i.subsidy)||0),0);
-  const invActOrdersTotal=invoices.reduce((s,i)=>s+(parseFloat(i.act_orders)||0),0);
-  const tcFallback=activations.reduce((a,x)=>a+spiffEarned(x),0);
-  const tsFallback=activations.reduce((a,x)=>a+(parseFloat(x.subsidy)||0),0);
-  const usingInvoices=invoices.length>0;
-  const tc=usingInvoices?invSpiffTotal:tcFallback;
-  const ts=usingInvoices?invSubsidyTotal:tsFallback;
-  const actCost=usingInvoices?invActOrdersTotal:0;
+  // Activations profit = our own internal per-plan commission schedule (front-loaded
+  // months, post-promo rate) — same number the Activation Log itself shows as "earned so
+  // far." Not derived from invoices, since a plan's real-world payout is exactly this
+  // schedule regardless of what a given invoice happens to report.
+  const tc=activations.reduce((a,x)=>a+spiffEarned(x),0);
+  // Residual credits are their own category — real money VidaPay credits us that isn't
+  // tied to a specific traceable event, reported straight from saved invoices.
+  const resid=invoices.reduce((s,i)=>s+(parseFloat(i.residual)||0),0);
   const rp=refills.reduce((a,r)=>a+((parseFloat(r.amount)||0)*0.08),0);
   // Only phones that have actually SOLD count toward profit — an unsold phone's cost is
   // still sitting in inventory, not a realized loss, so it shouldn't drag Net Profit down
-  // before it's even had a chance to sell or get its rebate back.
+  // before it's even had a chance to sell or get its rebate back. Subsidy/rebate is
+  // deliberately NOT counted anywhere else (not as its own line, not folded into
+  // Activations) — it's the reimbursement for the phone we already paid for, and this is
+  // the one place it belongs: offsetting that phone's cost, nothing more.
   const pp=phones.filter(p=>p.status==='Sold').reduce((a,p)=>a+((parseFloat(p.sale_price)||0)-(parseFloat(p.cost)||0)+(parseFloat(p.subsidy)||0)),0);
-  const net=tc+ts-actCost+rp+pp;
+  const net=tc+resid+rp+pp;
   document.getElementById('netTotal').textContent=fmt(net);
   document.getElementById('dashCommission').textContent=fmt(tc);
-  document.getElementById('dashSubsidy').textContent=fmt(ts);
+  document.getElementById('dashSubsidy').textContent=fmt(resid);
   document.getElementById('dashRefillProfit').textContent=fmt(rp);
   document.getElementById('dashPhoneProfit').textContent=fmt(pp);
   document.getElementById('kpiActivations').textContent=activations.length;
   document.getElementById('kpiCommission').textContent='$'+Math.round(tc);
-  document.getElementById('kpiSubsidy').textContent='$'+Math.round(ts);
+  document.getElementById('kpiSubsidy').textContent='$'+Math.round(resid);
   document.getElementById('kpiRefills').textContent=refills.length;
   document.getElementById('kpiRefillProfit').textContent='$'+Math.round(rp);
   document.getElementById('kpiPhoneProfit').textContent='$'+Math.round(pp);
-  const ap=document.getElementById('invActProfit');if(ap)ap.textContent=fmt(tc+ts-actCost);
+  const ap=document.getElementById('invActProfit');if(ap)ap.textContent=fmt(tc);
   const irp=document.getElementById('invRefillProfit');if(irp)irp.textContent=fmt(rp);
   const itp=document.getElementById('invTotalProfit');if(itp)itp.textContent=fmt(net);
 }
@@ -2040,7 +2031,7 @@ async function runFullAudit(file){
           <div style="text-align:center;padding:8px;background:var(--blue-l);border-radius:5px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">NET</div><div style="font-size:16px;font-weight:900;color:var(--blue);">${grandTotal<0?'('+fmt(Math.abs(grandTotal))+')':fmt(grandTotal)}</div></div>
         </div>
         <div style="margin-top:12px;display:flex;gap:8px;">
-          <button class="btn" style="background:${reconMismatch?'var(--muted)':'var(--green)'};color:#fff;" ${reconMismatch?'disabled title="Fix the mismatch above first"':''} onclick="saveAuditResult('${invoiceNum}','${period}',{actOrders:${actRows.reduce((s,r)=>s+r.amount,0)},spiff:${spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)+additionalSpiffTotal},subsidy:${promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)+Math.max(0,-residualTotal)},rtr:${rtrRows.reduce((s,r)=>s+r.amount,0)},fee:${feeTotal+Math.max(0,residualTotal)},marketplace:${marketplaceTotal}},${invoiceDate?"'"+invoiceDate+"'":'null'})">💾 Save to Invoice History</button>
+          <button class="btn" style="background:${reconMismatch?'var(--muted)':'var(--green)'};color:#fff;" ${reconMismatch?'disabled title="Fix the mismatch above first"':''} onclick="saveAuditResult('${invoiceNum}','${period}',{actOrders:${actRows.reduce((s,r)=>s+r.amount,0)},spiff:${spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)+additionalSpiffTotal},subsidy:${promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)},residual:${Math.max(0,-residualTotal)},rtr:${rtrRows.reduce((s,r)=>s+r.amount,0)},fee:${feeTotal+Math.max(0,residualTotal)},marketplace:${marketplaceTotal}},${invoiceDate?"'"+invoiceDate+"'":'null'})">💾 Save to Invoice History</button>
           <button class="btn btn-ghost" onclick="document.getElementById('invAuditResults').style.display='none';document.getElementById('invDropZone').style.display='block';">↩ Another</button>
         </div>
       </div>
@@ -2074,18 +2065,29 @@ async function saveAuditResult(num,period,cats,invoiceDate){
   const basePayload={
     invoice_num:String(num),period:period||'',invoice_date:invoiceDate||null,
     act_orders:cats.actOrders||0,spiff:cats.spiff||0,subsidy:cats.subsidy||0,
+    residual:cats.residual||0,
     rtr:cats.rtr||0,fee:cats.fee||0,marketplace:cats.marketplace||0,
     notes:'Auto-audited'
   };
   let{data,error}=await sb.from('invoices').insert(basePayload).select().single();
+  if(error&&/residual/i.test(error.message||'')){
+    // The 'residual' column doesn't exist in this Supabase project yet — fall back to
+    // folding it into 'subsidy' so the save still succeeds, rather than blocking it.
+    // Run the SQL to add the real column so Residual tracks as its own category.
+    const fb2={...basePayload};
+    delete fb2.residual;
+    fb2.subsidy=(cats.subsidy||0)+(cats.residual||0);
+    ({data,error}=await sb.from('invoices').insert(fb2).select().single());
+  }
   if(error&&/marketplace/i.test(error.message||'')){
     // The 'marketplace' column doesn't exist in this Supabase project yet — fall back to
     // folding it into 'fee' so the save still succeeds and the total still reconciles,
     // rather than blocking the save entirely. Run the SQL to add the real column so future
     // saves keep device purchases separate from actual invoice fees.
     const fallback={...basePayload};
-    delete fallback.marketplace;
+    delete fallback.marketplace;delete fallback.residual;
     fallback.fee=(cats.fee||0)+(cats.marketplace||0);
+    fallback.subsidy=(cats.subsidy||0)+(cats.residual||0);
     ({data,error}=await sb.from('invoices').insert(fallback).select().single());
   }
   if(error){alert('Save error: '+error.message);return;}

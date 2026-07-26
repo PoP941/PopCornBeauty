@@ -161,6 +161,7 @@ td{padding:10px 12px;vertical-align:middle;}
   <button class="nav-tab" onclick="showTab('phones',this)">📲 Phones</button>
   <button class="nav-tab" onclick="showTab('lookup',this)">🔍 Lookup</button>
   <button class="nav-tab" onclick="showTab('invoices',this)">📄 Invoices</button>
+  <button class="nav-tab" onclick="showTab('team',this)">👥 Team</button>
 </div>
 
 <div class="main">
@@ -520,6 +521,17 @@ td{padding:10px 12px;vertical-align:middle;}
   </table></div></div>
 </div>
 
+<div id="tab-team" class="tab-panel">
+  <div style="background:#eff6ff;border:2px solid var(--blue);border-radius:10px;padding:18px;margin-bottom:16px;">
+    <div style="font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">👥 Team — Roles & Goals</div>
+    <div style="font-size:11px;color:var(--muted);">Edit name, role, or monthly goal below — saves automatically. Adding a brand-new person still needs one manual step in Supabase (create their login, then one SQL insert) — ask Claude for that when it comes up.</div>
+  </div>
+  <div class="table-wrap"><div class="table-scroll"><table>
+    <thead><tr><th>Name</th><th>Role</th><th>Monthly Goal</th><th>Joined</th></tr></thead>
+    <tbody id="teamTable"><tr><td colspan="4" class="empty-state">No team members yet</td></tr></tbody>
+  </table></div></div>
+</div>
+
 <div class="sync-toast" id="syncToast">✓ Saved</div>
 
 <script>function getMrcFromPlan(plan){
@@ -560,7 +572,7 @@ function planMatchesReq(reqCode,planName){
 const SB_URL='https://timtwxrpanjtacstcfvz.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpbXR3eHJwYW5qdGFjc3RjZnZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMTM5MTMsImV4cCI6MjA5OTc4OTkxM30.vfr72cFDKEPQNbFGALSyFFEtQRBHqiF99pmf6J4Dktw';
 const sb=supabase.createClient(SB_URL,SB_KEY);
-let activations=[],refills=[],phones=[],invoices=[],goals={};
+let activations=[],refills=[],phones=[],invoices=[],goals={},teamProfiles=[];
 // Every activation uses the same monthly spiff schedule (90/55/55/70/65/65% of MRC) for its
 // first 6 months. A plan's term controls how many months are already PAID FOR — and so
 // unlock immediately — at activation: pay for 1 month, only M1 unlocks; pay for 3 months,
@@ -761,12 +773,13 @@ async function loadAll(){
   // account has no profiles row). Only an EXPLICIT rep/manager role gets restricted.
   const isOwner=!currentUser||currentUser.role==='owner';
   const phonesTable=isOwner?'phones':'phones_safe';
-  let[a,r,p,i,g]=await Promise.all([
+  let[a,r,p,i,g,t]=await Promise.all([
     sb.from('activations').select('*').order('created_at',{ascending:false}),
     sb.from('refills').select('*').order('created_at',{ascending:false}),
     sb.from(phonesTable).select('*').order('created_at',{ascending:false}),
     isOwner?sb.from('invoices').select('*').order('created_at',{ascending:false}):Promise.resolve({data:[]}),
     sb.from('goals').select('*'),
+    isOwner?sb.from('profiles').select('*').order('name'):Promise.resolve({data:[]}),
   ]);
   if(p.error&&!isOwner){
     // phones_safe view doesn't exist yet (SQL not run) — fall back to the real table so
@@ -775,6 +788,7 @@ async function loadAll(){
   }
   activations=a.data||[];refills=r.data||[];phones=p.data||[];invoices=i.data||[];
   goals={};(g.data||[]).forEach(row=>goals[row.month]=row.target);
+  teamProfiles=t.data||[];
   renderAll();
 }
 function setupRealtime(){
@@ -1870,6 +1884,34 @@ async function attachInvoiceFile(id,invoiceNum,file){
     alert('Attach failed: '+e.message);
   }
 }
+function renderTeam(){
+  const tbody=document.getElementById('teamTable');if(!tbody)return;
+  if(currentUser&&currentUser.role!=='owner')return; // belt-and-suspenders — nav is already hidden
+  if(!teamProfiles.length){tbody.innerHTML='<tr><td colspan="4" class="empty-state">No team members yet</td></tr>';return;}
+  tbody.innerHTML=teamProfiles.map(p=>`<tr>
+    <td><input value="${p.name||''}" style="border:1px solid var(--border);background:transparent;font-size:12px;font-weight:700;padding:4px 6px;border-radius:4px;width:140px;" onchange="updateProfileField('${p.id}','name',this.value)"></td>
+    <td><select style="border:1px solid var(--border);background:transparent;font-size:12px;padding:4px 6px;border-radius:4px;" onchange="updateProfileField('${p.id}','role',this.value)">
+      <option value="rep" ${p.role==='rep'?'selected':''}>Sales Rep</option>
+      <option value="manager" ${p.role==='manager'?'selected':''}>Manager</option>
+      <option value="owner" ${p.role==='owner'?'selected':''}>Owner</option>
+    </select></td>
+    <td>${p.role==='rep'?`<input type="number" min="1" max="99" value="${p.monthly_goal||10}" style="border:1px solid var(--border);background:transparent;font-size:12px;padding:4px 6px;border-radius:4px;width:70px;" onchange="updateProfileField('${p.id}','monthly_goal',parseInt(this.value)||10)">`:'<span style="color:var(--muted);font-size:11px;">— (store goal)</span>'}</td>
+    <td style="font-size:11px;color:var(--muted);">${fmtDate(p.created_at)}</td>
+  </tr>`).join('');
+}
+async function updateProfileField(id,field,value){
+  if(field==='role'&&String(id)===String(currentUser?.id)&&value!=='owner'){
+    if(!confirm('This changes YOUR OWN role away from Owner. You will lose access to Invoices, Team, and financial data the next time you log in. Are you sure?')){
+      renderTeam(); // revert the dropdown visually
+      return;
+    }
+  }
+  const{error}=await sb.from('profiles').update({[field]:value}).eq('id',id);
+  if(error){alert('Update failed: '+error.message);return;}
+  const p=teamProfiles.find(x=>String(x.id)===String(id));
+  if(p)p[field]=value;
+  renderTeam();showToast();
+}
 async function updateInvoiceField(id,field,value){
   const{error}=await sb.from('invoices').update({[field]:value||null}).eq('id',id);
   if(error){alert('Update failed: '+error.message);return;}
@@ -2422,7 +2464,7 @@ function renderOverdue(){
     <div style="background:${newOffer?'#fef2f2':'var(--red-l)'};color:${newOffer?'#dc2626':'var(--red)'};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;">${newOffer?'🔔 new offer':'needs refill'}</div>
   </div>`).join(''):'<div style="padding:16px;text-align:center;color:var(--green);">✅ All up to date</div>';
 }
-function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDashStock();renderMonthSnapshot();renderReturnWarning();renderManagerCounts();renderGoalCountdown();renderPhoneUrgencyBanner();runLookup(document.getElementById('lookup-q')?.value||'');}
+function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDashStock();renderMonthSnapshot();renderReturnWarning();renderManagerCounts();renderGoalCountdown();renderPhoneUrgencyBanner();renderTeam();runLookup(document.getElementById('lookup-q')?.value||'');}
 
 // ── Universal Lookup: search by phone #, order #, or IMEI across all three tables ──
 // Merge Activations, Refills, and Sold Phones into one reverse-chronological feed —
@@ -2812,6 +2854,9 @@ function applyRoleGating(){
   // Invoices tab: owner only, full stop.
   const invNav=document.querySelector(".nav-tab[onclick*=\"showTab('invoices'\"]");
   if(invNav)invNav.style.display=role==='owner'?'':'none';
+  // Team tab: owner only, full stop.
+  const teamNav=document.querySelector(".nav-tab[onclick*=\"showTab('team'\"]");
+  if(teamNav)teamNav.style.display=role==='owner'?'':'none';
   // Total Net Profit hero: owner only.
   const netTotalBox=document.getElementById('netTotalBox');
   if(netTotalBox)netTotalBox.style.display=role==='owner'?'':'none';

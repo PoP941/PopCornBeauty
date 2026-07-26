@@ -156,8 +156,8 @@ td{padding:10px 12px;vertical-align:middle;}
 
 <div class="nav">
   <button class="nav-tab active" onclick="showTab('dashboard',this)">📊 Dashboard</button>
-  <button class="nav-tab" onclick="showTab('activations',this)">📱 Activations</button>
   <button class="nav-tab" onclick="showTab('refills',this)">💳 Refills</button>
+  <button class="nav-tab" onclick="showTab('activations',this)">📱 Activations</button>
   <button class="nav-tab" onclick="showTab('phones',this)">📲 Phones</button>
   <button class="nav-tab" onclick="showTab('lookup',this)">🔍 Lookup</button>
   <button class="nav-tab" onclick="showTab('invoices',this)">📄 Invoices</button>
@@ -289,7 +289,7 @@ td{padding:10px 12px;vertical-align:middle;}
     <span class="ownerOnlyCol" style="font-size:13px;font-weight:800;color:var(--gold)" id="actTotalSpiff">$0.00 earned</span>
   </div>
   <div class="table-wrap"><div class="table-scroll"><table>
-    <thead><tr><th>Phone #</th><th>Order #</th><th>Customer</th><th>PIN</th><th>IMEI</th><th>Date</th><th>Carrier</th><th>Plan</th><th>MRC</th><th>Subsidy</th><th>Spiff Adj</th><th>Net</th><th>M1</th><th>M2</th><th>M3</th><th>M4</th><th>M5</th><th>M6</th><th>Earned to Date</th><th>Refills</th><th>Status</th><th></th></tr></thead>
+    <thead><tr><th>Phone #</th><th>Order #</th><th>Customer</th><th>PIN</th><th>IMEI</th><th>Date</th><th>Carrier</th><th>Plan</th><th>MRC</th><th>Subsidy</th><th>Spiff Adj</th><th>Net</th><th>M1</th><th>M2</th><th>M3</th><th>M4</th><th>M5</th><th>M6</th><th class="ownerOnlyCol">Earned to Date</th><th>Refills</th><th>Status</th><th></th></tr></thead>
     <tbody id="actTable"><tr><td colspan="22" class="empty-state">No activations yet</td></tr></tbody>
   </table></div></div>
 </div>
@@ -944,13 +944,13 @@ function renderActivations(){
       <td class="money-t" style="color:var(--green)">${sp?fmt(sp):'—'}</td>
       <td class="money-t" style="color:${net<0?'var(--green)':'var(--red)'}">${fmt(net)}</td>
       ${monthCells}
-      <td class="money-t" style="color:var(--gold);font-weight:900">${fmt(earned)}${extraMonths>0?`<div style="font-size:9px;font-weight:700;color:var(--muted)">+${extraMonths} mo past promo</div>`:''}</td>
+      <td class="money-t ownerOnlyCol" style="color:var(--gold);font-weight:900">${fmt(earned)}${extraMonths>0?`<div style="font-size:9px;font-weight:700;color:var(--muted)">+${extraMonths} mo past promo</div>`:''}</td>
       <td><span class="badge ${rc>0?'b-green':'b-gray'}">${rc}</span></td>
       <td>
         <span class="badge b-teal" style="font-size:9px">${monthPositionLabel(n)}</span>
         ${newOffer?`<div style="margin-top:3px"><span class="badge" style="font-size:9px;background:#fef2f2;color:#dc2626;font-weight:800">🔔 New Offer Needed</span></div>`:''}
       </td>
-      <td><button class="del-btn" onclick="deleteActivation(${a.id})">✕</button></td>
+      <td>${(currentUser?.role||'owner')==='owner'?`<button class="del-btn" onclick="deleteActivation(${a.id})">✕</button>`:''}</td>
     </tr>`;
   }).join('');
   document.getElementById('actCount').textContent=activations.length;
@@ -1221,7 +1221,7 @@ function renderRefills(){
       <td><span class="badge ${isL?'b-pink':'b-gray'}">${isL?'✅ Linked':'—'}</span></td>
       <td>${cust}</td>
       <td><span class="badge b-teal" style="font-size:10px">${isL?refillTrigger(r.phone,r.id):'—'}</span></td>
-      <td><button class="del-btn" onclick="deleteRefill(${r.id})">✕</button></td>
+      <td>${(currentUser?.role||'owner')==='owner'?`<button class="del-btn" onclick="deleteRefill(${r.id})">✕</button>`:''}</td>
     </tr>`;
   }).join('');
   document.getElementById('refCount').textContent=filtered.length;
@@ -2009,7 +2009,7 @@ function renderPhones(){
           ?`<input type="date" value="${p.return_date||''}" style="border:1px solid var(--border);background:#fff;font-size:11px;padding:3px 4px;border-radius:4px;" onchange="updatePhoneField(${p.id},'return_date',this.value)">`
           :(p.return_date?fmtDate(p.return_date):'—')}</td>
         <td>${returnCountdown(p.return_date)}</td>
-        <td><button class="del-btn" onclick="deletePhone(${p.id})">✕</button></td>
+        <td>${(currentUser?.role||'owner')==='owner'?`<button class="del-btn" onclick="deletePhone(${p.id})">✕</button>`:''}</td>
       </tr>`).join('');
   }
   let totalProfit=0;
@@ -2038,7 +2038,7 @@ function renderPhones(){
           <td class="money-t" style="color:var(--teal);">${linkedAct?'+'+fmt(commission):'—'}</td>
           <td class="money-t" style="font-weight:900;color:var(--green);">${fmt(grandTotal)}</td>
           <td>${fmtDate(p.sale_date)}</td>
-          <td><button class="del-btn" onclick="deletePhone(${p.id})">✕</button></td>
+          <td>${(currentUser?.role||'owner')==='owner'?`<button class="del-btn" onclick="deletePhone(${p.id})">✕</button>`:''}</td>
         </tr>`;
       }).join('');
   }
@@ -2853,7 +2853,7 @@ function runLookup(raw){
         ${act?`<div style="margin-bottom:10px;">
           <div style="font-size:10px;font-weight:800;color:var(--blue);text-transform:uppercase;margin-bottom:4px;">📱 Activation</div>
           <div style="font-size:12px;">Order <strong>#${act.order_num||'—'}</strong> · ${act.plan||'—'} · ${act.carrier||''} · Activated ${fmtDate(act.act_date)}</div>
-          <div style="font-size:12px;margin-top:2px;">Earned to date: <strong style="color:var(--gold);">${fmt(earned)}</strong> · Refills: <strong>${rc}</strong>${act.imei?' · IMEI: <span style="font-family:monospace;">'+act.imei+'</span>':''}</div>
+          <div style="font-size:12px;margin-top:2px;"><span class="ownerOnlyCol">Earned to date: <strong style="color:var(--gold);">${fmt(earned)}</strong> · </span>Refills: <strong>${rc}</strong>${act.imei?' · IMEI: <span style="font-family:monospace;">'+act.imei+'</span>':''}</div>
         </div>`:'<div style="font-size:11px;color:var(--muted);margin-bottom:10px;">No activation on file for this number.</div>'}
         ${refs.length?`<div style="margin-bottom:10px;">
           <div style="font-size:10px;font-weight:800;color:var(--gold);text-transform:uppercase;margin-bottom:4px;">💳 Refills (${refs.length})</div>

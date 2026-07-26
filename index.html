@@ -524,7 +524,27 @@ td{padding:10px 12px;vertical-align:middle;}
 <div id="tab-team" class="tab-panel">
   <div style="background:#eff6ff;border:2px solid var(--blue);border-radius:10px;padding:18px;margin-bottom:16px;">
     <div style="font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">👥 Team — Roles & Goals</div>
-    <div style="font-size:11px;color:var(--muted);">Edit name, role, or monthly goal below — saves automatically. Adding a brand-new person still needs one manual step in Supabase (create their login, then one SQL insert) — ask Claude for that when it comes up.</div>
+    <div style="font-size:11px;color:var(--muted);">Edit name, role, or monthly goal below — saves automatically.</div>
+  </div>
+  <div class="section-hdr" style="margin-top:0;cursor:pointer;" onclick="const g=document.getElementById('addMemberBody');const open=g.style.display!=='none';g.style.display=open?'none':'block';document.getElementById('addMemberArrow').textContent=open?'▸':'▾';">
+    <div class="section-title">➕ How to Add a New Team Member <span id="addMemberArrow" style="font-size:10px;">▸</span></div>
+  </div>
+  <div id="addMemberBody" style="display:none;margin-bottom:16px;background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:18px;">
+    <div style="font-size:12px;line-height:1.8;">
+      <div><strong>1.</strong> Go to <a href="https://supabase.com" target="_blank" rel="noopener" style="color:var(--blue);">supabase.com</a> and open this project.</div>
+      <div><strong>2.</strong> Left sidebar → <strong>Authentication → Users</strong> → <strong>Add user</strong> → <strong>Create new user</strong>. Enter an email and password for this person, then Create.</div>
+      <div><strong>3.</strong> Find them in the Users list and copy their <strong>User UID</strong> (looks like <code style="background:var(--surface2);padding:1px 5px;border-radius:3px;">a1b2c3d4-...</code>) — click the copy icon next to it.</div>
+      <div><strong>4.</strong> Left sidebar → <strong>SQL Editor → New Query</strong>. Paste the template below, replace the three placeholders, then click <strong>Run</strong>.</div>
+    </div>
+    <div style="margin-top:12px;background:#1a1a1a;border-radius:8px;padding:14px 16px;position:relative;">
+      <button onclick="copyAddMemberSQL()" style="position:absolute;top:10px;right:10px;font-size:10px;padding:4px 10px;background:#374151;color:#fff;border:none;border-radius:5px;cursor:pointer;">📋 Copy</button>
+      <pre id="addMemberSQLBlock" style="color:#86efac;font-family:monospace;font-size:12px;margin:0;white-space:pre-wrap;padding-right:70px;">insert into profiles (id, name, role, monthly_goal) values
+  ('PASTE-THEIR-USER-UID-HERE', 'THEIR NAME', 'rep', 10);</pre>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:10px;">
+      <strong>role</strong> must be exactly <code style="background:var(--surface2);padding:1px 5px;border-radius:3px;">'rep'</code>, <code style="background:var(--surface2);padding:1px 5px;border-radius:3px;">'manager'</code>, or <code style="background:var(--surface2);padding:1px 5px;border-radius:3px;">'owner'</code> (with the quotes). For manager or owner, change <code style="background:var(--surface2);padding:1px 5px;border-radius:3px;">10</code> to <code style="background:var(--surface2);padding:1px 5px;border-radius:3px;">null</code> since only reps use an individual goal.
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px;"><strong>5.</strong> Done — they'll show up in the table below immediately, and can log in right away with the email/password from step 2.</div>
   </div>
   <div class="table-wrap"><div class="table-scroll"><table>
     <thead><tr><th>Name</th><th>Role</th><th>Monthly Goal</th><th>Joined</th></tr></thead>
@@ -1556,6 +1576,17 @@ function renderInvoices(){
     `;
   }
 }
+function copyAddMemberSQL(){
+  const text=document.getElementById('addMemberSQLBlock')?.textContent||'';
+  navigator.clipboard.writeText(text).then(()=>showToast()).catch(()=>alert('Could not copy automatically — select the text manually instead.'));
+}
+async function updateGoal(month,val){
+  const target=parseInt(val)||10;
+  const{error}=await sb.from('goals').upsert({month,target},{onConflict:'month'});
+  if(error){alert('Update failed: '+error.message);return;}
+  goals[month]=target;
+  renderGoals();renderTeam();renderGoalCountdown();showToast();
+}
 function renderGoals(){
   const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
   const now=new Date();
@@ -1895,7 +1926,11 @@ function renderTeam(){
       <option value="manager" ${p.role==='manager'?'selected':''}>Manager</option>
       <option value="owner" ${p.role==='owner'?'selected':''}>Owner</option>
     </select></td>
-    <td>${p.role==='rep'?`<input type="number" min="1" max="99" value="${p.monthly_goal||10}" style="border:1px solid var(--border);background:transparent;font-size:12px;padding:4px 6px;border-radius:4px;width:70px;" onchange="updateProfileField('${p.id}','monthly_goal',parseInt(this.value)||10)">`:'<span style="color:var(--muted);font-size:11px;">— (store goal)</span>'}</td>
+    <td>${p.role==='rep'
+      ?`<input type="number" min="1" max="99" value="${p.monthly_goal||10}" style="border:1px solid var(--border);background:transparent;font-size:12px;padding:4px 6px;border-radius:4px;width:70px;" onchange="updateProfileField('${p.id}','monthly_goal',parseInt(this.value)||10)">`
+      :p.role==='manager'
+      ?(()=>{const monthNames=['January','February','March','April','May','June','July','August','September','October','November','December'];const curMonth=monthNames[new Date().getMonth()];return`<input type="number" min="1" max="99" value="${goals[curMonth]||10}" style="border:1px solid var(--border);background:transparent;font-size:12px;padding:4px 6px;border-radius:4px;width:70px;" onchange="updateGoal('${curMonth}',this.value)" title="Store-wide goal for ${curMonth} — same number everyone sees on the Dashboard">`;})()
+      :'<span style="color:var(--muted);font-size:11px;">—</span>'}</td>
     <td style="font-size:11px;color:var(--muted);">${fmtDate(p.created_at)}</td>
   </tr>`).join('');
 }

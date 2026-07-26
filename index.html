@@ -286,7 +286,7 @@ td{padding:10px 12px;vertical-align:middle;}
   </div>
   <div class="section-hdr">
     <div class="section-title">📱 Activation Log (<span id="actCount">0</span>)</div>
-    <span style="font-size:13px;font-weight:800;color:var(--gold)" id="actTotalSpiff">$0.00 earned</span>
+    <span class="ownerOnlyCol" style="font-size:13px;font-weight:800;color:var(--gold)" id="actTotalSpiff">$0.00 earned</span>
   </div>
   <div class="table-wrap"><div class="table-scroll"><table>
     <thead><tr><th>Phone #</th><th>Order #</th><th>Customer</th><th>PIN</th><th>IMEI</th><th>Date</th><th>Carrier</th><th>Plan</th><th>MRC</th><th>Subsidy</th><th>Spiff Adj</th><th>Net</th><th>M1</th><th>M2</th><th>M3</th><th>M4</th><th>M5</th><th>M6</th><th>Earned to Date</th><th>Refills</th><th>Status</th><th></th></tr></thead>
@@ -606,6 +606,9 @@ const pcts=[0.90,0.55,0.55,0.70,0.65,0.65];
 const PROMO_MONTHS=pcts.length; // 6 — after this, refills earn flat 8% instead of the table
 const POST_PROMO_RATE=0.08;
 const fmt=v=>'$'+(parseFloat(v)||0).toFixed(2);
+// Display-only labels — the database still stores 'rep'/'manager'/'owner' (that's what
+// every RLS policy and view checks), this just changes what shows on screen.
+const roleLabel=role=>({rep:'Tier 1',manager:'Tier 2',owner:'Tier 3'}[role]||role);
 const fmtDate=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'}):'—';
 // Converts a VidaPay invoice date like "7/12/2026" into the "2026-07-12" format HTML date
 // inputs require. Used so "Log →" quick-actions carry over the REAL transaction date
@@ -933,7 +936,7 @@ function renderActivations(){
       <td>${a.customer_name||'—'}</td>
       <td><span class="badge b-purple">${a.pin||'—'}</span></td>
       <td style="font-size:10px;color:var(--blue);font-family:monospace">${a.imei?a.imei.substring(0,8)+'…':'—'}${hp?' <span class="badge b-gold" style="font-size:9px">📦 Rebate</span>':''}</td>
-      <td><input type="date" value="${a.act_date||''}" style="border:1px solid var(--border);background:transparent;font-size:11px;font-family:inherit;color:var(--text);padding:2px;border-radius:3px;" onchange="updateActivationField(${a.id},'act_date',this.value)"></td>
+      <td>${fmtDate(a.act_date)}</td>
       <td><span class="badge ${a.carrier==='Simple Mobile'?'b-green':'b-blue'}">${a.carrier||'—'}</span></td>
       <td style="font-size:11px">${a.plan||'—'}</td>
       <td class="money-t" style="color:var(--purple)">${fmt(mrc)}</td>
@@ -1210,7 +1213,7 @@ function renderRefills(){
     return`<tr>
       <td><span class="phone-t">${r.phone}</span>${r.group_tag?`<div><span class="badge b-blue" style="font-size:9px;margin-top:2px;">👨‍👩‍👧 ${r.group_tag}</span></div>`:''}</td>
       <td><span class="order-t">${r.order_num||'—'}</span></td>
-      <td><input type="date" value="${r.ref_date||''}" style="border:1px solid var(--border);background:transparent;font-size:11px;font-family:inherit;color:var(--text);padding:2px;border-radius:3px;" onchange="updateRefillField(${r.id},'ref_date',this.value)"></td>
+      <td>${fmtDate(r.ref_date)}</td>
       <td>${r.plan||'—'}</td>
       <td class="money-t" style="color:var(--green)">${fmt(amt)}</td>
       <td class="money-t ownerOnlyCol" style="color:var(--red)">${fmt(smP)}</td>
@@ -1523,7 +1526,7 @@ function renderInvoices(){
       <td class="money-t" style="color:var(--red)">${fmt(inv.act_orders)}</td>
       <td class="money-t" style="color:var(--green)">${inv.spiff?fmt(inv.spiff):'—'}</td>
       <td class="money-t" style="color:var(--purple)">${inv.subsidy?fmt(inv.subsidy):'—'}</td>
-      <td><input type="number" step="0.01" value="${inv.residual||''}" placeholder="0.00" style="width:70px;border:1px solid var(--border);background:transparent;font-size:11px;font-family:inherit;color:var(--orange);padding:2px;border-radius:3px;" onchange="updateInvoiceField(${inv.id},'residual',parseFloat(this.value)||0)"></td>
+      <td class="money-t" style="color:var(--orange)">${inv.residual?fmt(inv.residual):'—'}</td>
       <td class="money-t" style="color:var(--gold)">${inv.rtr?fmt(inv.rtr):'—'}</td>
       <td class="money-t" style="color:var(--orange)">${inv.marketplace?fmt(inv.marketplace):'—'}</td>
       <td class="money-t" style="color:var(--muted)">${fmt(inv.fee)}</td>
@@ -1614,6 +1617,7 @@ function renderGoals(){
 }
 function showMonthDrillDown(month,m,year){
   const el=document.getElementById('monthDrillDown');if(!el)return;
+  const isOwner=(currentUser?.role||'owner')==='owner';
   const mStr=String(m).padStart(2,'0');
   const inMonth=(d)=>d&&String(d).slice(0,7)===`${year}-${mStr}`;
   const acts=activations.filter(a=>inMonth(a.act_date));
@@ -1629,18 +1633,25 @@ function showMonthDrillDown(month,m,year){
     ...soldPhones.map(p=>({type:'📦 Phone Sold',icon:'📦',color:'var(--orange)',phone:p.phone,detail:p.model||'',date:p.sale_date,amount:(parseFloat(p.sale_price)||0)-(parseFloat(p.cost)||0)+(parseFloat(p.subsidy)||0)})),
   ].sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
   el.style.display='block';
-  el.innerHTML=`
-    <div style="background:#fff;border:2px solid var(--blue);border-radius:10px;padding:16px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <div style="font-size:13px;font-weight:800;color:var(--blue);">${month} ${year} — Transactions &amp; Profit</div>
-        <button class="btn btn-ghost" style="font-size:10px;padding:3px 10px;" onclick="document.getElementById('monthDrillDown').style.display='none';">✕ Close</button>
-      </div>
+  const summaryBoxes=isOwner?`
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;">
         <div style="text-align:center;padding:8px;background:var(--teal-l,#f0fbff);border-radius:6px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">COMMISSION</div><div style="font-size:15px;font-weight:900;color:var(--teal);">${fmt(commission)}</div></div>
         <div style="text-align:center;padding:8px;background:var(--gold-l);border-radius:6px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">REFILL PROFIT</div><div style="font-size:15px;font-weight:900;color:var(--gold);">${fmt(refillProfit)}</div></div>
         <div style="text-align:center;padding:8px;background:var(--orange-l);border-radius:6px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">PHONE PROFIT</div><div style="font-size:15px;font-weight:900;color:var(--orange);">${fmt(phoneProfit)}</div></div>
         <div style="text-align:center;padding:8px;background:#fff8e1;border-radius:6px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">TOTAL</div><div style="font-size:15px;font-weight:900;color:#b45309;">${fmt(total)}</div></div>
+      </div>`:`
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;">
+        <div style="text-align:center;padding:8px;background:var(--teal-l,#f0fbff);border-radius:6px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">ACTIVATIONS</div><div style="font-size:18px;font-weight:900;color:var(--teal);">${acts.length}</div></div>
+        <div style="text-align:center;padding:8px;background:var(--gold-l);border-radius:6px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">REFILLS</div><div style="font-size:18px;font-weight:900;color:var(--gold);">${refs.length}</div></div>
+        <div style="text-align:center;padding:8px;background:var(--orange-l);border-radius:6px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">PHONES SOLD</div><div style="font-size:18px;font-weight:900;color:var(--orange);">${soldPhones.length}</div></div>
+      </div>`;
+  el.innerHTML=`
+    <div style="background:#fff;border:2px solid var(--blue);border-radius:10px;padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="font-size:13px;font-weight:800;color:var(--blue);">${month} ${year} — Transactions${isOwner?' &amp; Profit':''}</div>
+        <button class="btn btn-ghost" style="font-size:10px;padding:3px 10px;" onclick="document.getElementById('monthDrillDown').style.display='none';">✕ Close</button>
       </div>
+      ${summaryBoxes}
       ${rows.length?`<div style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;">
         ${rows.map(r=>`<div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
           <div style="display:flex;gap:8px;align-items:center;">
@@ -1650,7 +1661,7 @@ function showMonthDrillDown(month,m,year){
               <div style="font-size:10px;color:var(--muted);">${r.phone?r.phone+' · ':''}${r.detail}${r.date?' · '+fmtDate(r.date):''}</div>
             </div>
           </div>
-          <div style="font-size:12px;font-weight:800;color:${r.color};">${fmt(r.amount)}</div>
+          ${isOwner?`<div style="font-size:12px;font-weight:800;color:${r.color};">${fmt(r.amount)}</div>`:''}
         </div>`).join('')}
       </div>`:`<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;">No transactions logged for ${month} ${year} yet.</div>`}
     </div>`;
@@ -1843,6 +1854,13 @@ function filterPhones(q){
 }
 
 // ── Delete functions ──
+async function updatePhoneField(id,field,value){
+  const{error}=await sb.from('phones').update({[field]:value||null}).eq('id',id);
+  if(error){alert('Update failed: '+error.message);return;}
+  const p=phones.find(x=>String(x.id)===String(id));
+  if(p)p[field]=value||null;
+  renderPhones();renderDashStock();renderPhoneUrgencyBanner();renderReturnWarning();showToast();
+}
 async function deletePhone(id){
   const p=phones.find(x=>String(x.id)===String(id));
   const isSold=p&&p.status==='Sold';
@@ -1922,9 +1940,9 @@ function renderTeam(){
   tbody.innerHTML=teamProfiles.map(p=>`<tr>
     <td><input value="${p.name||''}" style="border:1px solid var(--border);background:transparent;font-size:12px;font-weight:700;padding:4px 6px;border-radius:4px;width:140px;" onchange="updateProfileField('${p.id}','name',this.value)"></td>
     <td><select style="border:1px solid var(--border);background:transparent;font-size:12px;padding:4px 6px;border-radius:4px;" onchange="updateProfileField('${p.id}','role',this.value)">
-      <option value="rep" ${p.role==='rep'?'selected':''}>Sales Rep</option>
-      <option value="manager" ${p.role==='manager'?'selected':''}>Manager</option>
-      <option value="owner" ${p.role==='owner'?'selected':''}>Owner</option>
+      <option value="rep" ${p.role==='rep'?'selected':''}>Tier 1 — Sales Rep</option>
+      <option value="manager" ${p.role==='manager'?'selected':''}>Tier 2 — Manager</option>
+      <option value="owner" ${p.role==='owner'?'selected':''}>Tier 3 — Owner</option>
     </select></td>
     <td>${p.role==='rep'
       ?`<input type="number" min="1" max="99" value="${p.monthly_goal||10}" style="border:1px solid var(--border);background:transparent;font-size:12px;padding:4px 6px;border-radius:4px;width:70px;" onchange="updateProfileField('${p.id}','monthly_goal',parseInt(this.value)||10)">`
@@ -1936,7 +1954,7 @@ function renderTeam(){
 }
 async function updateProfileField(id,field,value){
   if(field==='role'&&String(id)===String(currentUser?.id)&&value!=='owner'){
-    if(!confirm('This changes YOUR OWN role away from Owner. You will lose access to Invoices, Team, and financial data the next time you log in. Are you sure?')){
+    if(!confirm('This changes YOUR OWN role away from Owner (Tier 3). You will lose access to Invoices, Team, and financial data the next time you log in. Are you sure?')){
       renderTeam(); // revert the dropdown visually
       return;
     }
@@ -1966,17 +1984,30 @@ function renderPhones(){
   const isc=document.getElementById('inStockCount');if(isc)isc.textContent=inStock.length;
   const sc=document.getElementById('soldCount');if(sc)sc.textContent=sold.length;
   if(inStockBody){
+    const isOwner=(currentUser?.role||'owner')==='owner';
+    const reqPlanOpts=(cur)=>{
+      const opts=[['','— No rebate plan —'],['1x$50','1 Month — $50/mo'],['1x$60','1 Month — $60/mo'],
+        ['3x$50','3 Months — $50/mo ($150)'],['3x$60','3 Months — $60/mo ($180)'],['3xWorld','3 Month Unlimited World ($150)'],['3xWorld+','3 Month Unlimited World+ ($180)'],
+        ['6x$50','6 Months — $50/mo ($300)'],['6x$60','6 Months — $60/mo ($360)']];
+      return opts.map(([v,label])=>`<option value="${v}" ${cur===v?'selected':''}>${label}</option>`).join('');
+    };
     inStockBody.innerHTML=!inStock.length
       ?'<tr><td colspan="10" class="empty-state">No phones in inventory</td></tr>'
       :inStock.map(p=>`<tr style="background:#eff6ff;">
         <td style="font-size:10px;color:var(--blue);font-family:monospace;">${p.imei||'—'}</td>
-        <td style="font-weight:700;">${p.model||'—'}</td>
+        <td style="font-weight:700;">${isOwner
+          ?`<input value="${p.model||''}" style="border:1px solid var(--border);background:#fff;font-size:12px;font-weight:700;padding:3px 6px;border-radius:4px;width:150px;" onchange="updatePhoneField(${p.id},'model',this.value)">`
+          :(p.model||'—')}</td>
         <td>${p.order_num||'—'}</td>
         <td>${fmtDate(p.purchase_date)}</td>
         <td class="money-t" style="color:var(--orange);">${p.cost===undefined?'—':fmt(p.cost)}</td>
         <td class="money-t" style="color:var(--purple);">${p.rebate_expected?fmt(p.rebate_expected):'—'}</td>
-        <td style="font-size:11px;">${p.req_plan||'—'}</td>
-        <td style="color:var(--red);font-size:11px;">${p.return_date?fmtDate(p.return_date):'—'}</td>
+        <td style="font-size:11px;">${isOwner
+          ?`<select style="border:1px solid var(--border);background:#fff;font-size:11px;padding:3px 4px;border-radius:4px;" onchange="updatePhoneField(${p.id},'req_plan',this.value)">${reqPlanOpts(p.req_plan||'')}</select>`
+          :(p.req_plan||'—')}</td>
+        <td style="color:var(--red);font-size:11px;">${isOwner
+          ?`<input type="date" value="${p.return_date||''}" style="border:1px solid var(--border);background:#fff;font-size:11px;padding:3px 4px;border-radius:4px;" onchange="updatePhoneField(${p.id},'return_date',this.value)">`
+          :(p.return_date?fmtDate(p.return_date):'—')}</td>
         <td>${returnCountdown(p.return_date)}</td>
         <td><button class="del-btn" onclick="deletePhone(${p.id})">✕</button></td>
       </tr>`).join('');
@@ -2885,7 +2916,7 @@ function applyRoleGating(){
   const role=currentUser?.role||'owner'; // no profile = owner-equivalent, see loadAll's comment
   document.body.classList.toggle('hide-owner-cols',role!=='owner');
   const nameEl=document.getElementById('headerUserName');
-  if(nameEl)nameEl.textContent=currentUser?currentUser.name+' · '+role.charAt(0).toUpperCase()+role.slice(1):'';
+  if(nameEl)nameEl.textContent=currentUser?currentUser.name+' · '+roleLabel(role):'';
   // Invoices tab: owner only, full stop.
   const invNav=document.querySelector(".nav-tab[onclick*=\"showTab('invoices'\"]");
   if(invNav)invNav.style.display=role==='owner'?'':'none';

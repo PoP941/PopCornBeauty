@@ -889,7 +889,11 @@ async function loadAll(){
 }
 function setupRealtime(){
   sb.removeAllChannels(); // clean up any channel from a previous sign-in on this same page load
-  sb.channel('all').on('postgres_changes',{event:'*',schema:'public'},()=>loadAll()).subscribe();
+  sb.channel('all').on('postgres_changes',{event:'*',schema:'public'},()=>loadAll())
+    .subscribe((status)=>{
+      if(status==='SUBSCRIBED')console.log('✅ Realtime connected — other people\'s changes will show up live.');
+      else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT')console.warn('⚠️ Realtime failed to connect ('+status+') — changes from other people won\'t show up until this page is reloaded. Check that all tables are added to the supabase_realtime publication.');
+    });
 }
 
 async function addActivation(){

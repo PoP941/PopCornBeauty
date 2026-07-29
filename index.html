@@ -182,6 +182,7 @@ td{padding:10px 12px;vertical-align:middle;}
   <button class="nav-tab" onclick="showTab('refills',this)">💳 Refills</button>
   <button class="nav-tab" onclick="showTab('activations',this)">📱 Activations</button>
   <button class="nav-tab" onclick="showTab('phones',this)">📲 Phones</button>
+  <button class="nav-tab" onclick="showTab('specialorders',this)">📦 Special Orders</button>
   <button class="nav-tab" onclick="showTab('lookup',this)">🔍 Lookup</button>
   <button class="nav-tab" onclick="showTab('invoices',this)">📄 Invoices</button>
   <button class="nav-tab" onclick="showTab('team',this)">👥 Team</button>
@@ -420,6 +421,28 @@ td{padding:10px 12px;vertical-align:middle;}
   </div>
 </div>
 
+<div id="tab-specialorders" class="tab-panel">
+  <div style="background:#fff7ed;border:2px solid var(--orange);border-radius:10px;padding:18px;margin-bottom:16px;">
+    <div style="font-size:12px;font-weight:800;color:var(--orange);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">📦 Log a Special Order Request</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Customer asked for something we don't have in stock? Log it here — everyone (including whoever handles ordering) sees it immediately.</div>
+    <div class="form-grid">
+      <div class="field"><label>Customer Name</label><input id="so-name" type="text" placeholder="customer name"></div>
+      <div class="field"><label>Customer Phone #</label><input class="phone-f" id="so-phone" type="text" placeholder="(516) 000-0000"></div>
+      <div class="field" style="grid-column:span 2;"><label>Item Requested *</label><input id="so-item" type="text" placeholder="e.g. S20 FE bling case, rose gold"></div>
+      <div class="field" style="grid-column:span 2;"><label>Notes</label><input id="so-notes" type="text" placeholder="color, size, budget, anything else useful"></div>
+    </div>
+    <div style="margin-top:12px;">
+      <button class="btn" style="background:var(--orange);color:#fff;" onclick="addSpecialOrder()">+ Log Request</button>
+      <button class="btn btn-ghost" onclick="clearSpecialOrderForm()">Clear</button>
+    </div>
+  </div>
+  <div class="section-hdr"><div class="section-title">Special Order Requests (<span id="soCount">0</span>)</div></div>
+  <div class="table-wrap"><div class="table-scroll"><table>
+    <thead><tr><th>Requested</th><th>Customer</th><th>Phone</th><th>Item</th><th>Notes</th><th>Requested By</th><th>Status</th><th></th></tr></thead>
+    <tbody id="soTable"><tr><td colspan="8" class="empty-state">No special order requests yet</td></tr></tbody>
+  </table></div></div>
+</div>
+
 <div id="tab-lookup" class="tab-panel">
   <div style="background:#fff;border:2px solid var(--blue);border-radius:8px;padding:20px;margin-bottom:16px;">
     <div class="section-title" style="margin-bottom:6px;">🔍 Universal Lookup</div>
@@ -628,7 +651,7 @@ function planMatchesReq(reqCode,planName){
 const SB_URL='https://timtwxrpanjtacstcfvz.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpbXR3eHJwYW5qdGFjc3RjZnZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMTM5MTMsImV4cCI6MjA5OTc4OTkxM30.vfr72cFDKEPQNbFGALSyFFEtQRBHqiF99pmf6J4Dktw';
 const sb=supabase.createClient(SB_URL,SB_KEY);
-let activations=[],refills=[],phones=[],invoices=[],goals={},teamProfiles=[],storeSettings={};
+let activations=[],refills=[],phones=[],invoices=[],goals={},teamProfiles=[],storeSettings={},specialOrders=[];
 // Every activation uses the same monthly spiff schedule (90/55/55/70/65/65% of MRC) for its
 // first 6 months. A plan's term controls how many months are already PAID FOR — and so
 // unlock immediately — at activation: pay for 1 month, only M1 unlocks; pay for 3 months,
@@ -866,7 +889,7 @@ async function loadAll(){
   // account has no profiles row). Only an EXPLICIT rep/manager role gets restricted.
   const isOwner=!currentUser||currentUser.role==='owner';
   const phonesTable=isOwner?'phones':'phones_safe';
-  let[a,r,p,i,g,t,s]=await Promise.all([
+  let[a,r,p,i,g,t,s,so]=await Promise.all([
     sb.from('activations').select('*').order('created_at',{ascending:false}),
     sb.from('refills').select('*').order('created_at',{ascending:false}),
     sb.from(phonesTable).select('*').order('created_at',{ascending:false}),
@@ -874,6 +897,7 @@ async function loadAll(){
     sb.from('goals').select('*'),
     isOwner?sb.from('profiles').select('*').order('name'):Promise.resolve({data:[]}),
     sb.from('settings').select('*').eq('id',1).single(),
+    sb.from('special_orders').select('*').order('created_at',{ascending:false}),
   ]);
   if(p.error&&!isOwner){
     // phones_safe view doesn't exist yet (SQL not run) — fall back to the real table so
@@ -883,6 +907,7 @@ async function loadAll(){
   activations=a.data||[];refills=r.data||[];phones=p.data||[];invoices=i.data||[];
   goals={};(g.data||[]).forEach(row=>goals[row.month]=row.target);
   teamProfiles=t.data||[];
+  specialOrders=so.data||[];
   storeSettings=s.data||{store_name:'Popcorn Beauty',store_address:'',store_phone:'',
     activation_policy:'',refill_policy:'',phone_sale_policy:''};
   renderAll();
@@ -2034,6 +2059,63 @@ function renderTeam(){
     <td style="font-size:11px;color:var(--muted);">${fmtDate(p.created_at)}</td>
   </tr>`).join('');
 }
+const soStatusColors={Pending:'var(--gold)',Ordered:'var(--blue)',Received:'var(--teal)',Fulfilled:'var(--green)',Cancelled:'var(--muted)'};
+async function addSpecialOrder(){
+  const item=(document.getElementById('so-item')?.value||'').trim();
+  if(!item){alert('Enter what the customer requested.');return;}
+  const payload={
+    customer_name:(document.getElementById('so-name')?.value||'').trim()||null,
+    customer_phone:(document.getElementById('so-phone')?.value||'').trim()||null,
+    item_description:item,
+    notes:(document.getElementById('so-notes')?.value||'').trim()||null,
+    status:'Pending',
+    requested_by:currentUser?.id||null,
+  };
+  const{data,error}=await sb.from('special_orders').insert(payload).select().single();
+  if(error){alert('Save error: '+error.message+'\n\nMost likely the special_orders table hasn\'t been set up yet — run add-special-orders-table.sql first.');return;}
+  specialOrders.unshift(data);
+  renderSpecialOrders();clearSpecialOrderForm();showToast();
+  alert('✅ Special order logged — visible to the whole team now.');
+}
+function clearSpecialOrderForm(){
+  ['so-name','so-phone','so-item','so-notes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+}
+function renderSpecialOrders(){
+  const tbody=document.getElementById('soTable');if(!tbody)return;
+  const cEl=document.getElementById('soCount');if(cEl)cEl.textContent=specialOrders.length;
+  if(!specialOrders.length){tbody.innerHTML='<tr><td colspan="8" class="empty-state">No special order requests yet</td></tr>';return;}
+  const isOwner=(currentUser?.role||'owner')==='owner';
+  tbody.innerHTML=specialOrders.map(o=>{
+    const requester=teamProfiles.find(p=>String(p.id)===String(o.requested_by))?.name||'—';
+    const color=soStatusColors[o.status]||'var(--muted)';
+    return`<tr>
+      <td style="font-size:11px;">${fmtDate(o.created_at)}</td>
+      <td>${o.customer_name||'—'}</td>
+      <td><span class="phone-t">${o.customer_phone||'—'}</span></td>
+      <td style="font-weight:700;">${o.item_description}</td>
+      <td style="font-size:11px;color:var(--muted);">${o.notes||'—'}</td>
+      <td style="font-size:11px;">${requester}</td>
+      <td><select style="border:1px solid ${color};color:${color};font-weight:700;font-size:11px;padding:3px 6px;border-radius:5px;background:transparent;" onchange="updateSpecialOrderStatus(${o.id},this.value)">
+        ${['Pending','Ordered','Received','Fulfilled','Cancelled'].map(s=>`<option value="${s}" ${o.status===s?'selected':''}>${s}</option>`).join('')}
+      </select></td>
+      <td>${isOwner?`<button class="del-btn" onclick="deleteSpecialOrder(${o.id})">✕</button>`:''}</td>
+    </tr>`;
+  }).join('');
+}
+async function updateSpecialOrderStatus(id,status){
+  const{error}=await sb.from('special_orders').update({status}).eq('id',id);
+  if(error){alert('Update failed: '+error.message);return;}
+  const o=specialOrders.find(x=>String(x.id)===String(id));
+  if(o)o.status=status;
+  renderSpecialOrders();showToast();
+}
+async function deleteSpecialOrder(id){
+  if(!confirm('Delete this special order request?'))return;
+  const{error}=await sb.from('special_orders').delete().eq('id',id);
+  if(error){alert('Error: '+error.message);return;}
+  specialOrders=specialOrders.filter(o=>String(o.id)!==String(id));
+  renderSpecialOrders();showToast();
+}
 function renderSettingsForm(){
   if((currentUser?.role||'owner')!=='owner')return; // section is hidden anyway, belt-and-suspenders
   const set=(id,v)=>{const el=document.getElementById(id);if(el&&document.activeElement!==el)el.value=v||'';};
@@ -2628,7 +2710,7 @@ function renderOverdue(){
     <div style="background:${newOffer?'#fef2f2':'var(--red-l)'};color:${newOffer?'#dc2626':'var(--red)'};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;">${newOffer?'🔔 new offer':'needs refill'}</div>
   </div>`).join(''):'<div style="padding:16px;text-align:center;color:var(--green);">✅ All up to date</div>';
 }
-function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDashStock();renderMonthSnapshot();renderReturnWarning();renderManagerCounts();renderGoalCountdown();renderPhoneUrgencyBanner();renderTeam();renderSettingsForm();runLookup(document.getElementById('lookup-q')?.value||'');}
+function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDashStock();renderMonthSnapshot();renderReturnWarning();renderManagerCounts();renderGoalCountdown();renderPhoneUrgencyBanner();renderTeam();renderSettingsForm();renderSpecialOrders();runLookup(document.getElementById('lookup-q')?.value||'');}
 
 // ── Universal Lookup: search by phone #, order #, or IMEI across all three tables ──
 // Merge Activations, Refills, and Sold Phones into one reverse-chronological feed —

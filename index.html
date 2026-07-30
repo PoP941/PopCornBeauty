@@ -1655,7 +1655,9 @@ function renderInvoices(){
   // shown up matched on an audited invoice, so you can spot-check for missing invoices.
   const reconEl=document.getElementById('spiffReconBox');
   if(reconEl){
-    const tcBox=activations.reduce((a,x)=>a+spiffEarned(x),0);
+    const invSpiff=invoices.reduce((s,i)=>s+(parseFloat(i.spiff)||0),0);
+    const invActCost=invoices.reduce((s,i)=>s+(parseFloat(i.act_orders)||0),0);
+    const tcBox=invSpiff-invActCost;
     const residBox=invoices.reduce((s,i)=>s+(parseFloat(i.residual)||0),0);
     const subsidyBox=invoices.reduce((s,i)=>s+(parseFloat(i.subsidy)||0),0);
     const unverified=activations.filter(a=>!a.verified);
@@ -1664,17 +1666,19 @@ function renderInvoices(){
     reconEl.innerHTML=`
       <div style="font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Where "Activations" + "Residual" Profit Comes From</div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px;margin-bottom:6px;">
-        <span style="padding:5px 10px;background:var(--teal-l,#f0fbff);color:var(--teal);border-radius:5px;font-weight:700;">${fmt(tcBox)} <span style="font-weight:400;font-size:11px;">Activations (M1–M6 schedule)</span></span>
+        <span style="padding:5px 10px;background:var(--green-l);color:var(--green);border-radius:5px;font-weight:700;">${fmt(invSpiff)} <span style="font-weight:400;font-size:11px;">Spiff Credit</span></span>
+        <span style="color:var(--muted);">−</span>
+        <span style="padding:5px 10px;background:var(--red-l);color:var(--red);border-radius:5px;font-weight:700;">${fmt(invActCost)} <span style="font-weight:400;font-size:11px;">Activation Order cost</span></span>
         <span style="color:var(--muted);">+</span>
         <span style="padding:5px 10px;background:var(--orange-l);color:var(--orange);border-radius:5px;font-weight:700;">${fmt(residBox)} <span style="font-weight:400;font-size:11px;">Residual credits</span></span>
         <span style="color:var(--muted);">=</span>
         <span style="padding:5px 10px;background:var(--gold-l);color:var(--gold);border-radius:5px;font-weight:900;">${fmt(tcBox+residBox)}</span>
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Activations profit comes from your own per-plan commission tracking, not from invoices — matches the "earned so far" figure on the Activation Log. Residual credits come straight from ${invoices.length} saved invoice${invoices.length!==1?'s':''}. <strong>Subsidy (${fmt(subsidyBox)} across saved invoices) is intentionally not counted here</strong> — it's the rebate that reimburses a phone we already paid for, and it's already reflected once, correctly, inside Phone Profit.</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Activations profit is now built directly from your ${invoices.length} saved invoice${invoices.length!==1?'s':''} — Spiff Credit minus what you paid VidaPay to activate. This means an activation contributes <strong>$0</strong> here until its invoice has actually been audited and saved, even if it's fully logged in the Activations tab. <strong>Subsidy (${fmt(subsidyBox)} across saved invoices) is intentionally not counted</strong> — it's the rebate reimbursing a phone we already paid for, already reflected once, correctly, inside Phone Profit.</div>
       ${unverified.length?`
         <div style="margin-top:4px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;">
-          <div style="font-size:12px;font-weight:800;color:var(--red);margin-bottom:4px;">🔍 ${unverified.length} activation${unverified.length!==1?'s':''} not yet confirmed by an audited invoice</div>
-          <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">This is just an audit check, not a missing-profit warning — commission for these is already counted above via your internal tracking either way.</div>
+          <div style="font-size:12px;font-weight:800;color:var(--red);margin-bottom:4px;">⚠️ ${unverified.length} activation${unverified.length!==1?'s':''} contributing $0 right now — not yet confirmed by an audited invoice</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">These are fully logged in the Activations tab, but their commission won't show up in your totals until the invoice covering them is dropped and audited here.</div>
           <div style="display:flex;flex-direction:column;gap:4px;">
             ${unverified.slice(0,8).map(a=>`<div style="font-size:11px;font-family:monospace;"><span class="badge b-red">Order #${a.order_num||'—'}</span> <span style="color:var(--muted);">${prettyPhone(a.phone)}</span></div>`).join('')}
             ${unverified.length>8?`<span style="font-size:11px;color:var(--muted);">+${unverified.length-8} more</span>`:''}
@@ -1774,21 +1778,29 @@ function showMonthDrillDown(month,m,year){
 }
 
 function renderDashboard(){
-  // Activations profit = our own internal per-plan commission schedule (front-loaded
-  // months, post-promo rate) — same number the Activation Log itself shows as "earned so
-  // far." Not derived from invoices, since a plan's real-world payout is exactly this
-  // schedule regardless of what a given invoice happens to report.
-  const tc=activations.reduce((a,x)=>a+spiffEarned(x),0);
+  // Activations profit is now built directly from saved Invoice History — Spiff Credit
+  // (Postpaid Instant + Additional/Retroactive) minus the Activation Order cost we paid
+  // VidaPay — per explicit decision to trust only what's been confirmed by an audited
+  // invoice, rather than an internal projection. Practical effect: an activation
+  // contributes $0 here until its invoice has actually been dropped and audited — see the
+  // "unconfirmed activations" list below for exactly which ones that affects right now.
+  // Subsidy stays excluded from this (and everywhere else) on purpose — it's the phone
+  // rebate reimbursing a cost we already paid, and it's already reflected once, correctly,
+  // inside Phone Profit. Counting it again here would double-count it.
+  const invSpiffTotal=invoices.reduce((s,i)=>s+(parseFloat(i.spiff)||0),0);
+  const invActOrdersTotal=invoices.reduce((s,i)=>s+(parseFloat(i.act_orders)||0),0);
+  const tc=invSpiffTotal-invActOrdersTotal;
   // Residual credits are their own category — real money VidaPay credits us that isn't
   // tied to a specific traceable event, reported straight from saved invoices.
   const resid=invoices.reduce((s,i)=>s+(parseFloat(i.residual)||0),0);
+  // Refill and Phone profit have no clean equivalent in Invoice History (VidaPay's invoice
+  // shows their 92% cut, not your exact 8%; it has no visibility into your sale price at
+  // all) — reverse-engineering these from invoice totals would be less accurate than the
+  // real numbers already sitting in the Refills/Phones tables, so those stay as-is.
   const rp=refills.reduce((a,r)=>a+((parseFloat(r.amount)||0)*0.08),0);
   // Only phones that have actually SOLD count toward profit — an unsold phone's cost is
   // still sitting in inventory, not a realized loss, so it shouldn't drag Net Profit down
-  // before it's even had a chance to sell or get its rebate back. Subsidy/rebate is
-  // deliberately NOT counted anywhere else (not as its own line, not folded into
-  // Activations) — it's the reimbursement for the phone we already paid for, and this is
-  // the one place it belongs: offsetting that phone's cost, nothing more.
+  // before it's even had a chance to sell or get its rebate back.
   const pp=phones.filter(p=>p.status==='Sold').reduce((a,p)=>a+((parseFloat(p.sale_price)||0)-(parseFloat(p.cost)||0)+(parseFloat(p.subsidy)||0)),0);
   const net=tc+resid+rp+pp;
   document.getElementById('netTotal').textContent=fmt(net);

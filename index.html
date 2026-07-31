@@ -131,9 +131,10 @@ td{padding:10px 12px;vertical-align:middle;}
 .receipt-paper .rc-small{font-size:10px;}
 .receipt-paper .rc-row{display:flex;justify-content:space-between;gap:8px;}
 @media print{
+  @page{size:80mm auto;margin:0;}
   body *{visibility:hidden;}
   #printableReceipt,#printableReceipt *{visibility:visible;}
-  #printableReceipt{position:absolute;top:0;left:0;width:80mm;}
+  #printableReceipt{position:absolute;top:0;left:0;width:80mm;padding:2mm;}
   .receipt-modal-overlay,.receipt-no-print{display:none!important;}
 }
 </style>
@@ -1364,26 +1365,6 @@ function renderRefills(){
   document.getElementById('refLinked').textContent=lnk;
 }
 
-async function addPhone(){
-  const model=document.getElementById('ph-model').value.trim();
-  if(!model){alert('Model required');return;}
-  await sb.from('phones').insert({
-    phone:document.getElementById('ph-phone').value.trim(),
-    order_num:document.getElementById('ph-order').value.trim(),
-    imei:document.getElementById('ph-imei').value.trim(),
-    model,purchase_date:document.getElementById('ph-pdate').value||null,
-    cost:parseFloat(document.getElementById('ph-cost').value)||0,
-    rebate_expected:parseFloat(document.getElementById('ph-rebate').value)||0,
-    req_plan:document.getElementById('ph-req-plan').value.trim(),
-    sale_date:document.getElementById('ph-sdate').value||null,
-    sale_price:parseFloat(document.getElementById('ph-sale').value)||0,
-    subsidy:parseFloat(document.getElementById('ph-subsidy').value)||0,
-    status:document.getElementById('ph-status').value,
-  });
-  clearPh();showToast();
-}
-function clearPh(){['ph-phone','ph-order','ph-imei','ph-model','ph-pdate','ph-cost','ph-rebate','ph-req-plan','ph-sdate','ph-sale','ph-subsidy'].forEach(id=>document.getElementById(id).value='');document.getElementById('ph-status').value='In Stock';}
-async function deletePhone(id){if(!confirm('Delete?'))return;await sb.from('phones').delete().eq('id',id);showToast();}
 function daysLeft(d){if(!d)return null;const dl=new Date(d+'T12:00:00');dl.setDate(dl.getDate()+30);return Math.round((dl-new Date())/86400000);}
 
 function renderPhones(){

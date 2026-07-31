@@ -328,7 +328,7 @@ td{padding:10px 12px;vertical-align:middle;}
       <div class="field"><label>Date</label><input id="ref-date" type="date"></div>
       <div class="field"><label>Plan</label><select id="ref-plan" onchange="refPlanChanged(this.value)"><option value="">Select...</option><option>$20 RTR</option><option>$25 RTR</option><option>$30 RTR</option><option>$40 RTR</option><option>$50 RTR</option><option>$60 RTR</option><option>Other</option></select></div>
       <div class="field" id="ref-amount-field" style="display:none"><label>Amount Collected $</label><input class="money-f" id="ref-amount" type="number" step="0.01" placeholder="Enter amount"></div>
-      <div class="field"><label>Family/Group Tag (optional)</label><input id="ref-group" type="text" placeholder="e.g. Smith Family" oninput="checkFamilyGroup(this.value)"></div>
+      <div class="field"><label>Family/Group Tag (optional)</label><input id="ref-group" type="text" list="existingGroupTags" placeholder="e.g. Smith Family" oninput="checkFamilyGroup(this.value)"><datalist id="existingGroupTags"></datalist></div>
     </div>
     <div id="familyGroupHint" style="display:none;margin-top:8px;padding:8px 10px;background:#eff6ff;border:1px solid var(--blue);border-radius:6px;font-size:11px;color:var(--blue);font-weight:700;"></div>
     <!-- PHONE LOOKUP PANEL -->
@@ -1159,6 +1159,18 @@ function lookupRefillPhone(phone){
   const hint=document.getElementById('refLookupHint');
   if(!phone||phone.length<7){panel.style.display='none';hint.style.display='inline';return;}
 
+  // Auto-fill the Family/Group Tag if this number has ever been linked to one before, so
+  // a rep never has to remember or retype which family a returning number belongs to —
+  // enter any one number in the family and the tag (and the rest of the family) follows.
+  const groupInput=document.getElementById('ref-group');
+  if(groupInput&&!groupInput.value){
+    const existingTag=refills.find(r=>(r.phone===phone||r.phone===phone.replace(/\D/g,''))&&r.group_tag)?.group_tag;
+    if(existingTag){
+      groupInput.value=existingTag;
+      checkFamilyGroup(existingTag);
+    }
+  }
+
   // Find activation for this phone
   const act=activations.find(a=>a.phone===phone||a.phone===phone.replace(/\D/g,''));
   if(!act){
@@ -1315,6 +1327,11 @@ function inRefillRange(dateStr){
 }
 function renderRefills(){
   updateRefillRangeButtons();
+  const tagList=document.getElementById('existingGroupTags');
+  if(tagList){
+    const uniqueTags=[...new Set(refills.map(r=>r.group_tag).filter(Boolean))].sort();
+    tagList.innerHTML=uniqueTags.map(t=>`<option value="${t}">`).join('');
+  }
   const tbody=document.getElementById('refTable');
   const filtered=refills.filter(r=>inRefillRange(r.ref_date));
   const cEl=document.getElementById('refFilterCount');
@@ -2843,7 +2860,10 @@ function renderMonthSnapshot(){
   const thisTotal=thisMonth.commission+thisMonth.refillProfit+thisMonth.phoneProfit;
   const lastTotal=lastMonth.commission+lastMonth.refillProfit+lastMonth.phoneProfit;
   const vsLast=(cur,prev)=>{
-    if(!prev)return cur>0?'no data last month to compare':'—';
+    // A near-zero (but not exactly zero) baseline makes percentage change meaningless —
+    // a tiny denominator like $0.01 can turn a normal $55 swing into "+550,000%." Below
+    // $1 isn't a real enough baseline to divide by, so show the dollar change instead.
+    if(!prev||Math.abs(prev)<1)return cur>0?'+'+fmt(cur)+' vs last month (was near $0)':'—';
     const pct=Math.round(((cur-prev)/Math.abs(prev))*100);
     return (pct>=0?'▲ +':'▼ ')+pct+'% vs last month';
   };
@@ -3059,7 +3079,7 @@ function runLookup(raw){
         ${newOffer?'<span class="badge" style="background:#fef2f2;color:#dc2626;font-weight:800;">🔔 New Offer Needed</span>':''}
       </div>
       <div style="padding:14px;">
-        ${familyLines.length?`<div style="margin-bottom:10px;padding:6px 10px;background:#eff6ff;border-radius:5px;font-size:11px;color:var(--blue);font-weight:700;">👨‍👩‍👧 Family plan (${groupTags.join(', ')}) — also includes: ${familyLines.join(', ')}</div>`:''}
+        ${familyLines.length?`<div style="margin-bottom:10px;padding:6px 10px;background:#eff6ff;border-radius:5px;font-size:11px;color:var(--blue);font-weight:700;">👨‍👩‍👧 Family plan (${groupTags.join(', ')}) — also includes: ${familyLines.map(fp=>`<a href="#" style="color:var(--blue);text-decoration:underline;" onclick="event.preventDefault();document.getElementById('lookup-q').value='${fp}';runLookup('${fp}');">${fp}</a>`).join(', ')}</div>`:''}
         ${act?`<div style="margin-bottom:10px;">
           <div style="font-size:10px;font-weight:800;color:var(--blue);text-transform:uppercase;margin-bottom:4px;">📱 Activation</div>
           <div style="font-size:12px;">Order <strong>#${act.order_num||'—'}</strong> · ${act.plan||'—'} · ${act.carrier||''} · Activated ${fmtDate(act.act_date)}</div>

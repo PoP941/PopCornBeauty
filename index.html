@@ -186,6 +186,7 @@ td{padding:10px 12px;vertical-align:middle;}
   <button class="nav-tab" onclick="showTab('specialorders',this)">📦 Special Orders</button>
   <button class="nav-tab" onclick="showTab('lookup',this)">🔍 Lookup</button>
   <button class="nav-tab" onclick="showTab('invoices',this)">📄 Invoices</button>
+  <button class="nav-tab" onclick="showTab('promos',this)">🎯 Promos</button>
   <button class="nav-tab" onclick="showTab('team',this)">👥 Team</button>
 </div>
 
@@ -271,7 +272,7 @@ td{padding:10px 12px;vertical-align:middle;}
     <div class="section-title">📋 Browse Plans <span id="planBrowserArrow" style="font-size:10px;">▸</span></div>
   </div>
   <div id="planBrowserBody" style="display:none;margin-bottom:16px;">
-    <div class="alert-box"><div class="alert-icon">🔥</div><div><div class="alert-title">400% MRC Bonus Active — Activate Now Through 7/31!</div><div class="alert-desc">Every qualifying activation earns 4x MRC. Click any plan below to use it below.</div></div></div>
+    <div class="alert-box" id="mrcBannerBox" style="display:none;"><div class="alert-icon">🔥</div><div><div class="alert-title" id="mrcBannerTitle"></div><div class="alert-desc">Every qualifying activation earns 4x MRC. Click any plan below to use it below.</div></div></div>
     <div class="plan-sec-title">Monthly Plans</div>
     <div class="plan-grid" id="monthlyPlans"></div>
     <div class="plan-sec-title">3-Month Plans</div>
@@ -327,7 +328,7 @@ td{padding:10px 12px;vertical-align:middle;}
       <div class="field"><label>Phone # *</label><input class="phone-f" id="ref-phone" type="text" placeholder="(516) 000-0000" oninput="lookupRefillPhone(this.value)"></div>
       <div class="field"><label>Order #</label><input id="ref-order" type="text" placeholder="347798630"></div>
       <div class="field"><label>Date</label><input id="ref-date" type="date"></div>
-      <div class="field"><label>Plan</label><select id="ref-plan" onchange="refPlanChanged(this.value)"><option value="">Select...</option><option>$20 RTR</option><option>$25 RTR</option><option>$30 RTR</option><option>$40 RTR</option><option>$50 RTR</option><option>$60 RTR</option><option>Other</option></select></div>
+      <div class="field"><label>Plan</label><select id="ref-plan" onchange="refPlanChanged(this.value)"><option value="">Select...</option><option>$20 RTR</option><option>$25 RTR</option><option>$30 RTR</option><option>$40 RTR</option><option>$50 RTR</option><option>$60 RTR</option><option>Free Month (Promo)</option><option>Other</option></select></div>
       <div class="field" id="ref-amount-field" style="display:none"><label>Amount Collected $</label><input class="money-f" id="ref-amount" type="number" step="0.01" placeholder="Enter amount"></div>
       <div class="field"><label>Family/Group Tag (optional)</label><input id="ref-group" type="text" list="existingGroupTags" placeholder="e.g. Smith Family" oninput="checkFamilyGroup(this.value)"><datalist id="existingGroupTags"></datalist></div>
     </div>
@@ -613,6 +614,36 @@ td{padding:10px 12px;vertical-align:middle;}
   </div>
 </div>
 
+<div id="tab-promos" class="tab-panel">
+  <div style="background:#eff6ff;border:2px solid var(--blue);border-radius:10px;padding:18px;margin-bottom:16px;">
+    <div style="font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px;">+ Add / Update a Promotion</div>
+    <div class="form-grid">
+      <div class="field"><label>Name *</label><input id="promo-name" type="text" placeholder="e.g. 400% MRC Bonus Spiff"></div>
+      <div class="field"><label>Type *</label>
+        <select id="promo-type">
+          <option value="mrc_bonus">MRC Bonus Spiff</option>
+          <option value="byod_free_month">BYOD Free Month</option>
+          <option value="price_change">Price Change</option>
+          <option value="other">Other</option>
+        </select></div>
+      <div class="field"><label>Start Date *</label><input id="promo-start" type="date"></div>
+      <div class="field"><label>End Date *</label><input id="promo-end" type="date"></div>
+      <div class="field"><label>Free Months (if applicable)</label><input id="promo-freemonths" type="number" min="0" placeholder="0"></div>
+      <div class="field" style="grid-column:span 2;"><label>Eligible Plans (comma separated, blank = all plans)</label><input id="promo-plans" type="text" placeholder="SM $25, SM $30, SM $40"></div>
+      <div class="field" style="grid-column:span 2;"><label>Notes</label><input id="promo-notes" type="text" placeholder="Eligibility rules, restrictions, etc."></div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;">
+      <button class="btn" style="background:var(--blue);color:#fff;" onclick="addPromotion()">+ Save Promotion</button>
+      <button class="btn btn-ghost" onclick="clearPromoForm()">Clear</button>
+    </div>
+  </div>
+  <div class="section-hdr"><div class="section-title">Promotions (<span id="promoCount">0</span>)</div></div>
+  <div class="table-wrap"><div class="table-scroll"><table>
+    <thead><tr><th>Status</th><th>Name</th><th>Type</th><th>Start</th><th>End</th><th>Eligible Plans</th><th>Free Mo.</th><th>Notes</th><th></th></tr></thead>
+    <tbody id="promoTable"><tr><td colspan="9" class="empty-state">No promotions logged yet</td></tr></tbody>
+  </table></div></div>
+</div>
+
 <div class="sync-toast" id="syncToast">✓ Saved</div>
 
 <script>function getMrcFromPlan(plan){
@@ -653,7 +684,7 @@ function planMatchesReq(reqCode,planName){
 const SB_URL='https://timtwxrpanjtacstcfvz.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpbXR3eHJwYW5qdGFjc3RjZnZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMTM5MTMsImV4cCI6MjA5OTc4OTkxM30.vfr72cFDKEPQNbFGALSyFFEtQRBHqiF99pmf6J4Dktw';
 const sb=supabase.createClient(SB_URL,SB_KEY);
-let activations=[],refills=[],phones=[],invoices=[],goals={},teamProfiles=[],storeSettings={},specialOrders=[];
+let activations=[],refills=[],phones=[],invoices=[],goals={},teamProfiles=[],storeSettings={},specialOrders=[],promotions=[];
 // Every activation uses the same monthly spiff schedule (90/55/55/70/65/65% of MRC) for its
 // first 6 months. A plan's term controls how many months are already PAID FOR — and so
 // unlock immediately — at activation: pay for 1 month, only M1 unlocks; pay for 3 months,
@@ -917,7 +948,7 @@ async function loadAll(){
   // account has no profiles row). Only an EXPLICIT rep/manager role gets restricted.
   const isOwner=!currentUser||currentUser.role==='owner';
   const phonesTable=isOwner?'phones':'phones_safe';
-  let[a,r,p,i,g,t,s,so]=await Promise.all([
+  let[a,r,p,i,g,t,s,so,pr]=await Promise.all([
     sb.from('activations').select('*').order('created_at',{ascending:false}),
     sb.from('refills').select('*').order('created_at',{ascending:false}),
     sb.from(phonesTable).select('*').order('created_at',{ascending:false}),
@@ -926,6 +957,7 @@ async function loadAll(){
     isOwner?sb.from('profiles').select('*').order('name'):Promise.resolve({data:[]}),
     sb.from('settings').select('*').eq('id',1).single(),
     sb.from('special_orders').select('*').order('created_at',{ascending:false}),
+    sb.from('promotions').select('*').order('start_date',{ascending:false}),
   ]);
   if(p.error&&!isOwner){
     // phones_safe view doesn't exist yet (SQL not run) — fall back to the real table so
@@ -938,6 +970,7 @@ async function loadAll(){
   specialOrders=so.data||[];
   storeSettings=s.data||{store_name:'Popcorn Beauty',store_address:'',store_phone:'',
     activation_policy:'',refill_policy:'',phone_sale_policy:''};
+  promotions=pr.data||[];
   renderAll();
 }
 function setupRealtime(){
@@ -1120,7 +1153,8 @@ async function addRefill(){
   const phone=(document.getElementById('ref-phone')?.value||'').trim();
   if(!phone){alert('Phone # required');return;}
   const amount=parseFloat(document.getElementById('ref-amount')?.value)||0;
-  if(amount<=0){alert('Pick a plan above (or choose "Other" and enter the amount) before saving.');return;}
+  const isFreePromoMonth=(document.getElementById('ref-plan')?.value||'')==='Free Month (Promo)';
+  if(amount<=0&&!isFreePromoMonth){alert('Pick a plan above (or choose "Other" and enter the amount) before saving.');return;}
   const orderNum=(document.getElementById('ref-order')?.value||'').trim();
   const refDate=document.getElementById('ref-date')?.value||null;
   
@@ -2778,7 +2812,87 @@ function renderOverdue(){
     <div style="background:${newOffer?'#fef2f2':'var(--red-l)'};color:${newOffer?'#dc2626':'var(--red)'};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;">${newOffer?'🔔 new offer':'needs refill'}</div>
   </div>`).join(''):'<div style="padding:16px;text-align:center;color:var(--green);">✅ All up to date</div>';
 }
-function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDashStock();renderMonthSnapshot();renderReturnWarning();renderManagerCounts();renderGoalCountdown();renderPhoneUrgencyBanner();renderTeam();renderSettingsForm();renderSpecialOrders();runLookup(document.getElementById('lookup-q')?.value||'');}
+function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDashStock();renderMonthSnapshot();renderReturnWarning();renderManagerCounts();renderGoalCountdown();renderPhoneUrgencyBanner();renderTeam();renderSettingsForm();renderSpecialOrders();renderPromotions();renderMrcBanner();runLookup(document.getElementById('lookup-q')?.value||'');}
+
+// ══ PROMOTIONS ══
+// A promo is "live" if today falls within its start/end dates (inclusive). This is the
+// single source of truth for banners and eligibility — nothing else should hardcode a
+// promo end date again. Editing/adding a row here never touches past commission numbers,
+// since those were already calculated using whatever was active on that transaction's date.
+function activePromotions(type){
+  const today=new Date().toISOString().slice(0,10);
+  return promotions.filter(p=>p.start_date<=today&&p.end_date>=today&&(!type||p.promo_type===type));
+}
+function promoStatus(p){
+  const today=new Date().toISOString().slice(0,10);
+  if(today<p.start_date)return{label:'Upcoming',color:'var(--blue)'};
+  if(today>p.end_date)return{label:'Expired',color:'var(--muted)'};
+  return{label:'Active',color:'var(--green)'};
+}
+async function addPromotion(){
+  const name=(document.getElementById('promo-name')?.value||'').trim();
+  const start=document.getElementById('promo-start')?.value;
+  const end=document.getElementById('promo-end')?.value;
+  if(!name){alert('Name is required');return;}
+  if(!start||!end){alert('Start and End dates are required');return;}
+  const plansRaw=(document.getElementById('promo-plans')?.value||'').trim();
+  const payload={
+    name,
+    promo_type:document.getElementById('promo-type')?.value||'other',
+    start_date:start,end_date:end,
+    eligible_plans:plansRaw?plansRaw.split(',').map(s=>s.trim()).filter(Boolean):[],
+    free_months:parseInt(document.getElementById('promo-freemonths')?.value)||0,
+    notes:(document.getElementById('promo-notes')?.value||'').trim(),
+  };
+  const{data,error}=await sb.from('promotions').insert(payload).select().single();
+  if(error){alert('Save Error: '+error.message);return;}
+  promotions.unshift(data);
+  renderPromotions();renderActivations();renderDashboard();renderMrcBanner();
+  clearPromoForm();showToast();
+}
+function clearPromoForm(){
+  ['promo-name','promo-start','promo-end','promo-freemonths','promo-plans','promo-notes'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
+  const t=document.getElementById('promo-type');if(t)t.selectedIndex=0;
+}
+async function deletePromotion(id){
+  if(!confirm('Delete this promotion?'))return;
+  const{error}=await sb.from('promotions').delete().eq('id',id);
+  if(error){alert('Error: '+error.message);return;}
+  promotions=promotions.filter(p=>String(p.id)!==String(id));
+  renderPromotions();renderActivations();renderDashboard();renderMrcBanner();showToast();
+}
+function renderPromotions(){
+  const tbody=document.getElementById('promoTable');if(!tbody)return;
+  const cEl=document.getElementById('promoCount');if(cEl)cEl.textContent=promotions.length;
+  if(!promotions.length){tbody.innerHTML='<tr><td colspan="9" class="empty-state">No promotions logged yet</td></tr>';return;}
+  tbody.innerHTML=promotions.map(p=>{
+    const st=promoStatus(p);
+    const bg=st.label==='Active'?'var(--green-l)':st.label==='Upcoming'?'var(--blue-l)':'var(--surface3)';
+    return`<tr>
+      <td><span class="badge" style="background:${bg};color:${st.color};">${st.label}</span></td>
+      <td style="font-weight:700;">${p.name}</td>
+      <td style="font-size:11px;color:var(--muted);">${p.promo_type.replace('_',' ')}</td>
+      <td style="font-size:11px;">${fmtDate(p.start_date)}</td>
+      <td style="font-size:11px;">${fmtDate(p.end_date)}</td>
+      <td style="font-size:11px;color:var(--muted);">${(p.eligible_plans||[]).length?p.eligible_plans.join(', '):'All plans'}</td>
+      <td style="text-align:center;">${p.free_months||0}</td>
+      <td style="font-size:11px;color:var(--muted);max-width:200px;">${p.notes||'—'}</td>
+      <td><button class="del-btn" onclick="deletePromotion(${p.id})">✕</button></td>
+    </tr>`;
+  }).join('');
+}
+function renderMrcBanner(){
+  const box=document.getElementById('mrcBannerBox');if(!box)return;
+  const active=activePromotions('mrc_bonus')[0];
+  if(active){
+    box.style.display='flex';
+    document.getElementById('mrcBannerTitle').textContent='400% MRC Bonus Active — Activate Now Through '+fmtDate(active.end_date)+'!';
+  } else {
+    box.style.display='none';
+  }
+}
 
 // ── Universal Lookup: search by phone #, order #, or IMEI across all three tables ──
 // Merge Activations, Refills, and Sold Phones into one reverse-chronological feed —

@@ -615,6 +615,25 @@ td{padding:10px 12px;vertical-align:middle;}
 </div>
 
 <div id="tab-promos" class="tab-panel">
+  <div style="background:#fffbeb;border:2px solid var(--gold);border-radius:10px;padding:18px;margin-bottom:16px;">
+    <div style="font-size:12px;font-weight:800;color:var(--gold);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;">📧 Drop a Promo Email Screenshot</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">Reads dates, eligible plans, free-month offers, and a M1–M6 percentage table if one is shown. Always pre-fills the form below for you to review — never saves automatically, since flyer layouts vary.</div>
+    <div id="promoDropZone" style="border:2px dashed #f59e0b;border-radius:8px;padding:20px;text-align:center;cursor:pointer;background:#fffde7;transition:all .2s;"
+      onclick="document.getElementById('promoDropInput').click()"
+      ondragover="event.preventDefault();this.style.borderColor='var(--gold)';this.style.background='#fef3c7'"
+      ondragleave="this.style.borderColor='#f59e0b';this.style.background='#fffde7'"
+      ondrop="event.preventDefault();this.style.borderColor='#f59e0b';this.style.background='#fffde7';handlePromoDrop(event.dataTransfer.files[0])">
+      <div style="font-size:28px;margin-bottom:6px">📄</div>
+      <div style="font-size:13px;font-weight:800;color:var(--gold);">Drop Promo Screenshot or PDF Here</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:3px;">PDF (instant) · Screenshot (~15s)</div>
+      <input type="file" id="promoDropInput" accept=".pdf,image/*" style="display:none" onchange="handlePromoDrop(this.files[0])">
+    </div>
+    <div id="promoOcrStatus" style="display:none;text-align:center;padding:16px;">
+      <div id="promoOcrIcon" style="font-size:28px;margin-bottom:6px">⏳</div>
+      <div id="promoOcrMsg" style="font-size:12px;font-weight:700;color:var(--muted);"></div>
+    </div>
+    <div id="promoOcrNote" style="display:none;margin-top:10px;padding:8px 10px;background:#fff;border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--muted);"></div>
+  </div>
   <div style="background:#eff6ff;border:2px solid var(--blue);border-radius:10px;padding:18px;margin-bottom:16px;">
     <div style="font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px;">+ Add / Update a Promotion</div>
     <div class="form-grid">
@@ -695,6 +714,17 @@ let activations=[],refills=[],phones=[],invoices=[],goals={},teamProfiles=[],sto
 // pays on each refill (same margin as the Refills tab), regardless of which plan they're
 // on. That's also the cue that the line needs to be moved to a new offer/company.
 const pcts=[0.90,0.55,0.55,0.70,0.65,0.65];
+// A promo can optionally override the M1-M6 schedule (month_pcts on a mrc_bonus row) if
+// VidaPay ever changes the actual split, not just the dates. This looks up whichever
+// schedule was active ON THE GIVEN DATE — never "today" — so adding or editing a promo
+// later can never retroactively change commission already earned on past transactions.
+// Falls back to the standard 90/55/55/70/65/65 table if no override applies.
+function pctsForDate(dateStr){
+  const d=dateStr||new Date().toISOString().slice(0,10);
+  const promo=(promotions||[]).find(p=>p.promo_type==='mrc_bonus'&&Array.isArray(p.month_pcts)&&p.month_pcts.length===6&&p.start_date<=d&&p.end_date>=d);
+  if(!promo)return pcts;
+  return promo.month_pcts.map(v=>v>1?v/100:v); // accept either 0-1 fractions or 0-100 percents
+}
 const PROMO_MONTHS=pcts.length; // 6 — after this, refills earn flat 8% instead of the table
 const POST_PROMO_RATE=0.08;
 const fmt=v=>'$'+(parseFloat(v)||0).toFixed(2);
@@ -785,8 +815,8 @@ function monthlyMrc(a){
   return (parseFloat(a.mrc)||0)/mo;
 }
 // Reference total for the 6-month promo period, given a TRUE MONTHLY rate (not a bundle price)
-function spiffMax(mo_mrc){
-  return pcts.reduce((a,p)=>a+(mo_mrc*p),0);
+function spiffMax(mo_mrc,schedule){
+  return (schedule||pcts).reduce((a,p)=>a+(mo_mrc*p),0);
 }
 // All refills logged for a phone number, oldest first — the real-time source of truth for
 // which months have actually been paid beyond what was bundled at activation.
@@ -811,8 +841,9 @@ function needsNewOffer(a){
 // month 7+ uses flat 8% of whatever dollar amount was actually paid on that refill (falls
 // back to the monthly MRC if no refill amount is on record, e.g. bundled months with no
 // individual dollar entry).
-function amountForPosition(pos,mo_mrc,refillAmount){
-  if(pos<=PROMO_MONTHS) return mo_mrc*pcts[pos-1];
+function amountForPosition(pos,mo_mrc,refillAmount,schedule){
+  const sched=schedule||pcts;
+  if(pos<=PROMO_MONTHS) return mo_mrc*sched[pos-1];
   const amt=(refillAmount!=null&&refillAmount!=='')?(parseFloat(refillAmount)||0):mo_mrc;
   return amt*POST_PROMO_RATE;
 }
@@ -823,13 +854,14 @@ function amountForPosition(pos,mo_mrc,refillAmount){
 function spiffEarned(a){
   const mo_mrc=monthlyMrc(a);
   const planMo=planMonths(a.plan);
+  const sched=pctsForDate(a.act_date);
   let earned=0;
   // Bundled months (no individual dollar record — these were paid as part of the plan)
-  for(let pos=1;pos<=planMo;pos++) earned+=amountForPosition(pos,mo_mrc,null);
+  for(let pos=1;pos<=planMo;pos++) earned+=amountForPosition(pos,mo_mrc,null,sched);
   // Refills beyond the bundled term, in order, each filling the next position
   refillsForPhone(a.phone).forEach((r,idx)=>{
     const pos=planMo+idx+1;
-    earned+=amountForPosition(pos,mo_mrc,r.amount);
+    earned+=amountForPosition(pos,mo_mrc,r.amount,sched);
   });
   return earned;
 }
@@ -839,13 +871,14 @@ function spiffEarned(a){
 function activationCommissionEvents(a){
   const mo_mrc=monthlyMrc(a);
   const planMo=planMonths(a.plan);
+  const sched=pctsForDate(a.act_date);
   const events=[];
   let frontLoad=0;
-  for(let pos=1;pos<=planMo;pos++) frontLoad+=amountForPosition(pos,mo_mrc,null);
+  for(let pos=1;pos<=planMo;pos++) frontLoad+=amountForPosition(pos,mo_mrc,null,sched);
   events.push({date:a.act_date,amount:frontLoad});
   refillsForPhone(a.phone).forEach((r,idx)=>{
     const pos=planMo+idx+1;
-    events.push({date:r.ref_date,amount:amountForPosition(pos,mo_mrc,r.amount)});
+    events.push({date:r.ref_date,amount:amountForPosition(pos,mo_mrc,r.amount,sched)});
   });
   return events;
 }
@@ -1088,7 +1121,8 @@ function renderActivations(){
   tbody.innerHTML=activations.map(a=>{
     const mrc=parseFloat(a.mrc)||0,sub=parseFloat(a.subsidy)||0,sp=parseFloat(a.spiff)||0;
     const moMrc=monthlyMrc(a); // true monthly rate the spiff table is actually applied to
-    const promoMax=spiffMax(moMrc);
+    const sched=pctsForDate(a.act_date); // schedule locked to THIS activation's own date
+    const promoMax=spiffMax(moMrc,sched);
     const rc=refillCountFor(a.phone);
     const n=unlockedSlots(a);
     const earned=spiffEarned(a);
@@ -1103,7 +1137,7 @@ function renderActivations(){
     // summarized, not columned individually.
     const monthCells=[0,1,2,3,4,5].map(i=>{
       const unlocked=i<n;
-      const amt=moMrc*pcts[i];
+      const amt=moMrc*sched[i];
       return `<td class="money-t" style="color:${unlocked?'var(--green)':'var(--gold)'};font-size:11px">${amt.toFixed(0)}${unlocked?'':' ⏳'}</td>`;
     }).join('');
     return`<tr style="${hp?'background:#fffbeb;':''}">
@@ -1334,7 +1368,7 @@ function lookupRefillPhone(phone){
   // Next refill's payout: table rate through month 6, flat 8% of whatever they actually pay after that
   const triggerColor=newOffer?'#dc2626':'var(--blue)';
   const nextIsPostPromo=n>=PROMO_MONTHS;
-  const nextSpiffAmt=nextIsPostPromo?null:amountForPosition(n+1,moMrc,null);
+  const nextSpiffAmt=nextIsPostPromo?null:amountForPosition(n+1,moMrc,null,pctsForDate(act.act_date));
   timeline.innerHTML+=`<div style="margin-top:6px;width:100%;padding-top:6px;border-top:1px solid var(--border);font-size:10px;font-weight:700;color:${triggerColor}">
     This refill will trigger: <strong>${nextCommission}${nextIsPostPromo?' (post-promo)':''}</strong> commission payout · Spiff earned: <strong>${nextIsPostPromo?'8% of amount paid':fmt(nextSpiffAmt)}</strong>
   </div>`;
@@ -2829,6 +2863,7 @@ function promoStatus(p){
   if(today>p.end_date)return{label:'Expired',color:'var(--muted)'};
   return{label:'Active',color:'var(--green)'};
 }
+let promoExtractedPcts=null; // set by handlePromoDrop() when a M1-M6 table is detected in a flyer
 async function addPromotion(){
   const name=(document.getElementById('promo-name')?.value||'').trim();
   const start=document.getElementById('promo-start')?.value;
@@ -2844,7 +2879,16 @@ async function addPromotion(){
     free_months:parseInt(document.getElementById('promo-freemonths')?.value)||0,
     notes:(document.getElementById('promo-notes')?.value||'').trim(),
   };
-  const{data,error}=await sb.from('promotions').insert(payload).select().single();
+  if(promoExtractedPcts)payload.month_pcts=promoExtractedPcts;
+  let{data,error}=await sb.from('promotions').insert(payload).select().single();
+  if(error&&/month_pcts/i.test(error.message||'')){
+    // The 'month_pcts' column doesn't exist yet (add-promotions-table.sql not re-run with
+    // the ALTER) — save without the override rather than blocking the promo entirely.
+    // Run: alter table promotions add column if not exists month_pcts jsonb;
+    const fb={...payload};delete fb.month_pcts;
+    ({data,error}=await sb.from('promotions').insert(fb).select().single());
+    if(!error)alert('Saved, but the custom M1–M6 percentages weren\'t stored — the month_pcts column needs to be added to the promotions table first.');
+  }
   if(error){alert('Save Error: '+error.message);return;}
   promotions.unshift(data);
   renderPromotions();renderActivations();renderDashboard();renderMrcBanner();
@@ -2855,6 +2899,122 @@ function clearPromoForm(){
     const el=document.getElementById(id);if(el)el.value='';
   });
   const t=document.getElementById('promo-type');if(t)t.selectedIndex=0;
+  promoExtractedPcts=null;
+  const note=document.getElementById('promoOcrNote');if(note)note.style.display='none';
+}
+
+// ── Promo Flyer OCR ──
+// Best-effort text extraction from a promo email screenshot/PDF. Flyer layouts vary a lot,
+// so this ALWAYS pre-fills the form for review rather than saving directly — treat every
+// extracted field as a draft to double-check, not a guaranteed-correct import.
+function parsePromoText(raw){
+  const t=raw.replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim();
+  const out={};
+
+  // Date range — handles "8.01 - 8.31", "8/01-8/31", or "Promo period: 5.01 - 8.31"
+  let m=t.match(/Promo\s*(?:dates?|period)[:\s]*(\d{1,2})[.\/](\d{1,2})\s*-+\s*(\d{1,2})[.\/](\d{1,2})/i);
+  if(m){
+    const yr=new Date().getFullYear();
+    out.start_date=yr+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0');
+    out.end_date=yr+'-'+m[3].padStart(2,'0')+'-'+m[4].padStart(2,'0');
+  }
+  // Fallback: "extended to 8.31" / "through August 31st" for the end date only
+  if(!out.end_date){
+    const m2=t.match(/(?:extended to|through)\s+(\d{1,2})[.\/](\d{1,2})/i);
+    if(m2){const yr=new Date().getFullYear();out.end_date=yr+'-'+m2[1].padStart(2,'0')+'-'+m2[2].padStart(2,'0');}
+  }
+  const monthNames='January|February|March|April|May|June|July|August|September|October|November|December';
+  const m3=t.match(new RegExp('through\\s+('+monthNames+')\\s+(\\d{1,2})','i'));
+  if(m3&&!out.end_date){
+    const mi=['january','february','march','april','may','june','july','august','september','october','november','december'].indexOf(m3[1].toLowerCase())+1;
+    out.end_date=new Date().getFullYear()+'-'+String(mi).padStart(2,'0')+'-'+m3[2].padStart(2,'0');
+  }
+
+  // Type + name detection via keywords
+  if(/second month\s+FREE|free month/i.test(t)){
+    out.promo_type='byod_free_month';
+    out.name=out.name||'BYOD Second Month Free';
+    out.free_months=1;
+  }
+  if(/MRC Bonus|Bonus Spiff|400%\s*MRC/i.test(t)){
+    out.promo_type='mrc_bonus';
+    out.name=out.name||'400% MRC Bonus Spiff';
+  }
+  if(/reduced to ON US|Price Change|now priced ON US/i.test(t)){
+    out.promo_type=out.promo_type||'price_change';
+    out.name=out.name||'Price Change';
+  }
+  if(!out.promo_type)out.promo_type='other';
+
+  // Eligible plans — dollar amounts followed by "Simple Plan" / "Unlimited World" etc.
+  const planMatches=[...t.matchAll(/\$(\d{2,3})(?:\.\d{2})?\s*(Simple Plan|Unlimited World\+?|Plan)/gi)];
+  if(planMatches.length){
+    out.eligible_plans=[...new Set(planMatches.map(mm=>'$'+mm[1]))];
+  }
+
+  // M1-M6 percentage table — six consecutive percentages, e.g. "90% 55% 55% 70% 65% 65%"
+  const pctMatch=t.match(/(\d{1,3})%\s+(\d{1,3})%\s+(\d{1,3})%\s+(\d{1,3})%\s+(\d{1,3})%\s+(\d{1,3})%/);
+  if(pctMatch)out.month_pcts=pctMatch.slice(1,7).map(v=>parseInt(v,10));
+
+  return out;
+}
+async function handlePromoDrop(file){
+  if(!file)return;
+  const zone=document.getElementById('promoDropZone');
+  const status=document.getElementById('promoOcrStatus');
+  const note=document.getElementById('promoOcrNote');
+  if(zone)zone.style.display='none';
+  if(status)status.style.display='block';
+  if(note)note.style.display='none';
+  const setMsg=(i,m)=>{
+    const el=document.getElementById('promoOcrIcon');if(el)el.textContent=i;
+    const ml=document.getElementById('promoOcrMsg');if(ml)ml.textContent=m;
+  };
+  setMsg('⏳','Reading flyer...');
+  try{
+    let text='';
+    const isPdf=file.type==='application/pdf'||file.name.endsWith('.pdf');
+    if(isPdf){
+      if(typeof pdfjsLib==='undefined')await new Promise(r=>setTimeout(r,2000));
+      pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+      for(let i=1;i<=pdf.numPages;i++){const pg=await pdf.getPage(i);const c=await pg.getTextContent();text+=c.items.map(x=>x.str).join(' ')+' ';}
+    }else{
+      await loadTesseract();
+      setMsg('⏳','Reading image...');
+      const res=await Tesseract.recognize(file,'eng',{logger:mm=>{if(mm.status==='recognizing text')setMsg('⏳',Math.round(mm.progress*100)+'%');}});
+      text=res.data.text;
+    }
+    if(!text.trim())throw new Error('No text found — try a clearer screenshot');
+    const parsed=parsePromoText(text);
+
+    // Pre-fill the form — nothing is saved yet, review before clicking Save Promotion
+    const set=(id,v)=>{if(v===undefined||v===null||v==='')return;const el=document.getElementById(id);if(el)el.value=v;};
+    set('promo-name',parsed.name);
+    if(parsed.promo_type){const sel=document.getElementById('promo-type');if(sel)sel.value=parsed.promo_type;}
+    set('promo-start',parsed.start_date);
+    set('promo-end',parsed.end_date);
+    set('promo-freemonths',parsed.free_months);
+    if(parsed.eligible_plans)set('promo-plans',parsed.eligible_plans.join(', '));
+    promoExtractedPcts=parsed.month_pcts||null;
+
+    const foundBits=[];
+    if(parsed.start_date||parsed.end_date)foundBits.push('date range');
+    if(parsed.promo_type&&parsed.promo_type!=='other')foundBits.push('type');
+    if(parsed.eligible_plans)foundBits.push(parsed.eligible_plans.length+' eligible plan(s)');
+    if(parsed.month_pcts)foundBits.push('M1–M6 schedule ('+parsed.month_pcts.join('/')+'%)');
+    if(note){
+      note.style.display='block';
+      note.innerHTML=foundBits.length
+        ?'✅ Extracted: '+foundBits.join(', ')+'. <strong>Review every field below before saving</strong> — flyer OCR isn\'t perfect.'
+        :'⚠️ Couldn\'t confidently extract details from this image — fill in the fields below manually.';
+    }
+    setMsg('✅','Done — review the form below');
+    setTimeout(()=>{if(status)status.style.display='none';if(zone)zone.style.display='block';},1500);
+  }catch(err){
+    setMsg('❌',err.message||'Could not read flyer');
+    setTimeout(()=>{if(zone)zone.style.display='block';if(status)status.style.display='none';},3000);
+  }
 }
 async function deletePromotion(id){
   if(!confirm('Delete this promotion?'))return;

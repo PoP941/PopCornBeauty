@@ -224,7 +224,7 @@ td{padding:10px 12px;vertical-align:middle;}
   <div class="kpi-grid" id="kpiGridMain">
     <div class="kpi" style="--acc:var(--teal)"><div class="kpi-label">Activations</div><div class="kpi-value" id="kpiActivations" style="color:var(--teal)">0</div><div class="kpi-sub">Total logged</div></div>
     <div class="kpi" style="--acc:var(--green)"><div class="kpi-label">Commission</div><div class="kpi-value" id="kpiCommission" style="color:var(--green)">$0</div><div class="kpi-sub">earned so far</div></div>
-    <div class="kpi" style="--acc:var(--purple)"><div class="kpi-label">Residual</div><div class="kpi-value" id="kpiSubsidy" style="color:var(--purple)">$0</div><div class="kpi-sub">From invoices</div></div>
+    <div class="kpi" style="--acc:var(--purple)"><div class="kpi-label">Residual</div><div class="kpi-value" id="kpiSubsidy" style="color:var(--purple)">$0</div><div class="kpi-sub" id="kpiSubsidySub">From invoices</div></div>
     <div class="kpi" style="--acc:var(--gold)"><div class="kpi-label">Refills</div><div class="kpi-value" id="kpiRefills" style="color:var(--gold)">0</div><div class="kpi-sub">Processed</div></div>
     <div class="kpi" style="--acc:var(--lime)"><div class="kpi-label">Refill Profit</div><div class="kpi-value" id="kpiRefillProfit" style="color:var(--lime)">$0</div><div class="kpi-sub">8% kept</div></div>
     <div class="kpi" style="--acc:var(--orange)"><div class="kpi-label">Phone Profit</div><div class="kpi-value" id="kpiPhoneProfit" style="color:var(--orange)">$0</div><div class="kpi-sub">Sale + subsidy</div></div>
@@ -639,18 +639,21 @@ td{padding:10px 12px;vertical-align:middle;}
     <div class="form-grid">
       <div class="field"><label>Name *</label><input id="promo-name" type="text" placeholder="e.g. 400% MRC Bonus Spiff"></div>
       <div class="field"><label>Type *</label>
-        <select id="promo-type">
+        <select id="promo-type" onchange="promoTypeChanged(this.value)">
           <option value="mrc_bonus">MRC Bonus Spiff</option>
           <option value="byod_free_month">BYOD Free Month</option>
           <option value="price_change">Price Change</option>
+          <option value="residual_tier">Residual Tier</option>
           <option value="other">Other</option>
         </select></div>
       <div class="field"><label>Start Date *</label><input id="promo-start" type="date"></div>
-      <div class="field"><label>End Date *</label><input id="promo-end" type="date"></div>
-      <div class="field"><label>Free Months (if applicable)</label><input id="promo-freemonths" type="number" min="0" placeholder="0"></div>
+      <div class="field"><label id="promo-end-label">End Date *</label><input id="promo-end" type="date"></div>
+      <div class="field" id="promo-freemonths-field"><label>Free Months (if applicable)</label><input id="promo-freemonths" type="number" min="0" placeholder="0"></div>
+      <div class="field" id="promo-residualpct-field" style="display:none;"><label>Residual % *</label><input id="promo-residualpct" type="number" step="0.1" min="0" placeholder="e.g. 6"></div>
       <div class="field" style="grid-column:span 2;"><label>Eligible Plans (comma separated, blank = all plans)</label><input id="promo-plans" type="text" placeholder="SM $25, SM $30, SM $40"></div>
       <div class="field" style="grid-column:span 2;"><label>Notes</label><input id="promo-notes" type="text" placeholder="Eligibility rules, restrictions, etc."></div>
     </div>
+    <div id="promo-tier-hint" style="display:none;font-size:11px;color:var(--muted);margin-top:8px;">💡 Leave End Date blank for an ongoing tier — it'll auto-close (end the day before) whenever you add your next tier change, so the history stays clean without you tracking dates by hand.</div>
     <div style="margin-top:12px;display:flex;gap:8px;">
       <button class="btn" style="background:var(--blue);color:#fff;" onclick="addPromotion()">+ Save Promotion</button>
       <button class="btn btn-ghost" onclick="clearPromoForm()">Clear</button>
@@ -658,7 +661,7 @@ td{padding:10px 12px;vertical-align:middle;}
   </div>
   <div class="section-hdr"><div class="section-title">Promotions (<span id="promoCount">0</span>)</div></div>
   <div class="table-wrap"><div class="table-scroll"><table>
-    <thead><tr><th>Status</th><th>Name</th><th>Type</th><th>Start</th><th>End</th><th>Eligible Plans</th><th>Free Mo.</th><th>Notes</th><th></th></tr></thead>
+    <thead><tr><th>Status</th><th>Name</th><th>Type</th><th>Start</th><th>End</th><th>Eligible Plans</th><th>Free Mo. / Tier %</th><th>Notes</th><th></th></tr></thead>
     <tbody id="promoTable"><tr><td colspan="9" class="empty-state">No promotions logged yet</td></tr></tbody>
   </table></div></div>
 </div>
@@ -1742,7 +1745,7 @@ function renderInvoices(){
       <td class="money-t" style="color:var(--red)">${fmt(inv.act_orders)}</td>
       <td class="money-t" style="color:var(--green)">${inv.spiff?fmt(inv.spiff):'—'}</td>
       <td class="money-t" style="color:var(--purple)">${inv.subsidy?fmt(inv.subsidy):'—'}</td>
-      <td class="money-t" style="color:var(--orange)">${inv.residual?fmt(inv.residual):'—'}</td>
+      <td class="money-t" style="color:var(--orange)">${inv.residual?fmt(inv.residual):'—'}${(()=>{const tier=residualTierForDate(inv.invoice_date);return inv.residual?(tier?` <span class="badge b-purple" style="font-size:9px;" title="${tier.name} active on this invoice date">${tier.residual_pct}%</span>`:` <span class="badge b-gray" style="font-size:9px;" title="No residual tier logged for this date">no tier</span>`):'';})()}</td>
       <td class="money-t" style="color:var(--gold)">${inv.rtr?fmt(inv.rtr):'—'}</td>
       <td class="money-t" style="color:var(--orange)">${inv.marketplace?fmt(inv.marketplace):'—'}</td>
       <td class="money-t" style="color:var(--muted)">${fmt(inv.fee)}</td>
@@ -1929,6 +1932,11 @@ function renderDashboard(){
   document.getElementById('kpiActivations').textContent=activations.length;
   document.getElementById('kpiCommission').textContent='$'+Math.round(tc);
   document.getElementById('kpiSubsidy').textContent='$'+Math.round(resid);
+  const subEl=document.getElementById('kpiSubsidySub');
+  if(subEl){
+    const curTier=residualTierForDate();
+    subEl.textContent=curTier?curTier.name+' — '+curTier.residual_pct+'% active':'From invoices';
+  }
   document.getElementById('kpiRefills').textContent=refills.length;
   document.getElementById('kpiRefillProfit').textContent='$'+Math.round(rp);
   document.getElementById('kpiPhoneProfit').textContent='$'+Math.round(pp);
@@ -2876,22 +2884,42 @@ function promoStatus(p){
   if(today>p.end_date)return{label:'Expired',color:'var(--muted)'};
   return{label:'Active',color:'var(--green)'};
 }
+// Which residual tier was in effect on a given date — locked to that date so moving to a
+// new tier never retroactively relabels past invoices. Used purely for audit tagging;
+// actual residual $ always comes straight from what VidaPay reports on each invoice.
+function residualTierForDate(dateStr){
+  const d=dateStr||new Date().toISOString().slice(0,10);
+  return promotions.find(p=>p.promo_type==='residual_tier'&&p.start_date<=d&&p.end_date>=d)||null;
+}
+function promoTypeChanged(type){
+  const isTier=type==='residual_tier';
+  const pctField=document.getElementById('promo-residualpct-field');if(pctField)pctField.style.display=isTier?'':'none';
+  const fmField=document.getElementById('promo-freemonths-field');if(fmField)fmField.style.display=isTier?'none':'';
+  const endLabel=document.getElementById('promo-end-label');if(endLabel)endLabel.textContent=isTier?'End Date (blank = ongoing)':'End Date *';
+  const hint=document.getElementById('promo-tier-hint');if(hint)hint.style.display=isTier?'block':'none';
+}
 let promoExtractedPcts=null; // set by handlePromoDrop() when a M1-M6 table is detected in a flyer
 async function addPromotion(){
   const name=(document.getElementById('promo-name')?.value||'').trim();
   const start=document.getElementById('promo-start')?.value;
-  const end=document.getElementById('promo-end')?.value;
+  let end=document.getElementById('promo-end')?.value;
+  const type=document.getElementById('promo-type')?.value||'other';
+  const isTier=type==='residual_tier';
   if(!name){alert('Name is required');return;}
-  if(!start||!end){alert('Start and End dates are required');return;}
+  if(!start){alert('Start Date is required');return;}
+  if(!end&&!isTier){alert('End Date is required');return;}
+  if(isTier&&!end)end='2099-12-31'; // "ongoing" — auto-closed when the next tier is added
+  const residualPct=parseFloat(document.getElementById('promo-residualpct')?.value);
+  if(isTier&&(isNaN(residualPct)||residualPct<0)){alert('Residual % is required for a Residual Tier entry');return;}
   const plansRaw=(document.getElementById('promo-plans')?.value||'').trim();
   const payload={
-    name,
-    promo_type:document.getElementById('promo-type')?.value||'other',
+    name,promo_type:type,
     start_date:start,end_date:end,
     eligible_plans:plansRaw?plansRaw.split(',').map(s=>s.trim()).filter(Boolean):[],
     free_months:parseInt(document.getElementById('promo-freemonths')?.value)||0,
     notes:(document.getElementById('promo-notes')?.value||'').trim(),
   };
+  if(isTier)payload.residual_pct=residualPct;
   if(promoExtractedPcts)payload.month_pcts=promoExtractedPcts;
   let{data,error}=await sb.from('promotions').insert(payload).select().single();
   if(error&&/month_pcts/i.test(error.message||'')){
@@ -2902,16 +2930,32 @@ async function addPromotion(){
     ({data,error}=await sb.from('promotions').insert(fb).select().single());
     if(!error)alert('Saved, but the custom M1–M6 percentages weren\'t stored — the month_pcts column needs to be added to the promotions table first.');
   }
+  if(error&&/residual_pct|promo_type/i.test(error.message||'')){
+    alert('Save failed: '+error.message+'\n\nMost likely add-residual-tier-support.sql hasn\'t been run yet on this Supabase project.');
+    return;
+  }
   if(error){alert('Save Error: '+error.message);return;}
+  // Auto-close the previously-open residual tier (if any) so the timeline stays clean —
+  // ends the day before this new tier starts, rather than leaving two tiers overlapping.
+  if(isTier){
+    const prevOpen=promotions.find(p=>p.promo_type==='residual_tier'&&String(p.id)!==String(data.id)&&p.end_date==='2099-12-31');
+    if(prevOpen){
+      const closeDate=new Date(start+'T12:00:00');closeDate.setDate(closeDate.getDate()-1);
+      const newEnd=closeDate.toISOString().slice(0,10);
+      const{error:closeErr}=await sb.from('promotions').update({end_date:newEnd}).eq('id',prevOpen.id);
+      if(!closeErr)prevOpen.end_date=newEnd;
+    }
+  }
   promotions.unshift(data);
-  renderPromotions();renderActivations();renderDashboard();renderMrcBanner();
+  renderPromotions();renderActivations();renderDashboard();renderMrcBanner();renderInvoices();
   clearPromoForm();showToast();
 }
 function clearPromoForm(){
-  ['promo-name','promo-start','promo-end','promo-freemonths','promo-plans','promo-notes'].forEach(id=>{
+  ['promo-name','promo-start','promo-end','promo-freemonths','promo-residualpct','promo-plans','promo-notes'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.value='';
   });
   const t=document.getElementById('promo-type');if(t)t.selectedIndex=0;
+  promoTypeChanged('mrc_bonus');
   promoExtractedPcts=null;
   const note=document.getElementById('promoOcrNote');if(note)note.style.display='none';
 }
@@ -3043,14 +3087,15 @@ function renderPromotions(){
   tbody.innerHTML=promotions.map(p=>{
     const st=promoStatus(p);
     const bg=st.label==='Active'?'var(--green-l)':st.label==='Upcoming'?'var(--blue-l)':'var(--surface3)';
+    const isTier=p.promo_type==='residual_tier';
     return`<tr>
       <td><span class="badge" style="background:${bg};color:${st.color};">${st.label}</span></td>
       <td style="font-weight:700;">${p.name}</td>
       <td style="font-size:11px;color:var(--muted);">${p.promo_type.replace('_',' ')}</td>
       <td style="font-size:11px;">${fmtDate(p.start_date)}</td>
-      <td style="font-size:11px;">${fmtDate(p.end_date)}</td>
-      <td style="font-size:11px;color:var(--muted);">${(p.eligible_plans||[]).length?p.eligible_plans.join(', '):'All plans'}</td>
-      <td style="text-align:center;">${p.free_months||0}</td>
+      <td style="font-size:11px;">${p.end_date==='2099-12-31'?'Ongoing':fmtDate(p.end_date)}</td>
+      <td style="font-size:11px;color:var(--muted);">${isTier?'—':(p.eligible_plans||[]).length?p.eligible_plans.join(', '):'All plans'}</td>
+      <td style="text-align:center;">${isTier?(p.residual_pct!=null?p.residual_pct+'%':'—'):(p.free_months||0)}</td>
       <td style="font-size:11px;color:var(--muted);max-width:200px;">${p.notes||'—'}</td>
       <td><button class="del-btn" onclick="deletePromotion(${p.id})">✕</button></td>
     </tr>`;

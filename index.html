@@ -1735,7 +1735,7 @@ function renderInvoices(){
     const nc=net<0?'var(--green)':net>0?'var(--red)':'var(--muted)';
     return`<tr>
       <td style="font-size:11px;font-family:monospace">${inv.file_url
-        ?`<a href="${inv.file_url}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:underline;" title="Open original invoice file">${inv.invoice_num} 📄</a>`
+        ?`<a href="#" onclick="openInvoiceFile('${inv.file_url}');return false;" style="color:var(--blue);text-decoration:underline;" title="Open original invoice file">${inv.invoice_num} 📄</a>`
         :`<span style="color:var(--blue);">${inv.invoice_num}</span> <label style="cursor:pointer;font-size:10px;color:var(--muted);text-decoration:underline;" title="Attach the original PDF/screenshot for this invoice">📎 attach<input type="file" accept=".pdf,image/*" style="display:none" onchange="attachInvoiceFile(${inv.id},'${inv.invoice_num}',this.files[0])"></label>`}</td>
       <td><input type="date" value="${inv.invoice_date||''}" style="border:1px solid ${inv.invoice_date?'transparent':'var(--red)'};background:transparent;font-size:11px;font-family:inherit;color:var(--text);padding:2px;border-radius:3px;" onchange="updateInvoiceField(${inv.id},'invoice_date',this.value)"></td>
       <td style="font-size:11px;color:var(--muted)">${inv.period||'—'}</td>
@@ -2162,19 +2162,33 @@ async function attachInvoiceFile(id,invoiceNum,file){
       alert('Upload failed: '+upErr.message+'\n\nMost likely the invoice-files storage bucket hasn\'t been set up yet — run add-invoice-file-storage.sql first.');
       return;
     }
-    const{data:pub}=sb.storage.from('invoice-files').getPublicUrl(path);
-    const fileUrl=pub?.publicUrl||null;
-    const{error:updErr}=await sb.from('invoices').update({file_url:fileUrl}).eq('id',id);
+    // Store the PATH, not a public URL — the bucket is private, so a real URL is only
+    // ever generated on-demand (signed, short-lived) when someone with a valid session
+    // clicks to view it. Storing a permanent public link would defeat the point of
+    // making the bucket private in the first place.
+    const{error:updErr}=await sb.from('invoices').update({file_url:path}).eq('id',id);
     if(updErr){
       alert('File uploaded, but saving the link failed: '+updErr.message+'\n\nMost likely the file_url column hasn\'t been added yet — run add-invoice-file-storage.sql first.');
       return;
     }
     const inv=invoices.find(i=>String(i.id)===String(id));
-    if(inv)inv.file_url=fileUrl;
+    if(inv)inv.file_url=path;
     renderInvoices();showToast();
   }catch(e){
     alert('Attach failed: '+e.message);
   }
+}
+// Generates a short-lived signed URL and opens it — called at click time, never stored,
+// since the bucket is private and a permanent public link would bypass that.
+async function openInvoiceFile(pathOrOldUrl){
+  if(!pathOrOldUrl)return;
+  // Older rows (saved before the bucket was made private) may still have a full public
+  // URL stored instead of a bare path — pull just the path back out so signing still works.
+  const marker='/invoice-files/';
+  const path=pathOrOldUrl.includes(marker)?pathOrOldUrl.split(marker)[1]:pathOrOldUrl;
+  const{data,error}=await sb.storage.from('invoice-files').createSignedUrl(path,120);
+  if(error){alert('Could not open file: '+error.message);return;}
+  if(data?.signedUrl)window.open(data.signedUrl,'_blank','noopener');
 }
 function renderTeam(){
   const tbody=document.getElementById('teamTable');if(!tbody)return;
@@ -2765,8 +2779,7 @@ async function saveAuditResult(num,period,cats,invoiceDate){
       const path=String(num)+'.'+ext;
       const{error:upErr}=await sb.storage.from('invoice-files').upload(path,currentAuditFile,{upsert:true});
       if(!upErr){
-        const{data:pub}=sb.storage.from('invoice-files').getPublicUrl(path);
-        fileUrl=pub?.publicUrl||null;
+        fileUrl=path; // store the path only — a signed URL is generated on-demand at view time
       } else {
         console.warn('Invoice file upload failed (storage bucket may not exist yet):',upErr);
       }

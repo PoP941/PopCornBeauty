@@ -680,11 +680,16 @@ const roleLabel=role=>({rep:'Tier 1',manager:'Tier 2',owner:'Tier 3'}[role]||rol
 // printer directly (mixed content), so this routes through the OS printer driver instead,
 // which works regardless of how the Epson is set up.
 function showReceiptModal(type,data){
-  const now=new Date();
-  const dateStr=now.toLocaleDateString('en-US')+' '+now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+  const when=data.date?new Date(data.date):new Date();
+  const dateStr=when.toLocaleDateString('en-US')+' '+when.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
   const store=storeSettings||{};
+  const repName=data.repName||currentUser?.name||'—';
   const titles={activation:'ACTIVATION RECEIPT',refill:'REFILL RECEIPT',phone_sale:'PHONE SALE RECEIPT'};
-  const policies={activation:store.activation_policy,refill:store.refill_policy,phone_sale:store.phone_sale_policy};
+  // Use the snapshot saved on the record if one exists (so a reprint always matches what
+  // the customer originally saw, even if the policy wording has changed since); fall back
+  // to the current live policy text only for records saved before this existed.
+  const livePolicies={activation:store.activation_policy,refill:store.refill_policy,phone_sale:store.phone_sale_policy};
+  const policyText=data.policySnapshot!=null?data.policySnapshot:livePolicies[type];
   const rows=(()=>{
     if(type==='activation')return[['Customer',data.phone],['Plan',data.plan],...(data.imei?[['IMEI',data.imei]]:[])];
     if(type==='refill')return[['Customer',data.phone],['Plan',data.plan],['Amount',fmt(data.amount)]];
@@ -698,15 +703,32 @@ function showReceiptModal(type,data){
     <hr>
     <div class="rc-center rc-bold">${titles[type]||''}</div>
     <div class="rc-row"><span>Date:</span><span>${dateStr}</span></div>
-    <div class="rc-row"><span>Rep:</span><span>${currentUser?.name||'—'}</span></div>
+    <div class="rc-row"><span>Rep:</span><span>${repName}</span></div>
     <hr>
     ${rows.map(([label,val])=>`<div class="rc-row"><span>${label}:</span><span>${val||'—'}</span></div>`).join('')}
     <hr>
-    ${policies[type]?`<div class="rc-small">${policies[type]}</div><hr>`:''}
+    ${policyText?`<div class="rc-small">${policyText}</div><hr>`:''}
     <div class="rc-center">Thank you for your business!</div>
   `;
   document.getElementById('printableReceipt').innerHTML=html;
   document.getElementById('receiptModalOverlay').style.display='flex';
+}
+// Reprint from the logs — look the record up fresh by ID rather than inlining its data
+// into an onclick attribute (safer, and avoids breaking on names/plans with quotes in them).
+function reprintActivationReceipt(id){
+  const a=activations.find(x=>String(x.id)===String(id));
+  if(!a){alert('Activation not found.');return;}
+  showReceiptModal('activation',{phone:a.phone,plan:a.plan,imei:a.imei||null,date:a.created_at,repName:a.rep_name,policySnapshot:a.receipt_policy_snapshot});
+}
+function reprintRefillReceipt(id){
+  const r=refills.find(x=>String(x.id)===String(id));
+  if(!r){alert('Refill not found.');return;}
+  showReceiptModal('refill',{phone:r.phone,plan:r.plan,amount:parseFloat(r.amount)||0,date:r.created_at,repName:r.rep_name,policySnapshot:r.receipt_policy_snapshot});
+}
+function reprintPhoneReceipt(id){
+  const p=phones.find(x=>String(x.id)===String(id));
+  if(!p){alert('Phone sale not found.');return;}
+  showReceiptModal('phone_sale',{phone:p.phone,model:p.model,imei:p.imei,salePrice:parseFloat(p.sale_price)||0,date:p.sale_date,repName:p.sold_by_name,policySnapshot:p.receipt_policy_snapshot});
 }
 const fmtDate=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'}):'—';
 // Converts a VidaPay invoice date like "7/12/2026" into the "2026-07-12" format HTML date
@@ -944,6 +966,8 @@ async function addActivation(){
     act_date:document.getElementById('act-date')?.value||null,
     carrier:document.getElementById('act-carrier')?.value||'Simple Mobile',
     plan, mrc, collected,
+    rep_name:currentUser?.name||null,
+    receipt_policy_snapshot:storeSettings?.activation_policy||null,
   };
   const imei=(document.getElementById('act-imei')?.value||'').trim();
   if(imei)payload.imei=imei;
@@ -956,6 +980,10 @@ async function addActivation(){
   if(error&&/collected/i.test(error.message||'')){
     const fb2={...payload};delete fb2.collected;delete fb2.rep_id;
     ({data,error}=await sb.from('activations').insert(fb2).select().single());
+  }
+  if(error&&/(rep_name|receipt_policy_snapshot)/i.test(error.message||'')){
+    const fb3={...payload};delete fb3.rep_name;delete fb3.receipt_policy_snapshot;
+    ({data,error}=await sb.from('activations').insert(fb3).select().single());
   }
   if(error){alert('Save Error:\n'+error.message);return;}
   activations.unshift(data);
@@ -1001,7 +1029,7 @@ async function addActivation(){
   renderActivations();renderDashboard();
   clearAct();showToast();
   alert('✅ Activation saved!\n'+phone+' — '+plan+invoiceNote);
-  showReceiptModal('activation',{phone,plan,imei:imei||null});
+  showReceiptModal('activation',{phone,plan,imei:imei||null,date:new Date(),repName:currentUser?.name,policySnapshot:storeSettings?.activation_policy});
 }
 function clearAct(){
   ['act-phone','act-order','act-name','act-pin','act-imei','act-date','act-subsidy','act-phone-price','act-collected'].forEach(id=>{
@@ -1065,7 +1093,7 @@ function renderActivations(){
         <span class="badge b-teal" style="font-size:9px">${monthPositionLabel(n)}</span>
         ${newOffer?`<div style="margin-top:3px"><span class="badge" style="font-size:9px;background:#fef2f2;color:#dc2626;font-weight:800">🔔 New Offer Needed</span></div>`:''}
       </td>
-      <td>${(currentUser?.role||'owner')==='owner'?`<button class="del-btn" onclick="deleteActivation(${a.id})">✕</button>`:''}</td>
+      <td><button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="reprintActivationReceipt(${a.id})" title="Reprint receipt">🖨️</button>${(currentUser?.role||'owner')==='owner'?`<button class="del-btn" onclick="deleteActivation(${a.id})">✕</button>`:''}</td>
     </tr>`;
   }).join('');
   document.getElementById('actCount').textContent=activations.length;
@@ -1115,6 +1143,8 @@ async function addRefill(){
     plan:document.getElementById('ref-plan')?.value||'',
     amount,group_tag:groupTag,
     rep_id:currentUser?.id||null,
+    rep_name:currentUser?.name||null,
+    receipt_policy_snapshot:storeSettings?.refill_policy||null,
   };
   let{data,error}=await sb.from('refills').insert(payload).select().single();
   if(error&&/group_tag/i.test(error.message||'')){
@@ -1128,13 +1158,17 @@ async function addRefill(){
     const fb2={...payload};delete fb2.rep_id;delete fb2.group_tag;
     ({data,error}=await sb.from('refills').insert(fb2).select().single());
   }
+  if(error&&/(rep_name|receipt_policy_snapshot)/i.test(error.message||'')){
+    const fb3={...payload};delete fb3.rep_name;delete fb3.receipt_policy_snapshot;
+    ({data,error}=await sb.from('refills').insert(fb3).select().single());
+  }
   if(error){alert('Save Error:\n'+error.message);return;}
   refills.unshift(data);
   renderRefills();renderDashboard();renderCommPipeline();renderOverdue();
   const refPlan=data.plan;
   clearRef();showToast();
   alert('✅ Refill saved!\n'+phone);
-  showReceiptModal('refill',{phone,plan:refPlan,amount});
+  showReceiptModal('refill',{phone,plan:refPlan,amount,date:new Date(),repName:currentUser?.name,policySnapshot:storeSettings?.refill_policy});
 }
 function clearRef(){['ref-phone','ref-order','ref-date','ref-amount','ref-group'].forEach(id=>document.getElementById(id).value='');document.getElementById('ref-plan').value='';refPlanChanged('');document.getElementById('refLookupPanel').style.display='none';document.getElementById('refLookupHint').style.display='inline';document.getElementById('familyGroupHint').style.display='none';}
 // Live check: does this tag already link to other phone numbers? Lets a rep confirm
@@ -1355,7 +1389,7 @@ function renderRefills(){
       <td><span class="badge ${isL?'b-pink':'b-gray'}">${isL?'✅ Linked':'—'}</span></td>
       <td>${cust}</td>
       <td><span class="badge b-teal" style="font-size:10px">${isL?refillTrigger(r.phone,r.id):'—'}</span></td>
-      <td>${(currentUser?.role||'owner')==='owner'?`<button class="del-btn" onclick="deleteRefill(${r.id})">✕</button>`:''}</td>
+      <td><button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="reprintRefillReceipt(${r.id})" title="Reprint receipt">🖨️</button>${(currentUser?.role||'owner')==='owner'?`<button class="del-btn" onclick="deleteRefill(${r.id})">✕</button>`:''}</td>
     </tr>`;
   }).join('');
   document.getElementById('refCount').textContent=filtered.length;
@@ -1949,7 +1983,13 @@ async function logPhoneSale(){
   const saleDate=document.getElementById('sale-date')?.value||new Date().toISOString().split('T')[0];
   let{error}=await sb.from('phones').update({
     phone:custPhone,sale_date:saleDate,sale_price:salePrice,subsidy:subsidy,status:'Sold',sold_by:currentUser?.id||null,
+    sold_by_name:currentUser?.name||null,receipt_policy_snapshot:storeSettings?.phone_sale_policy||null,
   }).eq('id',invPhone.id);
+  if(error&&/(sold_by_name|receipt_policy_snapshot)/i.test(error.message||'')){
+    ({error}=await sb.from('phones').update({
+      phone:custPhone,sale_date:saleDate,sale_price:salePrice,subsidy:subsidy,status:'Sold',sold_by:currentUser?.id||null,
+    }).eq('id',invPhone.id));
+  }
   if(error&&/sold_by/i.test(error.message||'')){
     ({error}=await sb.from('phones').update({
       phone:custPhone,sale_date:saleDate,sale_price:salePrice,subsidy:subsidy,status:'Sold',
@@ -1957,11 +1997,11 @@ async function logPhoneSale(){
   }
   if(error){alert('Sale Error: '+error.message);return;}
   const i=phones.findIndex(p=>p.id===invPhone.id);
-  if(i>=0)phones[i]={...phones[i],phone:custPhone,sale_date:saleDate,sale_price:salePrice,subsidy,status:'Sold'};
+  if(i>=0)phones[i]={...phones[i],phone:custPhone,sale_date:saleDate,sale_price:salePrice,subsidy,status:'Sold',sold_by_name:currentUser?.name||null,receipt_policy_snapshot:storeSettings?.phone_sale_policy||null};
   const soldModel=invPhone.model;
   renderPhones();renderDashboard();clearSaleForm();showToast();
   alert('Sale logged: '+soldModel);
-  showReceiptModal('phone_sale',{phone:custPhone,model:soldModel,imei,salePrice});
+  showReceiptModal('phone_sale',{phone:custPhone,model:soldModel,imei,salePrice,date:new Date(),repName:currentUser?.name,policySnapshot:storeSettings?.phone_sale_policy});
 }
 
 function lookupSaleImei(imei){
@@ -2246,7 +2286,7 @@ function renderPhones(){
           <td class="money-t" style="color:var(--teal);">${linkedAct?'+'+fmt(commission):'—'}</td>
           <td class="money-t" style="font-weight:900;color:var(--green);">${fmt(grandTotal)}</td>
           <td>${fmtDate(p.sale_date)}</td>
-          <td>${(currentUser?.role||'owner')==='owner'?`<button class="del-btn" onclick="deletePhone(${p.id})">✕</button>`:''}</td>
+          <td><button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="reprintPhoneReceipt(${p.id})" title="Reprint receipt">🖨️</button>${(currentUser?.role||'owner')==='owner'?`<button class="del-btn" onclick="deletePhone(${p.id})">✕</button>`:''}</td>
         </tr>`;
       }).join('');
   }

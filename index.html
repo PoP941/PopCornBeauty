@@ -409,8 +409,13 @@ td{padding:10px 12px;vertical-align:middle;}
     <input id="ph-search" type="text" placeholder="search IMEI, model..." oninput="filterPhones(this.value)" style="background:#fff;border:1.5px solid #d1d5db;border-radius:6px;padding:6px 12px;font-size:12px;font-family:inherit;width:200px;outline:none;">
   </div>
   <div class="table-wrap" style="margin-bottom:20px;"><div class="table-scroll"><table>
-    <thead><tr><th>IMEI</th><th>Model</th><th>Order #</th><th>Purchased</th><th>Cost</th><th>Rebate Expected</th><th>Required Plan</th><th>Return By</th><th>Countdown</th><th></th></tr></thead>
-    <tbody id="inStockTable"><tr><td colspan="10" class="empty-state">No phones in inventory — add via Invoices tab</td></tr></tbody>
+    <thead><tr><th>IMEI</th><th>Model</th><th>Category</th><th>Order #</th><th>Purchased</th><th>Cost</th><th>Rebate Expected</th><th>Required Plan</th><th>Return By</th><th>Countdown</th><th></th></tr></thead>
+    <tbody id="inStockTable"><tr><td colspan="11" class="empty-state">No phones in inventory — add via Invoices tab</td></tr></tbody>
+  </table></div></div>
+  <div class="section-hdr"><div class="section-title">↩ Returns Log (<span id="returnsLogCount">0</span>)</div></div>
+  <div class="table-wrap" style="margin-bottom:20px;"><div class="table-scroll"><table>
+    <thead><tr><th>IMEI</th><th>Model</th><th>Category</th><th>Purchased</th><th>Cost</th><th>Returned Date</th><th>Tracking #</th><th></th></tr></thead>
+    <tbody id="returnsLogTable"><tr><td colspan="8" class="empty-state">No returns logged</td></tr></tbody>
   </table></div></div>
   <div id="salesLogSection">
   <div class="section-hdr">
@@ -522,10 +527,16 @@ td{padding:10px 12px;vertical-align:middle;}
         <div class="field"><label>Order #</label><input id="ph-order" type="text" placeholder="order #"></div>
         <div class="field"><label>IMEI *</label><input class="imei-f" id="ph-imei" type="text" placeholder="IMEI number"></div>
         <div class="field" style="grid-column:span 2;"><label>Model *</label><input id="ph-model" type="text" placeholder="phone model"></div>
-        <div class="field"><label>Purchase Date</label><input id="ph-pdate" type="date"></div>
+        <div class="field"><label>Category</label>
+          <select id="ph-category" onchange="phoneCategoryChanged()">
+            <option value="unlocked">Unlocked (60-day hard deadline)</option>
+            <option value="promo">Promo (deadline varies by order)</option>
+          </select></div>
+        <div class="field"><label>Purchase Date</label><input id="ph-pdate" type="date" onchange="phoneCategoryChanged()"></div>
         <div class="field"><label>Your Cost $</label><input class="money-f" id="ph-cost" type="number" step="0.01" placeholder="0.00"></div>
         <div class="field"><label>Rebate Expected $</label><input class="money-f" id="ph-rebate" type="number" step="0.01" placeholder="0.00"></div>
-        <div class="field"><label style="color:var(--red);font-weight:700;">📅 Return By</label><input id="ph-return-date" type="date" style="background:#fff5f5;border:2px solid var(--red) !important;"></div>
+        <div class="field"><label style="color:var(--red);font-weight:700;">📅 Return By (your target)</label><input id="ph-return-date" type="date" style="background:#fff5f5;border:2px solid var(--red) !important;"></div>
+        <div class="field" style="grid-column:span 2;"><div id="ph-return-hint" style="font-size:10px;color:var(--muted);margin-top:-4px;">Unlocked: auto-set to 45 days after purchase (true deadline is 60 days) — edit if needed.</div></div>
         <div class="field" style="grid-column:span 2;"><label>Required Plan for Rebate</label>
           <select id="ph-req-plan">
             <option value="">— No rebate plan —</option>
@@ -1062,7 +1073,7 @@ async function addActivation(){
   if(imei){
     const cleanImei=imei.replace(/[^0-9]/g,'');
     const invPhone=phones.find(p=>p.imei&&(p.imei||'').replace(/[^0-9]/g,'')===cleanImei);
-    if(invPhone&&invPhone.status!=='Sold'){
+    if(invPhone&&invPhone.status!=='Sold'&&invPhone.status!=='Returned'){
       const spec=reqPlanSpec(invPhone.req_plan);
       const qualifies=!spec||planMatchesReq(invPhone.req_plan,plan);
       const subsidyEntered=parseFloat(document.getElementById('act-subsidy')?.value)||0;
@@ -1985,7 +1996,7 @@ function returnCountdown(d){
   return '<span style="color:var(--green);">'+days+'d left</span>';
 }
 function renderReturnWarning(){
-  const inStock=phones.filter(p=>p.status!=='Sold'&&p.return_date);
+  const inStock=phones.filter(p=>p.status!=='Sold'&&p.status!=='Returned'&&p.return_date);
   const dueSoon=inStock.filter(p=>{
     const days=Math.round((new Date(p.return_date+'T12:00:00')-new Date())/86400000);
     return days<=10; // includes overdue (negative days)
@@ -2005,7 +2016,7 @@ function renderReturnWarning(){
 }
 function renderDashStock(){
   const tbody=document.getElementById('dashStockTable');if(!tbody)return;
-  const inStock=phones.filter(p=>p.status!=='Sold');
+  const inStock=phones.filter(p=>p.status!=='Sold'&&p.status!=='Returned');
   const cEl=document.getElementById('dashStockCount');if(cEl)cEl.textContent=inStock.length+' in stock';
   if(!inStock.length){tbody.innerHTML='<tr><td colspan="6" class="empty-state">No phones in stock</td></tr>';return;}
   // Soonest return deadline first — that's the whole point of this view: what needs
@@ -2038,15 +2049,42 @@ async function addPhone(){
     cost:parseFloat(document.getElementById('ph-cost')?.value)||0,
     rebate_expected:parseFloat(document.getElementById('ph-rebate')?.value)||0,
     req_plan:document.getElementById('ph-req-plan')?.value||'',
+    phone_category:document.getElementById('ph-category')?.value||'unlocked',
     status:'In Stock',phone:'',sale_price:0,subsidy:0,
   };
   const rd=document.getElementById('ph-return-date')?.value;
   if(rd)payload.return_date=rd;
-  const{data,error}=await sb.from('phones').insert(payload).select().single();
+  let{data,error}=await sb.from('phones').insert(payload).select().single();
+  if(error&&/phone_category/i.test(error.message||'')){
+    // The 'phone_category' column doesn't exist yet — save without it rather than
+    // blocking the phone entirely. Run add-return-tracking.sql to add it.
+    const fb={...payload};delete fb.phone_category;
+    ({data,error}=await sb.from('phones').insert(fb).select().single());
+    if(!error)alert('Saved, but the category wasn\'t stored — the phone_category column needs to be added first.');
+  }
   if(error){alert('Save Error: '+error.message);return;}
   phones.unshift(data);
   renderPhones();renderDashboard();clearPh();showToast();
   alert('Added: '+model);
+}
+// Auto-suggests a Return By target when purchase date + category are known. Unlocked
+// phones have a firm 60-day deadline, so we suggest 45 as a safer internal target. Promo
+// phones have no fixed deadline — it varies by VidaPay marketplace policy for that specific
+// order — so nothing is auto-filled; the rep enters whatever that order's actual terms are.
+function phoneCategoryChanged(){
+  const cat=document.getElementById('ph-category')?.value||'unlocked';
+  const pdate=document.getElementById('ph-pdate')?.value;
+  const returnEl=document.getElementById('ph-return-date');
+  const hint=document.getElementById('ph-return-hint');
+  if(cat==='unlocked'){
+    if(hint)hint.textContent='Unlocked: auto-set to 45 days after purchase (true deadline is 60 days) — edit if needed.';
+    if(pdate&&returnEl){
+      const d=new Date(pdate+'T12:00:00');d.setDate(d.getDate()+45);
+      returnEl.value=d.toISOString().slice(0,10);
+    }
+  } else {
+    if(hint)hint.textContent='Promo: deadline varies by VidaPay marketplace policy for this specific order — check the order terms and enter manually.';
+  }
 }
 
 function clearPh(){
@@ -2054,6 +2092,8 @@ function clearPh(){
     const el=document.getElementById(id);if(el)el.value='';
   });
   const rp=document.getElementById('ph-req-plan');if(rp)rp.selectedIndex=0;
+  const cat=document.getElementById('ph-category');if(cat)cat.selectedIndex=0;
+  const hint=document.getElementById('ph-return-hint');if(hint)hint.textContent='Unlocked: auto-set to 45 days after purchase (true deadline is 60 days) — edit if needed.';
   const prev=document.getElementById('receiptPreview');if(prev)prev.style.display='none';
   const dz=document.getElementById('receiptDropZone');if(dz)dz.style.display='block';
 }
@@ -2124,6 +2164,58 @@ async function updatePhoneField(id,field,value){
   const p=phones.find(x=>String(x.id)===String(id));
   if(p)p[field]=value||null;
   renderPhones();renderDashStock();renderPhoneUrgencyBanner();renderReturnWarning();showToast();
+}
+// ── Mark Returned ──────────────────────────────────────────────────────
+// Replaces the old "just delete it" behavior for a phone going back to VidaPay. Captures
+// a tracking number and returned date, and moves the phone into a real Returns Log instead
+// of erasing the record — so there's an audit trail of what went out, when, and why.
+let returnModalPhoneId=null;
+function openReturnModal(id){
+  const p=phones.find(x=>String(x.id)===String(id));if(!p)return;
+  returnModalPhoneId=id;
+  let modal=document.getElementById('returnModal');
+  if(!modal){
+    modal=document.createElement('div');
+    modal.id='returnModal';
+    modal.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.6);display:none;align-items:center;justify-content:center;z-index:10000;';
+    modal.innerHTML=`<div style="background:#fff;border-radius:12px;padding:26px 30px;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.4);">
+      <div style="font-size:15px;font-weight:800;margin-bottom:4px;">↩ Mark as Returned</div>
+      <div id="returnModalPhoneLabel" style="font-size:12px;color:#666;margin-bottom:16px;"></div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div><label style="font-size:10px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:1px;">Returned Date</label>
+          <input id="return-modal-date" type="date" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:6px;font-size:13px;font-family:inherit;margin-top:4px;"></div>
+        <div><label style="font-size:10px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:1px;">Tracking Number *</label>
+          <input id="return-modal-tracking" type="text" placeholder="e.g. 1Z999AA10123456784" style="width:100%;padding:8px 10px;border:1.5px solid #ddd;border-radius:6px;font-size:13px;font-family:inherit;margin-top:4px;"></div>
+      </div>
+      <div style="margin-top:18px;display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="closeReturnModal()" style="padding:9px 16px;border:1.5px solid #ddd;border-radius:7px;background:#fff;color:#666;font-weight:700;font-size:12px;cursor:pointer;">Cancel</button>
+        <button onclick="confirmReturnPhone()" style="padding:9px 16px;border:none;border-radius:7px;background:#dc2626;color:#fff;font-weight:800;font-size:12px;cursor:pointer;">Confirm Return</button>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+  }
+  document.getElementById('returnModalPhoneLabel').textContent=(p.model||'Phone')+' — IMEI '+(p.imei||'—');
+  document.getElementById('return-modal-date').value=new Date().toISOString().slice(0,10);
+  document.getElementById('return-modal-tracking').value='';
+  modal.style.display='flex';
+}
+function closeReturnModal(){
+  const modal=document.getElementById('returnModal');if(modal)modal.style.display='none';
+  returnModalPhoneId=null;
+}
+async function confirmReturnPhone(){
+  if(!returnModalPhoneId)return;
+  const tracking=(document.getElementById('return-modal-tracking')?.value||'').trim();
+  const returnedDate=document.getElementById('return-modal-date')?.value||new Date().toISOString().slice(0,10);
+  if(!tracking){alert('Tracking number is required — this is what proves the phone actually went back if VidaPay disputes it.');return;}
+  const{error}=await sb.from('phones').update({
+    status:'Returned',returned_date:returnedDate,return_tracking:tracking,
+  }).eq('id',returnModalPhoneId);
+  if(error){alert('Error: '+error.message);return;}
+  const p=phones.find(x=>String(x.id)===String(returnModalPhoneId));
+  if(p){p.status='Returned';p.returned_date=returnedDate;p.return_tracking=tracking;}
+  closeReturnModal();
+  renderPhones();renderDashboard();renderDashStock();renderPhoneUrgencyBanner();renderReturnWarning();showToast();
 }
 async function deletePhone(id){
   const p=phones.find(x=>String(x.id)===String(id));
@@ -2343,12 +2435,15 @@ function renderPhones(){
       return opts.map(([v,label])=>`<option value="${v}" ${cur===v?'selected':''}>${label}</option>`).join('');
     };
     inStockBody.innerHTML=!inStock.length
-      ?'<tr><td colspan="10" class="empty-state">No phones in inventory</td></tr>'
+      ?'<tr><td colspan="11" class="empty-state">No phones in inventory</td></tr>'
       :inStock.map(p=>`<tr style="background:#eff6ff;">
         <td style="font-size:10px;color:var(--blue);font-family:monospace;">${p.imei||'—'}</td>
         <td style="font-weight:700;">${isOwner
           ?`<input value="${p.model||''}" style="border:1px solid var(--border);background:#fff;font-size:12px;font-weight:700;padding:3px 6px;border-radius:4px;width:150px;" onchange="updatePhoneField(${p.id},'model',this.value)">`
           :(p.model||'—')}</td>
+        <td>${isOwner
+          ?`<select style="border:1px solid var(--border);background:#fff;font-size:11px;padding:3px 4px;border-radius:4px;" onchange="updatePhoneField(${p.id},'phone_category',this.value)"><option value="unlocked" ${(!p.phone_category||p.phone_category==='unlocked')?'selected':''}>Unlocked</option><option value="promo" ${p.phone_category==='promo'?'selected':''}>Promo</option></select>`
+          :`<span class="badge ${p.phone_category==='promo'?'b-purple':'b-blue'}">${p.phone_category==='promo'?'Promo':'Unlocked'}</span>`}</td>
         <td>${p.order_num||'—'}</td>
         <td>${fmtDate(p.purchase_date)}</td>
         <td class="money-t" style="color:var(--orange);">${p.cost===undefined?'—':fmt(p.cost)}</td>
@@ -2360,6 +2455,28 @@ function renderPhones(){
           ?`<input type="date" value="${p.return_date||''}" style="border:1px solid var(--border);background:#fff;font-size:11px;padding:3px 4px;border-radius:4px;" onchange="updatePhoneField(${p.id},'return_date',this.value)">`
           :(p.return_date?fmtDate(p.return_date):'—')}</td>
         <td>${returnCountdown(p.return_date)}</td>
+        <td style="white-space:nowrap;">
+          <button class="btn btn-ghost" style="font-size:10px;padding:3px 8px;color:var(--red);" onclick="openReturnModal(${p.id})" title="Mark as returned to VidaPay">↩ Return</button>
+          ${(currentUser?.role||'owner')==='owner'?`<button class="del-btn" onclick="deletePhone(${p.id})">✕</button>`:''}
+        </td>
+      </tr>`).join('');
+  }
+  // ── Returns Log — a real record of what went back, when, and with what tracking #,
+  // instead of the old behavior of just deleting a phone that didn't sell.
+  const returnsBody=document.getElementById('returnsLogTable');
+  if(returnsBody){
+    const returned=phones.filter(p=>p.status==='Returned').sort((a,b)=>new Date(b.returned_date||0)-new Date(a.returned_date||0));
+    const rc=document.getElementById('returnsLogCount');if(rc)rc.textContent=returned.length;
+    returnsBody.innerHTML=!returned.length
+      ?'<tr><td colspan="8" class="empty-state">No returns logged</td></tr>'
+      :returned.map(p=>`<tr style="background:#fef2f2;">
+        <td style="font-size:10px;color:var(--blue);font-family:monospace;">${p.imei||'—'}</td>
+        <td style="font-weight:700;">${p.model||'—'}</td>
+        <td><span class="badge ${p.phone_category==='promo'?'b-purple':'b-blue'}">${p.phone_category==='promo'?'Promo':'Unlocked'}</span></td>
+        <td>${fmtDate(p.purchase_date)}</td>
+        <td class="money-t" style="color:var(--orange);">${p.cost===undefined?'—':fmt(p.cost)}</td>
+        <td style="font-size:11px;">${p.returned_date?fmtDate(p.returned_date):'—'}</td>
+        <td style="font-size:11px;font-family:monospace;">${p.return_tracking||'—'}</td>
         <td>${(currentUser?.role||'owner')==='owner'?`<button class="del-btn" onclick="deletePhone(${p.id})">✕</button>`:''}</td>
       </tr>`).join('');
   }
@@ -2596,12 +2713,19 @@ async function confirmReceiptImport(){
   let added=0,failed=0;
   for(const r of receiptExtractedRows){
     if(!r.imei)continue;
+    let suggestedReturn=null;
+    if(pdate){const d=new Date(pdate+'T12:00:00');d.setDate(d.getDate()+45);suggestedReturn=d.toISOString().slice(0,10);}
     const payload={
       order_num:orderNum,imei:r.imei.trim(),model,
       purchase_date:pdate,cost:r.price||0,rebate_expected:r.rebate||0,
       req_plan:'',status:'In Stock',phone:'',sale_price:0,subsidy:0,
+      phone_category:'unlocked',return_date:suggestedReturn,
     };
-    const{data,error}=await sb.from('phones').insert(payload).select().single();
+    let{data,error}=await sb.from('phones').insert(payload).select().single();
+    if(error&&/phone_category/i.test(error.message||'')){
+      const fb={...payload};delete fb.phone_category;
+      ({data,error}=await sb.from('phones').insert(fb).select().single());
+    }
     if(error){failed++;continue;}
     phones.unshift(data);added++;
   }
@@ -3309,7 +3433,7 @@ function renderGoalCountdown(){
 // single callout, since these have to move before their return window closes.
 function renderPhoneUrgencyBanner(){
   const el=document.getElementById('phoneUrgencyBanner');if(!el)return;
-  const inStock=phones.filter(p=>p.status!=='Sold'&&p.return_date).sort((a,b)=>new Date(a.return_date)-new Date(b.return_date));
+  const inStock=phones.filter(p=>p.status!=='Sold'&&p.status!=='Returned'&&p.return_date).sort((a,b)=>new Date(a.return_date)-new Date(b.return_date));
   if(!inStock.length){el.style.display='none';return;}
   const urgent=inStock[0];
   const days=Math.round((new Date(urgent.return_date+'T12:00:00')-new Date())/86400000);

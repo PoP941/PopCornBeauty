@@ -753,6 +753,16 @@ const roleLabel=role=>({rep:'Tier 1',manager:'Tier 2',owner:'Tier 3'}[role]||rol
 // conversation notes on why: HTTPS-hosted pages can't reliably call an HTTP-only local
 // printer directly (mixed content), so this routes through the OS printer driver instead,
 // which works regardless of how the Epson is set up.
+// Was this activation's phone a Promo-category device (e.g. free/bundled with a
+// multi-month plan)? Those are final sale — no returns/refunds — since VidaPay's own
+// promo terms don't allow reversing them once activated. Looked up by IMEI against
+// current inventory, so it works both at time of sale and on a later reprint.
+function isPromoPhoneActivation(imei){
+  if(!imei)return false;
+  const clean=imei.replace(/[^0-9]/g,'');
+  const match=phones.find(p=>p.imei&&(p.imei||'').replace(/[^0-9]/g,'')===clean);
+  return match?.phone_category==='promo';
+}
 function showReceiptModal(type,data){
   const when=data.date?new Date(data.date):new Date();
   const dateStr=when.toLocaleDateString('en-US')+' '+when.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
@@ -780,6 +790,7 @@ function showReceiptModal(type,data){
     <div class="rc-row"><span>Rep:</span><span>${repName}</span></div>
     <hr>
     ${rows.map(([label,val])=>`<div class="rc-row"><span>${label}:</span><span>${val||'—'}</span></div>`).join('')}
+    ${data.finalSale?`<hr><div class="rc-center rc-bold" style="border:1.5px solid #000;padding:3px 0;">*** FINAL SALE ***<br>NO RETURNS OR REFUNDS<br>ON PROMOTIONAL DEVICE</div>`:''}
     <hr>
     ${policyText?`<div class="rc-small">${policyText}</div><hr>`:''}
     <div class="rc-center">Thank you for your business!</div>
@@ -792,7 +803,7 @@ function showReceiptModal(type,data){
 function reprintActivationReceipt(id){
   const a=activations.find(x=>String(x.id)===String(id));
   if(!a){alert('Activation not found.');return;}
-  showReceiptModal('activation',{phone:a.phone,plan:a.plan,imei:a.imei||null,date:a.created_at,repName:a.rep_name,policySnapshot:a.receipt_policy_snapshot});
+  showReceiptModal('activation',{phone:a.phone,plan:a.plan,imei:a.imei||null,date:a.created_at,repName:a.rep_name,policySnapshot:a.receipt_policy_snapshot,finalSale:isPromoPhoneActivation(a.imei)});
 }
 function reprintRefillReceipt(id){
   const r=refills.find(x=>String(x.id)===String(id));
@@ -802,7 +813,7 @@ function reprintRefillReceipt(id){
 function reprintPhoneReceipt(id){
   const p=phones.find(x=>String(x.id)===String(id));
   if(!p){alert('Phone sale not found.');return;}
-  showReceiptModal('phone_sale',{phone:p.phone,model:p.model,imei:p.imei,salePrice:parseFloat(p.sale_price)||0,date:p.sale_date,repName:p.sold_by_name,policySnapshot:p.receipt_policy_snapshot});
+  showReceiptModal('phone_sale',{phone:p.phone,model:p.model,imei:p.imei,salePrice:parseFloat(p.sale_price)||0,date:p.sale_date,repName:p.sold_by_name,policySnapshot:p.receipt_policy_snapshot,finalSale:p.phone_category==='promo'});
 }
 const fmtDate=d=>d?new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'}):'—';
 // Converts a VidaPay invoice date like "7/12/2026" into the "2026-07-12" format HTML date
@@ -1108,7 +1119,7 @@ async function addActivation(){
   renderActivations();renderDashboard();
   clearAct();showToast();
   alert('✅ Activation saved!\n'+phone+' — '+plan+invoiceNote);
-  showReceiptModal('activation',{phone,plan,imei:imei||null,date:new Date(),repName:currentUser?.name,policySnapshot:storeSettings?.activation_policy});
+  showReceiptModal('activation',{phone,plan,imei:imei||null,date:new Date(),repName:currentUser?.name,policySnapshot:storeSettings?.activation_policy,finalSale:isPromoPhoneActivation(imei)});
 }
 function clearAct(){
   ['act-phone','act-order','act-name','act-pin','act-imei','act-date','act-subsidy','act-phone-price','act-collected'].forEach(id=>{
@@ -2130,7 +2141,7 @@ async function logPhoneSale(){
   const soldModel=invPhone.model;
   renderPhones();renderDashboard();clearSaleForm();showToast();
   alert('Sale logged: '+soldModel);
-  showReceiptModal('phone_sale',{phone:custPhone,model:soldModel,imei,salePrice,date:new Date(),repName:currentUser?.name,policySnapshot:storeSettings?.phone_sale_policy});
+  showReceiptModal('phone_sale',{phone:custPhone,model:soldModel,imei,salePrice,date:new Date(),repName:currentUser?.name,policySnapshot:storeSettings?.phone_sale_policy,finalSale:invPhone.phone_category==='promo'});
 }
 
 function lookupSaleImei(imei){

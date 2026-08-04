@@ -124,17 +124,153 @@ td{padding:10px 12px;vertical-align:middle;}
 .sync-toast.show{opacity:1;}
 @media(max-width:900px){.kpi-grid{grid-template-columns:repeat(3,1fr);}.goal-grid{grid-template-columns:repeat(2,1fr);}.cheat-grid,.plan-grid{grid-template-columns:1fr 1fr;}.inv-summary,.ref-stats{grid-template-columns:1fr 1fr;}}
 ::-webkit-scrollbar{width:5px;height:5px;}::-webkit-scrollbar-track{background:var(--surface2);}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px;}
-.promo-studio-grid{display:grid;grid-template-columns:minmax(320px,430px) 1fr;gap:16px;align-items:start;}
-#tab-promo .field{margin-bottom:10px;}
-#tab-promo textarea{background:var(--surface2);border:1.5px solid var(--border);border-radius:5px;padding:8px 10px;color:var(--text);font-size:12px;font-family:inherit;outline:none;resize:vertical;}
-#tab-promo textarea:focus{border-color:var(--red);background:#fff;}
-.promo-preview{display:block;width:100%;max-height:720px;object-fit:contain;background:#eee;border:1px solid var(--border);border-radius:6px;}
-.promo-error{display:none;margin-top:10px;padding:10px;border-radius:5px;background:var(--red-l);color:var(--red);font-size:12px;}
-.promo-library-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;}
-.promo-library-card{border:1px solid var(--border);border-radius:6px;overflow:hidden;background:#fff;}
-.promo-library-card img{width:100%;aspect-ratio:1/1;object-fit:cover;background:#eee;}
-.promo-library-body{padding:9px;}
-@media(max-width:900px){.promo-studio-grid{grid-template-columns:1fr;}}
+
+/* ============================================================
+   AI PROMOTIONAL STUDIO — MODULE 2 UI
+   ============================================================ */
+.promo-studio-grid{display:grid;grid-template-columns:minmax(340px,430px) minmax(0,1fr);gap:16px;align-items:start;}
+.promo-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px;}
+.promo-card-title{font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:1.2px;margin-bottom:14px;color:var(--muted);}
+.promo-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.promo-span-2{grid-column:1/-1;}
+.promo-field{display:flex;flex-direction:column;gap:4px;}
+.promo-field label{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px;font-weight:800;}
+.promo-field input,.promo-field select,.promo-field textarea{background:var(--surface2);border:1.5px solid var(--border);border-radius:5px;padding:9px 10px;color:var(--text);font-size:12px;font-family:inherit;outline:none;}
+.promo-field textarea{resize:vertical;min-height:72px;line-height:1.45;}
+.promo-field input:focus,.promo-field select:focus,.promo-field textarea:focus{border-color:var(--purple);background:#fff;}
+.promo-checks{display:grid;grid-template-columns:1fr 1fr;gap:7px 10px;padding:10px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);}
+.promo-check{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:700;color:var(--text);}
+.promo-check input{accent-color:var(--purple);}
+.promo-generate{width:100%;justify-content:center;background:var(--purple);color:#fff;padding:11px 16px;margin-top:12px;}
+.promo-generate:hover{background:#5520ad;}
+.promo-generate:disabled{opacity:.55;cursor:not-allowed;}
+.promo-preview-shell{min-height:430px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f7f7f7,#eee);border:1px dashed var(--border2);border-radius:8px;overflow:hidden;position:relative;}
+.promo-preview-shell img{max-width:100%;max-height:640px;display:block;object-fit:contain;}
+.promo-placeholder{text-align:center;color:var(--muted);max-width:300px;padding:35px;line-height:1.55;}
+.promo-placeholder-icon{font-size:42px;margin-bottom:10px;}
+.promo-status{display:none;padding:10px 12px;border-radius:6px;margin-top:10px;font-size:11px;font-weight:700;line-height:1.45;}
+.promo-status.show{display:block;}.promo-status.error{background:var(--red-l);color:var(--red);border:1px solid #fecaca;}.promo-status.info{background:var(--blue-l);color:var(--blue);border:1px solid #bfdbfe;}.promo-status.success{background:var(--green-l);color:var(--green);border:1px solid #bbf7d0;}
+.promo-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+.promo-library-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;}
+.promo-project{background:var(--surface);border:1px solid var(--border);border-radius:7px;overflow:hidden;transition:transform .15s,box-shadow .15s;}
+.promo-project:hover{transform:translateY(-1px);box-shadow:0 5px 15px rgba(0,0,0,.08);}
+.promo-thumb{height:155px;background:var(--surface3);display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.promo-thumb img{width:100%;height:100%;object-fit:cover;}.promo-thumb-empty{color:var(--muted);font-size:11px;text-align:center;padding:20px;}
+.promo-project-body{padding:11px;}.promo-project-name{font-size:12px;font-weight:900;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.promo-project-meta{font-size:10px;color:var(--muted);line-height:1.45;}.promo-project-actions{display:flex;gap:6px;margin-top:9px;}
+.promo-small-btn{border:1px solid var(--border);background:#fff;border-radius:4px;padding:5px 8px;font-size:10px;font-weight:800;cursor:pointer;color:var(--text);}.promo-small-btn:hover{border-color:var(--purple);color:var(--purple);}
+.promo-size-note{font-size:10px;color:var(--muted);margin-top:5px;line-height:1.4;}
+.promo-loading{position:absolute;inset:0;background:rgba(255,255,255,.92);display:none;align-items:center;justify-content:center;flex-direction:column;gap:9px;z-index:4;}.promo-loading.show{display:flex;}.promo-spinner{width:32px;height:32px;border:4px solid #ddd;border-top-color:var(--purple);border-radius:50%;animation:promoSpin .85s linear infinite;}@keyframes promoSpin{to{transform:rotate(360deg)}}
+@media(max-width:1000px){.promo-studio-grid{grid-template-columns:1fr;}.promo-preview-shell{min-height:360px;}}
+@media(max-width:620px){.promo-form-grid,.promo-checks{grid-template-columns:1fr;}.promo-span-2{grid-column:auto;}}
+
+
+/* Module 3: source-image upload and conversational editing */
+.promo-upload-box{border:1.5px dashed var(--border2);border-radius:7px;padding:12px;background:var(--surface2);}
+.promo-upload-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.promo-upload-preview{margin-top:10px;display:none;align-items:center;gap:10px;}
+.promo-upload-preview.show{display:flex;}
+.promo-upload-preview img{width:72px;height:72px;object-fit:contain;border:1px solid var(--border);border-radius:5px;background:#fff;}
+.promo-upload-name{font-size:10px;color:var(--muted);word-break:break-all;}
+.promo-edit-box{margin-top:14px;padding-top:14px;border-top:1px solid var(--border);}
+.promo-edit-box textarea{width:100%;min-height:82px;background:var(--surface2);border:1.5px solid var(--border);border-radius:5px;padding:9px 10px;font:inherit;resize:vertical;outline:none;}
+.promo-edit-box textarea:focus{border-color:var(--purple);background:#fff;}
+.promo-version-note{font-size:10px;color:var(--muted);margin-top:7px;line-height:1.45;}
+
+
+/* MODULE 4 — Project Library, filters, version history, restore, duplicate, delete */
+.promo-library-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;}
+.promo-library-toolbar input,.promo-library-toolbar select{border:1.5px solid var(--border);background:var(--surface2);border-radius:5px;padding:8px 10px;font-family:inherit;font-size:11px;outline:none;}
+.promo-library-toolbar input{flex:1;min-width:190px;}.promo-library-toolbar input:focus,.promo-library-toolbar select:focus{border-color:var(--red);background:#fff;}
+.promo-project.selected{border-color:var(--purple);box-shadow:0 0 0 2px rgba(109,40,217,.12);}
+.promo-small-btn.danger{color:var(--red);border-color:#f3b4b4}.promo-small-btn.danger:hover{background:var(--red-l)}
+.promo-small-btn.green{color:var(--green);border-color:#acd9bd}.promo-small-btn.green:hover{background:var(--green-l)}
+.promo-project-actions{flex-wrap:wrap;}
+.promo-modal-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.72);z-index:5000;display:none;align-items:center;justify-content:center;padding:20px;}
+.promo-modal-backdrop.show{display:flex;}
+.promo-modal{background:#fff;width:min(1120px,96vw);max-height:92vh;border-radius:10px;box-shadow:0 28px 80px rgba(0,0,0,.38);overflow:hidden;display:flex;flex-direction:column;}
+.promo-modal-header{padding:15px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.promo-modal-title{font-size:18px;font-weight:900;}.promo-modal-sub{font-size:10px;color:var(--muted);margin-top:3px;}
+.promo-modal-close{border:none;background:var(--surface3);width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:18px;}
+.promo-modal-body{padding:16px;overflow:auto;display:grid;grid-template-columns:minmax(270px,390px) 1fr;gap:16px;}
+.promo-detail-card{border:1px solid var(--border);border-radius:7px;padding:13px;background:var(--surface2);}
+.promo-detail-preview{background:#111;border-radius:7px;min-height:270px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:12px;}
+.promo-detail-preview img{width:100%;height:100%;max-height:470px;object-fit:contain;display:block;}
+.promo-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.promo-detail-item{background:#fff;border:1px solid var(--border);border-radius:5px;padding:8px;min-width:0;}
+.promo-detail-label{font-size:8px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;}
+.promo-detail-value{font-size:11px;font-weight:700;word-break:break-word;}
+.promo-version-list{display:flex;flex-direction:column;gap:10px;}
+.promo-version-card{border:1.5px solid var(--border);border-radius:7px;padding:11px;display:grid;grid-template-columns:112px 1fr;gap:12px;background:#fff;}
+.promo-version-card.current{border-color:var(--green);background:var(--green-l);}
+.promo-version-thumb{height:112px;background:#161616;border-radius:5px;overflow:hidden;display:flex;align-items:center;justify-content:center;}
+.promo-version-thumb img{width:100%;height:100%;object-fit:contain;}
+.promo-version-meta{font-size:10px;color:var(--muted);line-height:1.6;}.promo-version-name{font-size:13px;font-weight:900;margin-bottom:3px;}
+.promo-version-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px;}
+.promo-modal-footer{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;}
+.promo-empty-inline{border:1px dashed var(--border2);border-radius:7px;padding:28px;text-align:center;color:var(--muted);}
+@media(max-width:800px){.promo-modal-body{grid-template-columns:1fr}.promo-detail-grid{grid-template-columns:1fr 1fr}.promo-version-card{grid-template-columns:88px 1fr}.promo-version-thumb{height:88px}}
+
+
+/* ============================================================
+   MODULE 5 — PRINT EXPORT CENTER
+   ============================================================ */
+.promo-export-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.72);display:none;align-items:center;justify-content:center;padding:20px;z-index:1200;}
+.promo-export-backdrop.show{display:flex;}
+.promo-export-modal{width:min(920px,96vw);max-height:92vh;overflow:auto;background:#fff;border-radius:12px;box-shadow:0 24px 80px rgba(0,0,0,.35);}
+.promo-export-header{display:flex;align-items:center;justify-content:space-between;padding:18px 20px;border-bottom:1px solid var(--border);position:sticky;top:0;background:#fff;z-index:2;}
+.promo-export-title{font-size:17px;font-weight:900;}
+.promo-export-sub{font-size:10px;color:var(--muted);margin-top:3px;}
+.promo-export-close{border:none;background:var(--surface3);width:34px;height:34px;border-radius:50%;font-size:22px;cursor:pointer;}
+.promo-export-body{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:20px;}
+.promo-export-preview{background:#eef0f4;border:1px solid var(--border);border-radius:9px;min-height:370px;display:flex;align-items:center;justify-content:center;padding:16px;overflow:hidden;}
+.promo-export-preview img{max-width:100%;max-height:520px;object-fit:contain;box-shadow:0 8px 24px rgba(0,0,0,.14);}
+.promo-export-controls{display:flex;flex-direction:column;gap:12px;}
+.promo-export-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.promo-export-note{font-size:11px;line-height:1.5;color:var(--muted);background:var(--blue-l);border:1px solid #cad7ff;padding:10px 12px;border-radius:6px;}
+.promo-export-summary{background:#111827;color:#fff;border-radius:8px;padding:13px 15px;}
+.promo-export-summary strong{display:block;font-size:16px;margin-bottom:4px;}
+.promo-export-summary span{font-size:10px;color:#cbd5e1;line-height:1.5;}
+.promo-export-check{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;}
+.promo-export-actions{display:flex;gap:8px;flex-wrap:wrap;padding-top:4px;}
+.promo-export-progress{display:none;font-size:11px;font-weight:800;color:var(--blue);padding:9px 11px;border-radius:5px;background:var(--blue-l);}
+.promo-export-progress.show{display:block;}
+@media(max-width:780px){.promo-export-body{grid-template-columns:1fr}.promo-export-grid{grid-template-columns:1fr}.promo-export-preview{min-height:280px}}
+
+
+/* ============================================================
+   MODULE 6 — RETAIL TEMPLATE PRESETS + PROOF-BEFORE-PRINT QA
+   ============================================================ */
+.promo-m6-toolbar{background:linear-gradient(135deg,#fff 0%,#fff8e8 100%);border:1px solid var(--border);border-left:5px solid #f59e0b;border-radius:8px;padding:15px 16px;margin-bottom:16px;}
+.promo-m6-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap;}
+.promo-m6-title{font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.9px;}
+.promo-m6-sub{font-size:10px;color:var(--muted);margin-top:2px;}
+.promo-template-grid{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:8px;}
+.promo-template-btn{background:#fff;border:1.5px solid var(--border);border-radius:7px;padding:10px;text-align:left;cursor:pointer;font-family:inherit;transition:.15s;min-height:72px;}
+.promo-template-btn:hover{border-color:var(--purple);box-shadow:0 4px 12px rgba(109,40,217,.1);transform:translateY(-1px);}
+.promo-template-name{font-size:11px;font-weight:900;margin-bottom:3px;}
+.promo-template-desc{font-size:9px;color:var(--muted);line-height:1.35;}
+.promo-proof-badge{display:none;align-items:center;gap:5px;background:var(--green-l);border:1px solid var(--green);color:var(--green);font-size:10px;font-weight:800;border-radius:20px;padding:5px 10px;}
+.promo-proof-badge.show{display:inline-flex;}
+.promo-proof-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.76);display:none;align-items:center;justify-content:center;padding:20px;z-index:10030;}
+.promo-proof-backdrop.show{display:flex;}
+.promo-proof-modal{background:#fff;border-radius:12px;width:min(720px,96vw);max-height:92vh;overflow:auto;box-shadow:0 24px 70px rgba(0,0,0,.4);}
+.promo-proof-header{padding:18px 20px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+.promo-proof-title{font-size:17px;font-weight:900;}.promo-proof-sub{font-size:10px;color:var(--muted);margin-top:3px;}
+.promo-proof-close{border:none;background:transparent;font-size:24px;cursor:pointer;color:#777;}
+.promo-proof-body{padding:18px 20px;}
+.promo-proof-summary{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:15px;}
+.promo-proof-item{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:9px;}
+.promo-proof-label{font-size:8px;font-weight:800;color:var(--muted);letter-spacing:1.2px;text-transform:uppercase;margin-bottom:4px;}
+.promo-proof-value{font-size:12px;font-weight:700;white-space:pre-wrap;overflow-wrap:anywhere;}
+.promo-proof-checklist{display:grid;gap:8px;margin:14px 0;}
+.promo-proof-check{display:flex;gap:9px;align-items:flex-start;background:#fff;border:1px solid var(--border);border-radius:6px;padding:10px;font-size:11px;line-height:1.4;}
+.promo-proof-check input{margin-top:2px;accent-color:var(--green);}
+.promo-proof-warning{background:#fff7ed;border:1px solid #f59e0b;color:#92400e;border-radius:6px;padding:10px 12px;font-size:10px;line-height:1.45;}
+.promo-proof-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;padding:15px 20px;border-top:1px solid var(--border);}
+.promo-quick-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px;}
+@media(max-width:1000px){.promo-template-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:650px){.promo-template-grid,.promo-proof-summary{grid-template-columns:1fr}}
+
 .receipt-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9998;display:none;align-items:center;justify-content:center;}
 .receipt-modal-card{background:#fff;border-radius:10px;padding:20px;max-width:340px;width:90%;max-height:85vh;overflow-y:auto;}
 .receipt-paper{font-family:'Courier New',monospace;font-size:12px;line-height:1.5;color:#000;background:#fff;padding:14px;border:1px dashed #999;}
@@ -201,7 +337,7 @@ td{padding:10px 12px;vertical-align:middle;}
   <button class="nav-tab" onclick="showTab('invoices',this)">📄 Invoices</button>
   <button class="nav-tab" onclick="showTab('promos',this)">🎯 Promos</button>
   <button class="nav-tab" onclick="showTab('team',this)">👥 Team</button>
-  <button class="nav-tab" onclick="showTab('promo',this);loadPromoProjects()">🖨️ AI Prints</button>
+  <button class="nav-tab" onclick="showTab('ai-prints',this);loadPromoLibrary();updatePromoSizeNote();">🖨️ AI Prints</button>
 </div>
 
 <div class="main">
@@ -690,58 +826,154 @@ td{padding:10px 12px;vertical-align:middle;}
   </table></div></div>
 </div>
 
-<div id="tab-promo" class="tab-panel">
+<div id="tab-ai-prints" class="tab-panel">
   <div class="section-hdr">
     <div>
       <div class="section-title">AI Promotional Studio</div>
-      <div style="font-size:24px;font-weight:900;margin-top:4px;">Create a Retail Print</div>
+      <div style="font-size:23px;font-weight:900;margin-top:4px;">Create Retail Promotional Prints</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Flyers, A-frame signs, wobblers, price cards, shelf labels, and digital promotions.</div>
     </div>
-    <button class="btn btn-ghost" onclick="loadPromoProjects()">Refresh Library</button>
+    <button class="btn btn-ghost" onclick="loadPromoLibrary()">Refresh Library</button>
   </div>
 
   <div class="promo-studio-grid">
-    <div class="form-panel">
-      <div class="form-title">Promotion Details</div>
-      <div class="field"><label>Campaign Name *</label><input id="promo-name" placeholder="Samsung A16 FREE"></div>
-      <div class="field"><label>Print Size *</label><select id="promo-format">
-        <option value="8.5x11_portrait">8.5 × 11 Portrait</option>
-        <option value="11x8.5_landscape">11 × 8.5 Landscape</option>
-        <option value="4x4_square">4 × 4 Wobbler</option>
-        <option value="4x2.5_landscape">4 × 2.5 Phone Price Card</option>
-        <option value="2x1_landscape">2 × 1 Shelf Label</option>
-        <option value="1536x864_digital">1536 × 864 Digital</option>
-        <option value="17x11_landscape">17 × 11 Two-Sheet Sign</option>
-      </select></div>
-      <div class="field"><label>Placement</label><select id="promo-placement">
-        <option>Outdoor A-Frame</option><option>Window</option><option>Showcase</option><option>End Cap</option><option>Phone Box</option><option>Shelf</option><option>Wobbler</option><option>Digital Screen</option>
-      </select></div>
-      <div class="field"><label>Product</label><input id="promo-product" placeholder="Samsung A16"></div>
-      <div class="field"><label>Main Offer</label><input id="promo-offer" placeholder="FREE after 1-month activation on a $50 plan"></div>
-      <div class="field"><label>Price</label><input id="promo-price" placeholder="$50 plan or leave blank"></div>
-      <div class="field"><label>Required Wording</label><textarea id="promo-required" rows="3" placeholder="New Arrival, Limited Stock, Works Worldwide"></textarea></div>
-      <div class="field"><label>Fine Print</label><textarea id="promo-fine" rows="3" placeholder="While supplies last. See store for details."></textarea></div>
-      <div class="field"><label>Design Style</label><select id="promo-style">
-        <option>Bright Epson-friendly purple and yellow</option><option>Simple Mobile green and white</option><option>Clean white electronics</option><option>Bold sidewalk attention-getter</option><option>Premium minimal</option><option>Beauty premium</option>
-      </select></div>
-      <div class="field"><label>Extra Instructions</label><textarea id="promo-extra" rows="3" placeholder="Make FREE largest. Do not include Popcorn Beauty logo."></textarea></div>
-      <div class="field"><label>Optional Product Photo</label><input id="promo-file" type="file" accept="image/png,image/jpeg,image/webp"></div>
-      <button id="promo-generate-btn" class="btn btn-red" style="width:100%;justify-content:center;margin-top:12px;" onclick="generatePromoPrint()">Generate Print</button>
-      <div id="promo-error" class="promo-error"></div>
+    <div class="promo-card">
+      <div class="promo-card-title">Promotion Builder</div>
+      <div class="promo-form-grid">
+        <div class="promo-field promo-span-2"><label>Campaign Name</label><input id="promo-campaign-name" placeholder="Samsung A16 FREE"></div>
+        <div class="promo-field"><label>Product Name *</label><input id="promo-product-name" placeholder="Samsung A16"></div>
+        <div class="promo-field"><label>Brand</label><input id="promo-brand-name" placeholder="Samsung / Simple Mobile"></div>
+        <div class="promo-field promo-span-2"><label>Main Offer *</label><textarea id="promo-offer" placeholder="FREE after one-month activation on a $50 plan"></textarea></div>
+        <div class="promo-field"><label>Price / Plan</label><input id="promo-price" placeholder="$50 plan"></div>
+        <div class="promo-field"><label>Model</label><input id="promo-model" placeholder="Galaxy A16"></div>
+        <div class="promo-field"><label>Storage</label><input id="promo-storage" placeholder="128GB"></div>
+        <div class="promo-field"><label>Color</label><input id="promo-color" placeholder="Purple"></div>
+        <div class="promo-field"><label>Carrier</label><input id="promo-carrier" placeholder="Simple Mobile"></div>
+        <div class="promo-field"><label>Print Format *</label><select id="promo-format" onchange="updatePromoSizeNote()">
+          <option value="letter_portrait">8.5 × 11 Portrait</option><option value="letter_landscape">11 × 8.5 Landscape</option><option value="wobbler_4x4">4 × 4 Wobbler</option><option value="phone_card_4x2_5">4 × 2.5 Phone Card</option><option value="shelf_label_2x1">2 × 1 Shelf Label</option><option value="digital_1536x864">1536 × 864 Digital</option><option value="two_page_17x11">17 × 11 Two-Page Sign</option>
+        </select><div id="promo-size-note" class="promo-size-note"></div></div>
+        <div class="promo-field"><label>Placement</label><select id="promo-placement"><option value="outdoor_a_frame">Outdoor A-Frame</option><option value="window">Window</option><option value="showcase">Showcase</option><option value="end_cap">End Cap</option><option value="phone_box">Phone Box</option><option value="shelf">Shelf</option><option value="wobbler">Wobbler</option><option value="digital_display">Digital Display</option><option value="other">Other</option></select></div>
+        <div class="promo-field promo-span-2"><label>Design Style</label><select id="promo-style"><option value="bright_epson">Bright Epson-Friendly</option><option value="popcorn_purple_yellow">Popcorn Purple / Yellow</option><option value="simple_mobile_green">Simple Mobile Green</option><option value="clean_electronics">Clean White Electronics</option><option value="bold_sidewalk">Bold Sidewalk Sign</option><option value="premium">Premium</option><option value="minimal_price_card">Minimal Price Card</option></select></div>
+        <div class="promo-field promo-span-2"><label>Required Wording</label><textarea id="promo-required" placeholder="LIMITED TIME · WHILE SUPPLIES LAST"></textarea></div>
+        <div class="promo-field promo-span-2"><label>Fine Print</label><textarea id="promo-fine-print" placeholder="New activations only. Taxes and fees may apply. See store for complete details."></textarea></div>
+        <div class="promo-field promo-span-2"><label>Extra Design Instructions</label><textarea id="promo-extra" placeholder="Make FREE the largest text. Use a bright white background. Do not include the Popcorn Beauty logo."></textarea></div>
+        <div class="promo-span-2">
+          <div class="promo-checks">
+            <label class="promo-check"><input id="promo-new-arrival" type="checkbox"> New Arrival</label>
+            <label class="promo-check"><input id="promo-limited" type="checkbox"> Limited Stock</label>
+            <label class="promo-check"><input id="promo-supplies" type="checkbox"> While Supplies Last</label>
+            <label class="promo-check"><input id="promo-worldwide" type="checkbox"> Works Worldwide</label>
+            <label class="promo-check"><input id="promo-unlocked" type="checkbox"> Factory Unlocked</label>
+            <label class="promo-check"><input id="promo-logo" type="checkbox"> Include Popcorn Beauty Logo</label>
+            <label class="promo-check"><input id="promo-barcode" type="checkbox"> Include Barcode</label>
+          </div>
+        </div>
+      </div>
+
+        <div class="promo-field promo-span-2">
+          <label>Optional Product / Reference Image</label>
+          <div class="promo-upload-box">
+            <div class="promo-upload-row"><input id="promo-source-file" type="file" accept="image/png,image/jpeg,image/webp" onchange="previewPromoSourceFile()"><button type="button" class="btn btn-ghost" onclick="clearPromoSourceFile()">Clear</button></div>
+            <div id="promo-source-preview" class="promo-upload-preview"><img id="promo-source-preview-image" alt="Selected source image"><div><strong>Product image selected</strong><div id="promo-source-name" class="promo-upload-name"></div></div></div>
+            <div class="promo-size-note">Use a clean product photo to build the flyer around the real item. Maximum 10 MB.</div>
+          </div>
+        </div>
+      <button id="promo-generate-btn" class="btn promo-generate" onclick="createAndGeneratePromoV3()">Generate Promotional Print</button>
+      <div id="promo-form-status" class="promo-status"></div>
     </div>
 
     <div>
-      <div id="promo-preview-card" class="form-panel" style="display:none;">
-        <div class="form-title">Generated Print</div>
-        <img id="promo-preview" class="promo-preview" alt="Generated promotion">
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
-          <button class="btn btn-green" onclick="downloadPromoPNG()">Download PNG</button>
-          <button class="btn btn-ghost" onclick="downloadPromoPDF()">Download PDF</button>
+      <div class="promo-card">
+        <div class="promo-card-title">Generated Preview</div>
+        <div class="promo-preview-shell" id="promo-preview-shell">
+          <div id="promo-loading" class="promo-loading"><div class="promo-spinner"></div><div style="font-weight:900;">Generating your promotion…</div><div style="font-size:10px;color:var(--muted);">Keep this page open.</div></div>
+          <div id="promo-preview-placeholder" class="promo-placeholder"><div class="promo-placeholder-icon">AI</div><strong>Your generated print will appear here.</strong><br>Complete the promotion builder and select Generate.</div>
+          <img id="promo-preview-image" alt="Generated promotional print" style="display:none;">
+        </div>
+        <div class="promo-actions">
+          <button id="promo-open-btn" class="btn btn-ghost" style="display:none;" onclick="openCurrentPromo()">Open Full Size</button>
+          <button id="promo-download-btn" class="btn btn-green" style="display:none;" onclick="downloadCurrentPromo()">Download PNG</button>
+          <button id="promo-export-btn" class="btn btn-red" style="display:none;" onclick="openPromoExportCenter()">Export / Print</button>
+          <button class="btn btn-ghost" onclick="resetPromoBuilder()">New Promotion</button>
+        </div>
+        <div class="promo-edit-box">
+          <div class="promo-card-title" style="margin-bottom:8px;">Edit Current Design</div>
+          <textarea id="promo-edit-instruction" placeholder="Example: Change the price to $450, keep the same layout, and make the background brighter for an Epson printer."></textarea>
+          <button id="promo-edit-btn" class="btn btn-red" style="margin-top:9px;" onclick="editCurrentPromo()">Apply AI Edit</button>
+          <div class="promo-version-note">Each edit is saved as a new version. The original remains in the project history.</div>
+        </div>
+        <div id="promo-preview-status" class="promo-status"></div>
+      </div>
+
+      <div class="promo-card" style="margin-top:16px;">
+        <div class="section-hdr" style="margin-bottom:12px;"><div class="promo-card-title" style="margin:0;">Promotional Library</div><div id="promo-library-count" style="font-size:10px;color:var(--muted);"></div></div>
+        <div class="promo-library-toolbar">
+          <input id="promo-library-search" placeholder="Search campaign or product" oninput="renderPromoLibraryV4()">
+          <select id="promo-library-status" onchange="loadPromoLibrary()"><option value="active">Active</option><option value="archived">Archived</option><option value="all">All</option></select>
+          <select id="promo-library-format" onchange="renderPromoLibraryV4()"><option value="all">All Formats</option><option value="letter_portrait">8.5 × 11 Portrait</option><option value="letter_landscape">11 × 8.5 Landscape</option><option value="wobbler_4x4">4 × 4 Wobbler</option><option value="phone_card_4x2_5">4 × 2.5 Phone Card</option><option value="shelf_label_2x1">2 × 1 Shelf Label</option><option value="digital_1536x864">1536 × 864 Digital</option><option value="two_page_17x11">17 × 11 Two-Page</option></select>
+        </div>
+        <div id="promo-library" class="promo-library-grid"><div class="empty-state">Loading projects…</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- MODULE 5 PRINT EXPORT CENTER -->
+<div id="promo-export-modal" class="promo-export-backdrop" onclick="if(event.target===this)closePromoExportCenter()">
+  <div class="promo-export-modal" role="dialog" aria-modal="true" aria-labelledby="promo-export-title">
+    <div class="promo-export-header">
+      <div><div id="promo-export-title" class="promo-export-title">Print Export Center</div><div id="promo-export-sub" class="promo-export-sub">Create an exact-size print file.</div></div>
+      <button class="promo-export-close" onclick="closePromoExportCenter()" aria-label="Close">×</button>
+    </div>
+    <div class="promo-export-body">
+      <div class="promo-export-preview"><img id="promo-export-preview-image" alt="Export preview"></div>
+      <div class="promo-export-controls">
+        <div class="promo-export-summary"><strong id="promo-export-format-name">Print Format</strong><span id="promo-export-dimensions"></span></div>
+        <div class="promo-export-grid">
+          <div class="promo-field"><label>Output</label><select id="promo-export-output" onchange="updatePromoExportSummary()"><option value="pdf">Print-Ready PDF</option><option value="png300">300 DPI PNG</option><option value="png150">150 DPI PNG</option><option value="jpeg">High-Quality JPEG</option></select></div>
+          <div class="promo-field"><label>Image Fit</label><select id="promo-export-fit" onchange="updatePromoExportSummary()"><option value="contain">Fit Entire Design</option><option value="cover">Fill Page / Crop Edges</option></select></div>
+          <div class="promo-field"><label>White Margin</label><select id="promo-export-margin" onchange="updatePromoExportSummary()"><option value="0">No Added Margin</option><option value="0.125">0.125 inch</option><option value="0.25">0.25 inch</option></select></div>
+          <div class="promo-field"><label>PDF Quality</label><select id="promo-export-quality"><option value="high">High</option><option value="standard">Standard</option></select></div>
+        </div>
+        <label class="promo-export-check"><input id="promo-export-cropmarks" type="checkbox"> Add small crop marks where supported</label>
+        <label class="promo-export-check" id="promo-export-overlap-row" style="display:none"><input id="promo-export-overlap" type="checkbox" checked> Add 0.125 inch center overlap for taping two pages</label>
+        <div id="promo-export-note" class="promo-export-note"></div>
+        <div id="promo-export-progress" class="promo-export-progress">Preparing export…</div>
+        <div class="promo-export-actions">
+          <button class="btn btn-red" onclick="runPromoExport()">Create File</button>
+          <button class="btn btn-ghost" onclick="window.print()">Browser Print</button>
+          <button class="btn btn-ghost" onclick="closePromoExportCenter()">Cancel</button>
         </div>
       </div>
-      <div class="form-panel">
-        <div class="form-title">Promotional Library</div>
-        <div id="promo-library"><div class="empty-state">No prints yet.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODULE 4 PROJECT + VERSION HISTORY MODAL -->
+<div id="promo-project-modal" class="promo-modal-backdrop" onclick="if(event.target===this)closePromoProjectModal()">
+  <div class="promo-modal" role="dialog" aria-modal="true" aria-labelledby="promo-modal-title">
+    <div class="promo-modal-header">
+      <div><div id="promo-modal-title" class="promo-modal-title">Promotion Project</div><div id="promo-modal-sub" class="promo-modal-sub"></div></div>
+      <button class="promo-modal-close" onclick="closePromoProjectModal()" aria-label="Close">×</button>
+    </div>
+    <div class="promo-modal-body">
+      <div>
+        <div class="promo-detail-card">
+          <div id="promo-detail-preview" class="promo-detail-preview"><div style="color:#aaa">No preview</div></div>
+          <div id="promo-detail-grid" class="promo-detail-grid"></div>
+        </div>
       </div>
+      <div>
+        <div class="section-hdr" style="margin-bottom:10px"><div class="promo-card-title" style="margin:0">Version History</div><div id="promo-version-count" style="font-size:10px;color:var(--muted)"></div></div>
+        <div id="promo-version-list" class="promo-version-list"><div class="promo-empty-inline">Loading versions…</div></div>
+      </div>
+    </div>
+    <div class="promo-modal-footer">
+      <button class="btn btn-ghost" onclick="duplicateCurrentPromoProject()">Duplicate Project</button>
+      <button id="promo-modal-archive-btn" class="btn btn-ghost" onclick="toggleArchiveCurrentPromoProject()">Archive</button>
+      <button class="btn btn-red" onclick="deleteCurrentPromoProject()">Delete Permanently</button>
+      <button class="btn btn-ghost" onclick="closePromoProjectModal()">Close</button>
     </div>
   </div>
 </div>
@@ -3711,7 +3943,7 @@ async function showApp(){
     realtimeStarted=true;
     currentUser=await fetchCurrentUserProfile();
     applyRoleGating();
-    loadAll();setupRealtime();
+    loadAll();setupRealtime();loadPromoLibrary();updatePromoSizeNote();
   }
 }
 function applyRoleGating(){
@@ -3850,102 +4082,430 @@ if('serviceWorker' in navigator){
   });
 }
 
-// ══ AI PRINTS — Promotional Print Studio ══
-let currentPromoProject = null;
-let promoProjects = [];
-
-function promoVal(id){ return (document.getElementById(id)?.value || '').trim(); }
-function promoSafe(v){ return String(v||'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;'); }
-
-async function uploadPromoSourceImage(){
-  const file = document.getElementById('promo-file')?.files?.[0];
-  if(!file) return '';
-  const { data:{ user } } = await sb.auth.getUser();
-  if(!user) throw new Error('Sign in again.');
-  const ext = (file.name.split('.').pop() || 'png').toLowerCase();
-  const path = `uploads/${user.id}/${Date.now()}-product.${ext}`;
-  const { error } = await sb.storage.from('promo-prints').upload(path,file,{contentType:file.type,upsert:false});
-  if(error) throw error;
-  return path;
-}
-
-async function generatePromoPrint(){
-  const btn=document.getElementById('promo-generate-btn');
-  const errorBox=document.getElementById('promo-error');
-  errorBox.style.display='none'; errorBox.textContent='';
-  if(!promoVal('promo-name')){ errorBox.textContent='Campaign name is required.'; errorBox.style.display='block'; return; }
-  btn.disabled=true; btn.textContent='Generating...';
-  try{
-    const sourceImagePath=await uploadPromoSourceImage();
-    const payload={
-      campaignName:promoVal('promo-name'), printFormat:promoVal('promo-format'), placement:promoVal('promo-placement'),
-      designStyle:promoVal('promo-style'), productName:promoVal('promo-product'), offer:promoVal('promo-offer'),
-      price:promoVal('promo-price'), requiredText:promoVal('promo-required'), finePrint:promoVal('promo-fine'),
-      extraInstructions:promoVal('promo-extra'), sourceImagePath
-    };
-    const { data,error }=await sb.functions.invoke('generate-promo',{body:payload});
-    if(error) throw error;
-    if(!data?.success) throw new Error(data?.error||'Generation failed.');
-    currentPromoProject=data.project;
-    document.getElementById('promo-preview').src=data.imageUrl;
-    document.getElementById('promo-preview-card').style.display='block';
-    await loadPromoProjects();
-  }catch(err){
-    console.error(err); errorBox.textContent=err?.message||'Could not generate the print.'; errorBox.style.display='block';
-  }finally{ btn.disabled=false; btn.textContent='Generate Print'; }
-}
-
-async function loadPromoProjects(){
-  const host=document.getElementById('promo-library'); if(!host) return;
-  const {data,error}=await sb.from('promotional_projects').select('*').order('created_at',{ascending:false}).limit(24);
-  if(error){ host.innerHTML='<div class="empty-state">Could not load prints.</div>'; return; }
-  promoProjects=data||[];
-  if(!promoProjects.length){ host.innerHTML='<div class="empty-state">No prints yet.</div>'; return; }
-  host.innerHTML='<div class="promo-library-grid">'+promoProjects.map(p=>`
-    <div class="promo-library-card">
-      <img src="${promoSafe(p.generated_image_url)}" alt="${promoSafe(p.campaign_name)}">
-      <div class="promo-library-body">
-        <div style="font-weight:800;font-size:11px;">${promoSafe(p.campaign_name)}</div>
-        <div style="font-size:9px;color:var(--muted);margin:3px 0 8px;">${promoSafe(p.print_format)}</div>
-        <button class="btn btn-ghost" style="padding:5px 9px;font-size:10px;" onclick="openPromoProject('${p.id}')">Open</button>
-      </div>
-    </div>`).join('')+'</div>';
-}
-
-function openPromoProject(id){
-  const p=promoProjects.find(x=>x.id===id); if(!p) return;
-  currentPromoProject=p; document.getElementById('promo-preview').src=p.generated_image_url;
-  document.getElementById('promo-preview-card').style.display='block'; window.scrollTo({top:0,behavior:'smooth'});
-}
-
-function downloadPromoPNG(){
-  if(!currentPromoProject) return;
-  const a=document.createElement('a'); a.href=currentPromoProject.generated_image_url;
-  a.download=(currentPromoProject.campaign_name||'promotion').replace(/[^a-z0-9]+/gi,'-')+'.png';
-  a.target='_blank'; a.click();
-}
-
-const PDF_FORMATS={
-  '8.5x11_portrait':{orientation:'portrait',unit:'in',format:[8.5,11]},
-  '11x8.5_landscape':{orientation:'landscape',unit:'in',format:[11,8.5]},
-  '4x4_square':{orientation:'portrait',unit:'in',format:[4,4]},
-  '4x2.5_landscape':{orientation:'landscape',unit:'in',format:[4,2.5]},
-  '2x1_landscape':{orientation:'landscape',unit:'in',format:[2,1]},
-  '1536x864_digital':{orientation:'landscape',unit:'in',format:[16,9]},
-  '17x11_landscape':{orientation:'landscape',unit:'in',format:[17,11]},
+// ══ AI PRINTS — Promotional Print Studio (Modules 2-6) ══
+let promoProjects=[];
+let currentPromo={project:null,signedUrl:null,storagePath:null};
+const PROMO_FORMATS={
+  letter_portrait:{label:'8.5 × 11 Portrait',apiSize:'1024x1536',aspect:'portrait'},
+  letter_landscape:{label:'11 × 8.5 Landscape',apiSize:'1536x1024',aspect:'landscape'},
+  wobbler_4x4:{label:'4 × 4 Wobbler',apiSize:'1024x1024',aspect:'square'},
+  phone_card_4x2_5:{label:'4 × 2.5 Phone Card',apiSize:'1536x1024',aspect:'landscape'},
+  shelf_label_2x1:{label:'2 × 1 Shelf Label',apiSize:'1536x1024',aspect:'wide landscape'},
+  digital_1536x864:{label:'1536 × 864 Digital',apiSize:'1536x1024',aspect:'wide landscape'},
+  two_page_17x11:{label:'17 × 11 Two-Page Sign',apiSize:'1536x1024',aspect:'landscape'},
 };
-
-async function downloadPromoPDF(){
-  if(!currentPromoProject) return;
-  const spec=PDF_FORMATS[currentPromoProject.print_format]||PDF_FORMATS['8.5x11_portrait'];
-  const {jsPDF}=window.jspdf; const pdf=new jsPDF(spec);
-  const img=new Image(); img.crossOrigin='anonymous'; img.src=currentPromoProject.generated_image_url;
-  await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=reject;});
-  const pageW=spec.format[0],pageH=spec.format[1]; const ir=img.width/img.height,pr=pageW/pageH;
-  let w,h,x,y;if(ir>pr){w=pageW;h=w/ir;x=0;y=(pageH-h)/2;}else{h=pageH;w=h*ir;y=0;x=(pageW-w)/2;}
-  pdf.addImage(img,'PNG',x,y,w,h,undefined,'FAST');
-  pdf.save((currentPromoProject.campaign_name||'promotion').replace(/[^a-z0-9]+/gi,'-')+'.pdf');
+const PROMO_STYLE_TEXT={bright_epson:'bright Epson-printer-friendly colors, mostly white background, high contrast, low ink coverage',popcorn_purple_yellow:'Popcorn Beauty-inspired purple and yellow accents with a clean white background',simple_mobile_green:'Simple Mobile-inspired green, white, black, and subtle purple accents',clean_electronics:'clean modern electronics-store styling with strong typography and generous white space',bold_sidewalk:'bold sidewalk advertising style readable from several feet away',premium:'premium polished retail design with restrained accents and clean spacing',minimal_price_card:'minimal price-card design with only essential product information and a very large price or offer'};
+function promoVal(id){return(document.getElementById(id)?.value||'').trim();}
+function promoChecked(id){return!!document.getElementById(id)?.checked;}
+function promoEscape(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');}
+function setPromoStatus(id,message,type='info'){const el=document.getElementById(id);if(!el)return;el.className=`promo-status show ${type}`;el.textContent=message;}
+function clearPromoStatus(id){const el=document.getElementById(id);if(el){el.className='promo-status';el.textContent='';}}
+function updatePromoSizeNote(){const f=PROMO_FORMATS[promoVal('promo-format')]||PROMO_FORMATS.letter_portrait;const el=document.getElementById('promo-size-note');if(el)el.textContent=`AI generation uses the closest supported ${f.aspect} image size. Exact print dimensions will be handled by the export module.`;}
+function buildPromoPrompt(project,extra){
+  const f=PROMO_FORMATS[project.print_format]||PROMO_FORMATS.letter_portrait;
+  const flags=[];
+  if(project.new_arrival)flags.push('NEW ARRIVAL');if(project.limited_stock)flags.push('LIMITED STOCK');if(project.while_supplies_last)flags.push('WHILE SUPPLIES LAST');if(project.works_worldwide)flags.push('WORKS WORLDWIDE / USE IN ANY COUNTRY');if(project.factory_unlocked)flags.push('FACTORY UNLOCKED');
+  return `Create one professional retail promotional print for a physical store.\n\nFORMAT AND USE\n- Format: ${f.label}, ${f.aspect} composition.\n- Placement: ${project.placement.replaceAll('_',' ')}.\n- Design style: ${PROMO_STYLE_TEXT[project.design_style]||PROMO_STYLE_TEXT.bright_epson}.\n- It must be readable quickly from the intended viewing distance.\n\nEXACT PRODUCT AND OFFER\n- Campaign: ${project.campaign_name}\n- Product: ${project.product_name}\n- Brand: ${project.brand_name||'Not specified'}\n- Main offer: ${project.offer_text}\n- Price or plan: ${project.price_text||'Do not add a price unless included in the offer'}\n- Model: ${project.model_text||'Not specified'}\n- Storage: ${project.storage_text||'Not specified'}\n- Color: ${project.color_text||'Not specified'}\n- Carrier: ${project.carrier_text||'Not specified'}\n- Required wording: ${[project.required_text,...flags].filter(Boolean).join(' · ')||'None'}\n- Fine print: ${project.fine_print||'None supplied'}\n\nBRANDING AND CONTENT RULES\n- ${project.include_logo?'Reserve a clear area for the Popcorn Beauty logo; do not invent or distort the logo.':'Do not include a Popcorn Beauty logo.'}\n- ${project.include_barcode?'Include a simple decorative barcode area only if requested; do not invent a scannable product code.':'Do not include a barcode.'}\n- Use only the supplied product facts and terms. Do not invent prices, specifications, carrier eligibility, discounts, dates, warranties, or conditions.\n- Make the strongest customer benefit the largest wording.\n- Keep wording short, accurate, and legible. Proofread every supplied phrase.\n- Use a clean printable background and avoid dark full-page ink coverage unless the style explicitly requires it.\n- No people. No store mockup. Return the flat finished artwork only.\n\nADDITIONAL INSTRUCTIONS\n${extra||'Create a balanced, attention-getting retail design.'}`;
 }
+function showPromoPreview(url){const img=document.getElementById('promo-preview-image'),ph=document.getElementById('promo-preview-placeholder');if(url){img.src=url;img.style.display='block';ph.style.display='none';document.getElementById('promo-open-btn').style.display='inline-flex';document.getElementById('promo-download-btn').style.display='inline-flex';document.getElementById('promo-export-btn').style.display='inline-flex';}else{img.removeAttribute('src');img.style.display='none';ph.style.display='block';document.getElementById('promo-open-btn').style.display='none';document.getElementById('promo-download-btn').style.display='none';document.getElementById('promo-export-btn').style.display='none';}}
+function openCurrentPromo(){if(currentPromo.signedUrl)window.open(currentPromo.signedUrl,'_blank','noopener');}
+async function downloadCurrentPromo(){if(!currentPromo.signedUrl)return;try{const r=await fetch(currentPromo.signedUrl);if(!r.ok)throw new Error('Could not download image.');const blob=await r.blob(),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`${(currentPromo.project?.campaign_name||'promotion').replace(/[^a-z0-9]+/gi,'_')}.png`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);}catch(e){setPromoStatus('promo-preview-status',e.message,'error');}}
+function resetPromoBuilder(){['promo-campaign-name','promo-product-name','promo-brand-name','promo-offer','promo-price','promo-model','promo-storage','promo-color','promo-carrier','promo-required','promo-fine-print','promo-extra'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});['promo-new-arrival','promo-limited','promo-supplies','promo-worldwide','promo-unlocked','promo-logo','promo-barcode'].forEach(id=>{const e=document.getElementById(id);if(e)e.checked=false;});currentPromo={project:null,signedUrl:null,storagePath:null};showPromoPreview(null);clearPromoStatus('promo-form-status');clearPromoStatus('promo-preview-status');}
+
+/* Module 3: source-image upload and conversational editing */
+let promoSourceObjectUrl=null;
+function previewPromoSourceFile(){
+  const input=document.getElementById('promo-source-file');
+  const file=input?.files?.[0];
+  const box=document.getElementById('promo-source-preview');
+  if(!file){clearPromoSourceFile();return;}
+  if(!['image/png','image/jpeg','image/webp'].includes(file.type)){
+    setPromoStatus('promo-form-status','Use a PNG, JPEG, or WebP image.','error');
+    input.value='';return;
+  }
+  if(file.size>10*1024*1024){
+    setPromoStatus('promo-form-status','The source image must be 10 MB or smaller.','error');
+    input.value='';return;
+  }
+  if(promoSourceObjectUrl)URL.revokeObjectURL(promoSourceObjectUrl);
+  promoSourceObjectUrl=URL.createObjectURL(file);
+  document.getElementById('promo-source-preview-image').src=promoSourceObjectUrl;
+  document.getElementById('promo-source-name').textContent=`${file.name} · ${(file.size/1024/1024).toFixed(2)} MB`;
+  box.classList.add('show');
+}
+function clearPromoSourceFile(){
+  const input=document.getElementById('promo-source-file');if(input)input.value='';
+  const box=document.getElementById('promo-source-preview');if(box)box.classList.remove('show');
+  const img=document.getElementById('promo-source-preview-image');if(img)img.removeAttribute('src');
+  if(promoSourceObjectUrl){URL.revokeObjectURL(promoSourceObjectUrl);promoSourceObjectUrl=null;}
+}
+async function uploadPromoSourceAsset(project,user){
+  const file=document.getElementById('promo-source-file')?.files?.[0];
+  if(!file)return null;
+  const safe=file.name.replace(/[^a-z0-9._-]+/gi,'_');
+  const path=`${user.id}/${project.id}/${crypto.randomUUID()}-${safe}`;
+  const{error:uploadError}=await sb.storage.from('promo-inputs').upload(path,file,{contentType:file.type,upsert:false});
+  if(uploadError)throw uploadError;
+  const{data:asset,error:assetError}=await sb.from('promotional_assets').insert({
+    user_id:user.id,project_id:project.id,asset_type:'product_image',storage_bucket:'promo-inputs',storage_path:path,mime_type:file.type,
+    metadata:{original_name:file.name,size_bytes:file.size}
+  }).select().single();
+  if(assetError)throw assetError;
+  return asset;
+}
+async function createAndGeneratePromoV3(){
+  clearPromoStatus('promo-form-status');clearPromoStatus('promo-preview-status');
+  const product=promoVal('promo-product-name'),offer=promoVal('promo-offer');
+  if(!product){setPromoStatus('promo-form-status','Product Name is required.','error');return;}
+  if(!offer){setPromoStatus('promo-form-status','Main Offer is required.','error');return;}
+  const btn=document.getElementById('promo-generate-btn'),loading=document.getElementById('promo-loading');
+  btn.disabled=true;btn.textContent='Generating…';loading.classList.add('show');
+  try{
+    const{data:{user},error:userError}=await sb.auth.getUser();if(userError||!user)throw new Error('Please sign in again.');
+    const format=promoVal('promo-format')||'letter_portrait';
+    const payload={user_id:user.id,campaign_name:promoVal('promo-campaign-name')||`${product} Promotion`,product_name:product,brand_name:promoVal('promo-brand-name')||null,offer_text:offer,price_text:promoVal('promo-price')||null,model_text:promoVal('promo-model')||null,storage_text:promoVal('promo-storage')||null,color_text:promoVal('promo-color')||null,carrier_text:promoVal('promo-carrier')||null,required_text:promoVal('promo-required')||null,fine_print:promoVal('promo-fine-print')||null,print_format:format,placement:promoVal('promo-placement')||'other',design_style:promoVal('promo-style')||'bright_epson',include_logo:promoChecked('promo-logo'),include_barcode:promoChecked('promo-barcode'),new_arrival:promoChecked('promo-new-arrival'),limited_stock:promoChecked('promo-limited'),while_supplies_last:promoChecked('promo-supplies'),works_worldwide:promoChecked('promo-worldwide'),factory_unlocked:promoChecked('promo-unlocked')};
+    const{data:project,error:projectError}=await sb.from('promotional_projects').insert(payload).select().single();if(projectError)throw projectError;
+    const prompt=buildPromoPrompt(project,promoVal('promo-extra'));
+    const sourceAsset=await uploadPromoSourceAsset(project,user);
+    const functionName=sourceAsset?'edit-promo':'generate-promo';
+    const body=sourceAsset?{
+      projectId:project.id,sourceAssetId:sourceAsset.id,
+      prompt:`Use the supplied product image as the real product reference. Preserve the product's identity, shape, color, logos, and camera layout. Build the requested flat retail promotional artwork around it.\n\n${prompt}`,
+      requestedSize:PROMO_FORMATS[format].apiSize,quality:'high',outputFormat:'png',background:'opaque',operation:'generate'
+    }:{projectId:project.id,prompt,requestedSize:PROMO_FORMATS[format].apiSize,quality:'high',outputFormat:'png',background:'opaque'};
+    const{data,error}=await sb.functions.invoke(functionName,{body});
+    if(error)throw error;if(!data?.success)throw new Error(data?.error||'Image generation failed.');
+    currentPromo={project,signedUrl:data.signedUrl,storagePath:data.storagePath,assetId:data.assetId,versionId:data.versionId};
+    showPromoPreview(data.signedUrl);setPromoStatus('promo-preview-status',sourceAsset?'Promotion generated using the uploaded product image. Proofread all wording before printing.':'Promotion generated and saved. Proofread all wording before printing.','success');await loadPromoLibrary();
+  }catch(err){console.error(err);setPromoStatus('promo-form-status',err?.message||'The promotion could not be generated.','error');}
+  finally{loading.classList.remove('show');btn.disabled=false;btn.textContent='Generate Promotional Print';}
+}
+async function editCurrentPromo(){
+  clearPromoStatus('promo-preview-status');
+  const instruction=promoVal('promo-edit-instruction');
+  if(!currentPromo?.project?.id||!currentPromo?.assetId){setPromoStatus('promo-preview-status','Open or generate a completed promotion before editing.','error');return;}
+  if(!instruction){setPromoStatus('promo-preview-status','Enter the change you want the AI to make.','error');return;}
+  const btn=document.getElementById('promo-edit-btn'),loading=document.getElementById('promo-loading');
+  btn.disabled=true;btn.textContent='Editing…';loading.classList.add('show');
+  try{
+    const format=currentPromo.project.print_format||'letter_portrait';
+    const prompt=`Edit the supplied retail promotional print. Preserve the overall product identity and any design elements not mentioned. Apply only the requested changes. Keep all promotional facts accurate and proofread visible wording. Return flat finished artwork only, with no mockup or people.\n\nREQUESTED CHANGE:\n${instruction}`;
+    const{data,error}=await sb.functions.invoke('edit-promo',{body:{projectId:currentPromo.project.id,sourceAssetId:currentPromo.assetId,prompt,requestedSize:PROMO_FORMATS[format]?.apiSize||'1024x1536',quality:'high',outputFormat:'png',background:'opaque',operation:'edit'}});
+    if(error)throw error;if(!data?.success)throw new Error(data?.error||'The image edit failed.');
+    currentPromo={...currentPromo,signedUrl:data.signedUrl,storagePath:data.storagePath,assetId:data.assetId,versionId:data.versionId};
+    showPromoPreview(data.signedUrl);document.getElementById('promo-edit-instruction').value='';
+    setPromoStatus('promo-preview-status','Edit completed and saved as a new version. Proofread all wording before printing.','success');await loadPromoLibrary();
+  }catch(err){console.error(err);setPromoStatus('promo-preview-status',err?.message||'The promotion could not be edited.','error');}
+  finally{loading.classList.remove('show');btn.disabled=false;btn.textContent='Apply AI Edit';}
+}
+
+/* ============================================================
+   MODULE 4 — PROJECT LIBRARY + VERSION HISTORY
+   ============================================================ */
+let promoModalProject=null;
+let promoModalVersions=[];
+function promoFormatDate(value){
+  if(!value)return '—';
+  try{return new Date(value).toLocaleString([], {year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});}catch{return value;}
+}
+function promoStatusClass(status){return status==='ready'?'b-green':status==='failed'?'b-red':status==='archived'?'b-gray':'b-gold';}
+async function loadPromoLibrary(){
+  const el=document.getElementById('promo-library');if(!el)return;
+  el.innerHTML='<div class="empty-state">Loading projects…</div>';
+  const mode=document.getElementById('promo-library-status')?.value||'active';
+  let q=sb.from('promotional_projects').select('*').order('updated_at',{ascending:false}).limit(100);
+  if(mode==='active')q=q.neq('status','archived');
+  if(mode==='archived')q=q.eq('status','archived');
+  const{data:projects,error}=await q;
+  if(error){el.innerHTML=`<div class="empty-state">${promoEscape(error.message)}</div>`;return;}
+  promoProjects=projects||[];
+  const ids=promoProjects.map(p=>p.id);let assets=[];
+  if(ids.length){
+    const res=await sb.from('promotional_assets').select('*').in('project_id',ids).eq('asset_type','generated_image').order('created_at',{ascending:false});
+    if(res.error){el.innerHTML=`<div class="empty-state">${promoEscape(res.error.message)}</div>`;return;}
+    assets=res.data||[];
+  }
+  const byId=new Map(assets.map(a=>[a.id,a]));
+  const latestByProject={};
+  assets.forEach(a=>{if(!latestByProject[a.project_id])latestByProject[a.project_id]=a;});
+  await Promise.all(promoProjects.map(async p=>{
+    let asset=latestByProject[p.id]||null;
+    if(p.latest_version_id){
+      const vr=await sb.from('promotional_versions').select('output_asset_id').eq('id',p.latest_version_id).maybeSingle();
+      if(vr.data?.output_asset_id)asset=byId.get(vr.data.output_asset_id)||asset;
+    }
+    p._asset=asset;
+    p._url=null;
+    if(asset){const{data}=await sb.storage.from(asset.storage_bucket).createSignedUrl(asset.storage_path,60*30);p._url=data?.signedUrl||null;}
+  }));
+  renderPromoLibraryV4();
+}
+function renderPromoLibraryV4(){
+  const el=document.getElementById('promo-library');if(!el)return;
+  const search=(document.getElementById('promo-library-search')?.value||'').trim().toLowerCase();
+  const format=document.getElementById('promo-library-format')?.value||'all';
+  const rows=(promoProjects||[]).filter(p=>{
+    const hay=`${p.campaign_name||''} ${p.product_name||''} ${p.brand_name||''} ${p.offer_text||''}`.toLowerCase();
+    return(!search||hay.includes(search))&&(format==='all'||p.print_format===format);
+  });
+  document.getElementById('promo-library-count').textContent=`${rows.length} shown · ${(promoProjects||[]).length} loaded`;
+  if(!rows.length){el.innerHTML='<div class="empty-state">No matching promotions.</div>';return;}
+  el.innerHTML=rows.map(p=>`<div class="promo-project ${currentPromo?.project?.id===p.id?'selected':''}">
+    <div class="promo-thumb">${p._url?`<img src="${promoEscape(p._url)}" alt="${promoEscape(p.campaign_name)}">`:'<div class="promo-thumb-empty">No completed image yet</div>'}</div>
+    <div class="promo-project-body">
+      <div class="promo-project-name">${promoEscape(p.campaign_name)}</div>
+      <div class="promo-project-meta">${promoEscape(PROMO_FORMATS[p.print_format]?.label||p.print_format)}<br>${promoEscape(p.product_name)} · <span class="badge ${promoStatusClass(p.status)}">${promoEscape(p.status)}</span><br>Updated ${promoEscape(promoFormatDate(p.updated_at))}</div>
+      <div class="promo-project-actions">
+        <button class="promo-small-btn" onclick="viewPromoProject('${p.id}')">Open</button>
+        <button class="promo-small-btn" onclick="openPromoProjectHistory('${p.id}')">History</button>
+        <button class="promo-small-btn" onclick="duplicatePromoProject('${p.id}')">Duplicate</button>
+        ${p.status==='archived'?`<button class="promo-small-btn green" onclick="unarchivePromoProject('${p.id}')">Restore</button>`:`<button class="promo-small-btn" onclick="archivePromoProject('${p.id}')">Archive</button>`}
+      </div>
+    </div>
+  </div>`).join('');
+}
+function viewPromoProject(id){
+  const p=promoProjects.find(x=>x.id===id);if(!p)return;
+  currentPromo={project:p,signedUrl:p._url||null,storagePath:p._asset?.storage_path||null,assetId:p._asset?.id||null,versionId:p.latest_version_id||null};
+  showPromoPreview(p._url||null);renderPromoLibraryV4();
+  if(p._url)window.scrollTo({top:0,behavior:'smooth'});else setPromoStatus('promo-preview-status','This project does not have a completed image.','info');
+}
+async function archivePromoProject(id){
+  if(!confirm('Archive this promotion? It can be restored later.'))return;
+  const{error}=await sb.from('promotional_projects').update({status:'archived'}).eq('id',id);
+  if(error){alert(error.message);return;}if(currentPromo?.project?.id===id)resetPromoBuilder();await loadPromoLibrary();
+}
+async function unarchivePromoProject(id){
+  const{error}=await sb.from('promotional_projects').update({status:'ready'}).eq('id',id);
+  if(error){alert(error.message);return;}await loadPromoLibrary();
+}
+async function getSignedPromoAsset(asset,seconds=1800){
+  if(!asset)return null;const{data,error}=await sb.storage.from(asset.storage_bucket).createSignedUrl(asset.storage_path,seconds);if(error)throw error;return data?.signedUrl||null;
+}
+async function openPromoProjectHistory(id){
+  const p=promoProjects.find(x=>x.id===id);if(!p)return;
+  promoModalProject=p;
+  document.getElementById('promo-modal-title').textContent=p.campaign_name||'Promotion Project';
+  document.getElementById('promo-modal-sub').textContent=`${PROMO_FORMATS[p.print_format]?.label||p.print_format} · ${promoFormatDate(p.updated_at)}`;
+  const detailGrid=document.getElementById('promo-detail-grid');
+  const items=[['Product',p.product_name],['Brand',p.brand_name],['Offer',p.offer_text],['Price / Plan',p.price_text],['Placement',p.placement],['Style',p.design_style],['Status',p.status]];
+  detailGrid.innerHTML=items.map(([label,val])=>`<div class="promo-detail-item"><div class="promo-detail-label">${promoEscape(label)}</div><div class="promo-detail-value">${promoEscape(val||'—')}</div></div>`).join('');
+  const preview=document.getElementById('promo-detail-preview');
+  preview.innerHTML=p._url?`<img src="${promoEscape(p._url)}" alt="${promoEscape(p.campaign_name)}">`:'<div style="color:#aaa">No preview</div>';
+  const archiveBtn=document.getElementById('promo-modal-archive-btn');
+  archiveBtn.textContent=p.status==='archived'?'Restore':'Archive';
+  document.getElementById('promo-project-modal').classList.add('show');
+  const versionList=document.getElementById('promo-version-list');
+  versionList.innerHTML='<div class="promo-empty-inline">Loading versions…</div>';
+  const{data:versions,error}=await sb.from('promotional_versions').select('*').eq('project_id',id).order('version_number',{ascending:false});
+  if(error){versionList.innerHTML=`<div class="promo-empty-inline">${promoEscape(error.message)}</div>`;return;}
+  promoModalVersions=versions||[];
+  document.getElementById('promo-version-count').textContent=`${promoModalVersions.length} version${promoModalVersions.length===1?'':'s'}`;
+  if(!promoModalVersions.length){versionList.innerHTML='<div class="promo-empty-inline">No versions recorded yet.</div>';return;}
+  const assetIds=promoModalVersions.map(v=>v.output_asset_id).filter(Boolean);
+  let assetsById={};
+  if(assetIds.length){
+    const{data:assets}=await sb.from('promotional_assets').select('*').in('id',assetIds);
+    (assets||[]).forEach(a=>{assetsById[a.id]=a;});
+  }
+  versionList.innerHTML=(await Promise.all(promoModalVersions.map(async v=>{
+    const asset=assetsById[v.output_asset_id];
+    const url=asset?await getSignedPromoAsset(asset,1800).catch(()=>null):null;
+    const isCurrent=p.latest_version_id===v.id;
+    return `<div class="promo-version-card ${isCurrent?'current':''}">
+      <div class="promo-version-thumb">${url?`<img src="${promoEscape(url)}" alt="Version ${v.version_number}">`:'<span style="color:#888;font-size:10px;">No image</span>'}</div>
+      <div>
+        <div class="promo-version-name">Version ${v.version_number} ${isCurrent?'· Current':''}</div>
+        <div class="promo-version-meta">${promoEscape(v.operation)} · ${promoEscape(v.status)}<br>${promoFormatDate(v.created_at)}${v.edit_instruction?`<br>"${promoEscape(v.edit_instruction)}"`:''}</div>
+        <div class="promo-version-actions">
+          ${url?`<button class="promo-small-btn" onclick="window.open('${url}','_blank','noopener')">Open</button>`:''}
+          ${!isCurrent?`<button class="promo-small-btn green" onclick="restorePromoVersion('${v.id}')">Restore</button>`:''}
+        </div>
+      </div>
+    </div>`;
+  }))).join('');
+}
+function closePromoProjectModal(){document.getElementById('promo-project-modal').classList.remove('show');promoModalProject=null;}
+async function restorePromoVersion(versionId){
+  if(!promoModalProject)return;
+  const{error}=await sb.from('promotional_projects').update({latest_version_id:versionId}).eq('id',promoModalProject.id);
+  if(error){alert(error.message);return;}
+  await loadPromoLibrary();await openPromoProjectHistory(promoModalProject.id);
+}
+async function duplicateCurrentPromoProject(){if(promoModalProject)await duplicatePromoProject(promoModalProject.id);}
+async function duplicatePromoProject(id){
+  const p=promoProjects.find(x=>x.id===id)||promoModalProject;if(!p)return;
+  const{data:{user}}=await sb.auth.getUser();if(!user)return;
+  const clone={...p};delete clone.id;delete clone.created_at;delete clone.updated_at;delete clone.latest_version_id;delete clone._asset;delete clone._url;
+  clone.user_id=user.id;clone.campaign_name=`${p.campaign_name} (Copy)`;clone.status='draft';
+  const{error}=await sb.from('promotional_projects').insert(clone);
+  if(error){alert(error.message);return;}
+  closePromoProjectModal();await loadPromoLibrary();
+}
+async function toggleArchiveCurrentPromoProject(){
+  if(!promoModalProject)return;
+  if(promoModalProject.status==='archived')await unarchivePromoProject(promoModalProject.id);else await archivePromoProject(promoModalProject.id);
+  closePromoProjectModal();
+}
+async function deleteCurrentPromoProject(){
+  if(!promoModalProject)return;
+  if(!confirm('Permanently delete this promotion and all its versions? This cannot be undone.'))return;
+  const{error}=await sb.from('promotional_projects').delete().eq('id',promoModalProject.id);
+  if(error){alert(error.message);return;}
+  if(currentPromo?.project?.id===promoModalProject.id)resetPromoBuilder();
+  closePromoProjectModal();await loadPromoLibrary();
+}
+
+/* ============================================================
+   MODULE 5 — PRINT EXPORT CENTER
+   ============================================================ */
+function openPromoExportCenter(){
+  if(!currentPromo?.signedUrl){setPromoStatus('promo-preview-status','Generate or open a promotion first.','error');return;}
+  const format=currentPromo.project?.print_format||'letter_portrait';
+  const f=PROMO_FORMATS[format]||PROMO_FORMATS.letter_portrait;
+  document.getElementById('promo-export-format-name').textContent=f.label;
+  document.getElementById('promo-export-preview-image').src=currentPromo.signedUrl;
+  document.getElementById('promo-export-overlap-row').style.display=format==='two_page_17x11'?'flex':'none';
+  updatePromoExportSummary();
+  document.getElementById('promo-export-modal').classList.add('show');
+}
+function closePromoExportCenter(){document.getElementById('promo-export-modal').classList.remove('show');}
+function updatePromoExportSummary(){
+  const format=currentPromo.project?.print_format||'letter_portrait';
+  const f=PROMO_FORMATS[format]||PROMO_FORMATS.letter_portrait;
+  const output=document.getElementById('promo-export-output')?.value||'pdf';
+  const outputLabel={pdf:'Print-ready PDF',png300:'300 DPI PNG',png150:'150 DPI PNG',jpeg:'High-quality JPEG'}[output]||output;
+  document.getElementById('promo-export-dimensions').textContent=`${f.label} · exports as ${outputLabel}`;
+  const note=document.getElementById('promo-export-note');
+  if(note)note.textContent='AI-generated artwork can contain misspelled or distorted wording. Proofread carefully before printing — this export does not check spelling for you.';
+}
+const PROMO_PDF_FORMATS={
+  letter_portrait:{orientation:'portrait',unit:'in',format:[8.5,11]},
+  letter_landscape:{orientation:'landscape',unit:'in',format:[11,8.5]},
+  wobbler_4x4:{orientation:'portrait',unit:'in',format:[4,4]},
+  phone_card_4x2_5:{orientation:'landscape',unit:'in',format:[4,2.5]},
+  shelf_label_2x1:{orientation:'landscape',unit:'in',format:[2,1]},
+  digital_1536x864:{orientation:'landscape',unit:'in',format:[16,9]},
+  two_page_17x11:{orientation:'landscape',unit:'in',format:[17,11]},
+};
+async function runPromoExport(){
+  if(!currentPromo?.signedUrl)return;
+  const progress=document.getElementById('promo-export-progress');
+  progress.classList.add('show');progress.textContent='Preparing export…';
+  try{
+    const output=document.getElementById('promo-export-output')?.value||'pdf';
+    const format=currentPromo.project?.print_format||'letter_portrait';
+    const fileName=(currentPromo.project?.campaign_name||'promotion').replace(/[^a-z0-9]+/gi,'_');
+    const img=new Image();img.crossOrigin='anonymous';img.src=currentPromo.signedUrl;
+    await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=reject;});
+    if(output==='pdf'){
+      const spec=PROMO_PDF_FORMATS[format]||PROMO_PDF_FORMATS.letter_portrait;
+      const{jsPDF}=window.jspdf;const pdf=new jsPDF(spec);
+      const margin=parseFloat(document.getElementById('promo-export-margin')?.value||'0');
+      const pageW=spec.format[0],pageH=spec.format[1];
+      const availW=pageW-margin*2,availH=pageH-margin*2;
+      const fit=document.getElementById('promo-export-fit')?.value||'contain';
+      const ir=img.width/img.height,pr=availW/availH;
+      let w,h;
+      if(fit==='cover'){if(ir>pr){h=availH;w=h*ir;}else{w=availW;h=w/ir;}}
+      else{if(ir>pr){w=availW;h=w/ir;}else{h=availH;w=h*ir;}}
+      const x=margin+(availW-w)/2,y=margin+(availH-h)/2;
+      pdf.addImage(img,'PNG',x,y,w,h,undefined,'FAST');
+      pdf.save(`${fileName}.pdf`);
+    }else{
+      const canvas=document.createElement('canvas');
+      const scale=output==='png300'?300/96:output==='png150'?150/96:1;
+      canvas.width=img.width*scale;canvas.height=img.height*scale;
+      const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0,canvas.width,canvas.height);
+      const mime=output==='jpeg'?'image/jpeg':'image/png';
+      const ext=output==='jpeg'?'jpg':'png';
+      canvas.toBlob(blob=>{
+        const url=URL.createObjectURL(blob),a=document.createElement('a');
+        a.href=url;a.download=`${fileName}.${ext}`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+      },mime,0.95);
+    }
+    progress.textContent='Export ready — check your downloads.';
+    setTimeout(()=>progress.classList.remove('show'),2500);
+  }catch(err){
+    console.error(err);progress.textContent='Export failed: '+(err?.message||'unknown error');
+  }
+}
+
+/* ============================================================
+   MODULE 6 — RETAIL TEMPLATE PRESETS + PROOF-BEFORE-PRINT QA
+   Client-side only. No new SQL or Edge Function required.
+   ============================================================ */
+const PROMO_RETAIL_TEMPLATES={
+  new_arrival_phone:{name:'New Arrival Phone',desc:'Unlocked phones, storage, color, worldwide use.',values:{format:'letter_portrait',placement:'outdoor_a_frame',style:'bright_epson',required:'NEW ARRIVAL\nLIMITED STOCK\nWHILE SUPPLIES LAST',extra:'Make NEW ARRIVAL and UNLOCKED highly visible. Use a bright Epson-friendly white background. Keep the wording readable from several feet away.',checks:['new-arrival','limited','supplies','worldwide','unlocked']}},
+  free_phone:{name:'FREE Phone',desc:'Carrier activation offer with qualifying plan.',values:{format:'letter_portrait',placement:'window',style:'simple_mobile_green',required:'LIMITED TIME OFFER\nWHILE SUPPLIES LAST',extra:'Make FREE the largest text. Show the qualifying activation requirement clearly and do not hide the plan condition. Use a clean bright background.',checks:['limited','supplies']}},
+  cases_bundle:{name:'Cases + Glass',desc:'Buy 2 cases, receive tempered glass free.',values:{format:'letter_portrait',placement:'end_cap',style:'popcorn_purple_yellow',offer:'Buy 2 phone cases and get a tempered glass FREE',required:'LIMITED TIME OFFER',extra:'Make BUY 2 CASES and TEMPERED GLASS FREE the main hierarchy. Use phone cases and a screen protector as the product visuals.',checks:[]}},
+  phone_price_card:{name:'Phone Price Card',desc:'Compact 4 × 2.5 label for refurbished phone boxes.',values:{format:'phone_card_4x2_5',placement:'phone_box',style:'bright_epson',required:'LIMITED STOCK',extra:'Create a clean landscape price card. Prioritize UNLOCKED, model, storage, and price. Use minimal wording and a bright printer-friendly background.',checks:['limited','unlocked','worldwide']}},
+  wobbler:{name:'4 × 4 Wobbler',desc:'Short shelf message with one dominant offer.',values:{format:'wobbler_4x4',placement:'wobbler',style:'popcorn_purple_yellow',required:'LIMITED TIME',extra:'Use very little text. Make the strongest offer readable instantly. Use a square composition with bold contrast.',checks:[]}},
+  new_collection:{name:'New Collection',desc:'Beauty collection launch or new product family.',values:{format:'wobbler_4x4',placement:'end_cap',style:'bright_epson',required:'NEW ARRIVAL',extra:'Feature the real collection products clearly. Keep the collection name large and the supporting benefit concise.',checks:['new-arrival']}},
+  window_poster:{name:'Window Poster',desc:'Simple, large message readable from outside.',values:{format:'letter_portrait',placement:'window',style:'bold_sidewalk',required:'ASK INSIDE FOR DETAILS',extra:'Use one main headline, one product image, and one supporting line. Avoid small decorative text. Optimize for reading through a store window.',checks:[]}},
+  two_page_sign:{name:'Two-Page A Sign',desc:'17 × 11 split across two letter-size sheets.',values:{format:'two_page_17x11',placement:'outdoor_a_frame',style:'bold_sidewalk',required:'LIMITED STOCK\nWHILE SUPPLIES LAST',extra:'Design as one continuous 17 × 11 landscape composition with no important wording or face placed directly on the center seam.',checks:['limited','supplies']}},
+  shelf_label:{name:'Shelf Price Label',desc:'Minimal 2 × 1 brand/model and price label.',values:{format:'shelf_label_2x1',placement:'shelf',style:'minimal_price_card',extra:'Use only the brand or model and price unless another detail is essential. High contrast, no clutter.',checks:[]}},
+  digital_promo:{name:'Digital Screen',desc:'1536 × 864 horizontal screen promotion.',values:{format:'digital_1536x864',placement:'digital_display',style:'bright_epson',required:'IN-STORE PROMOTION',extra:'Use a wide horizontal composition with strong left-to-right hierarchy and large readable wording.',checks:[]}}
+};
+let promoProofReturnToExport=false;
+let promoProofProjectId=null;
+
+function promoM6Set(id,value){const el=document.getElementById(id);if(el&&value!==undefined)el.value=value;}
+function promoM6Check(id,on){const el=document.getElementById(id);if(el)el.checked=!!on;}
+function applyPromoRetailTemplate(key){
+  const t=PROMO_RETAIL_TEMPLATES[key];if(!t)return;
+  const v=t.values||{};
+  promoM6Set('promo-format',v.format);promoM6Set('promo-placement',v.placement);promoM6Set('promo-style',v.style);
+  if(v.offer)promoM6Set('promo-offer',v.offer);
+  promoM6Set('promo-required',v.required||'');promoM6Set('promo-extra',v.extra||'');
+  ['new-arrival','limited','supplies','worldwide','unlocked'].forEach(n=>promoM6Check('promo-'+n,(v.checks||[]).includes(n)));
+  updatePromoSizeNote();
+  setPromoStatus('promo-form-status',`${t.name} preset applied. Add the exact product, price, offer terms, and fine print before generating.`,'success');
+  document.getElementById('promo-product-name')?.focus();
+}
+function promoM6TemplateMarkup(){return `<div id="promo-m6-toolbar" class="promo-m6-toolbar"><div class="promo-m6-head"><div><div class="promo-m6-title">Quick Retail Templates</div><div class="promo-m6-sub">Start with an approved format, then enter the exact product and offer.</div></div><div id="promo-proof-badge" class="promo-proof-badge">✓ Proof approved</div></div><div class="promo-template-grid">${Object.entries(PROMO_RETAIL_TEMPLATES).map(([k,t])=>`<button type="button" class="promo-template-btn" onclick="applyPromoRetailTemplate('${k}')"><div class="promo-template-name">${promoEscape(t.name)}</div><div class="promo-template-desc">${promoEscape(t.desc)}</div></button>`).join('')}</div></div>`;}
+function installPromoModule6UI(){
+  const panel=document.getElementById('tab-ai-prints');if(!panel||document.getElementById('promo-m6-toolbar'))return;
+  const grid=panel.querySelector('.promo-studio-grid');if(grid)grid.insertAdjacentHTML('beforebegin',promoM6TemplateMarkup());
+  const previewActions=panel.querySelector('.promo-actions');if(previewActions){previewActions.insertAdjacentHTML('beforeend',`<button id="promo-proof-btn" class="btn btn-ghost" style="display:none" onclick="openPromoProofModal(false)">Proof Before Print</button>`);}
+  document.body.insertAdjacentHTML('beforeend',`<div id="promo-proof-modal" class="promo-proof-backdrop" onclick="if(event.target===this)closePromoProofModal()"><div class="promo-proof-modal" role="dialog" aria-modal="true" aria-labelledby="promo-proof-title"><div class="promo-proof-header"><div><div id="promo-proof-title" class="promo-proof-title">Proof Before Print</div><div class="promo-proof-sub">Confirm the exact retail wording before exporting or printing.</div></div><button class="promo-proof-close" onclick="closePromoProofModal()" aria-label="Close">×</button></div><div class="promo-proof-body"><div id="promo-proof-summary" class="promo-proof-summary"></div><div class="promo-proof-warning"><strong>Important:</strong> AI-generated artwork can contain misspelled or distorted wording. Compare the image itself against every item below—not only the form values.</div><div class="promo-proof-checklist"><label class="promo-proof-check"><input class="promo-proof-box" type="checkbox"> Product name and model are correct in the image.</label><label class="promo-proof-check"><input class="promo-proof-box" type="checkbox"> Price, plan, activation requirement, and promotional offer are correct.</label><label class="promo-proof-check"><input class="promo-proof-box" type="checkbox"> Storage, color, carrier, and compatibility statements are correct.</label><label class="promo-proof-check"><input class="promo-proof-box" type="checkbox"> Required wording and fine print are visible and do not contradict the offer.</label><label class="promo-proof-check"><input class="promo-proof-box" type="checkbox"> No unwanted logo, barcode, false feature, or extra claim appears.</label><label class="promo-proof-check"><input class="promo-proof-box" type="checkbox"> The selected print format and orientation match where the sign will be used.</label></div></div><div class="promo-proof-actions"><button class="btn btn-ghost" onclick="closePromoProofModal()">Review Again</button><button class="btn btn-green" onclick="approvePromoProof()">Approve for Export</button></div></div></div>`);
+}
+function currentPromoProofKey(){return `pb-promo-proof:${currentPromo?.project?.id||'none'}:${currentPromo?.assetId||currentPromo?.storagePath||'current'}`;}
+function isCurrentPromoProofed(){try{return localStorage.getItem(currentPromoProofKey())==='approved';}catch{return false;}}
+function updatePromoProofUI(){
+  const has=!!currentPromo?.signedUrl,btn=document.getElementById('promo-proof-btn'),badge=document.getElementById('promo-proof-badge');
+  if(btn)btn.style.display=has?'inline-flex':'none';
+  const ok=has&&isCurrentPromoProofed();if(badge)badge.classList.toggle('show',ok);
+  if(btn)btn.textContent=ok?'Proof Approved':'Proof Before Print';
+}
+function promoProofSummaryRows(){const p=currentPromo?.project||{};return [['Campaign',p.campaign_name],['Product',p.product_name],['Offer',p.offer_text],['Price / Plan',p.price_text],['Model / Storage / Color',[p.model_text,p.storage_text,p.color_text].filter(Boolean).join(' · ')],['Carrier',p.carrier_text],['Required Wording',p.required_text],['Fine Print',p.fine_print],['Format',PROMO_FORMATS[p.print_format]?.label||p.print_format],['Placement',String(p.placement||'').replaceAll('_',' ')]];}
+function openPromoProofModal(returnToExport=false){
+  if(!currentPromo?.signedUrl||!currentPromo?.project){setPromoStatus('promo-preview-status','Generate or open a completed promotion before proofing.','error');return;}
+  promoProofReturnToExport=returnToExport;promoProofProjectId=currentPromo.project.id;
+  document.querySelectorAll('.promo-proof-box').forEach(x=>x.checked=false);
+  const summary=document.getElementById('promo-proof-summary');summary.innerHTML=promoProofSummaryRows().filter(([,v])=>v).map(([l,v])=>`<div class="promo-proof-item"><div class="promo-proof-label">${promoEscape(l)}</div><div class="promo-proof-value">${promoEscape(v)}</div></div>`).join('');
+  document.getElementById('promo-proof-modal').classList.add('show');document.body.style.overflow='hidden';
+}
+function closePromoProofModal(){document.getElementById('promo-proof-modal')?.classList.remove('show');document.body.style.overflow='';promoProofReturnToExport=false;}
+function approvePromoProof(){
+  const boxes=[...document.querySelectorAll('.promo-proof-box')];if(!boxes.length||boxes.some(x=>!x.checked)){alert('Check every proof item before approving the design for export.');return;}
+  if(promoProofProjectId!==currentPromo?.project?.id){alert('The open project changed. Reopen the proof checklist.');return;}
+  try{localStorage.setItem(currentPromoProofKey(),'approved');}catch{}
+  const shouldExport=promoProofReturnToExport;closePromoProofModal();updatePromoProofUI();setPromoStatus('promo-preview-status','Proof approved for this version. You can now export or print.','success');if(shouldExport)openPromoExportCenterM5();
+}
+const openPromoExportCenterM5=window.openPromoExportCenter;
+window.openPromoExportCenter=function(source=null){
+  if(source){return openPromoExportCenterM5(source);}
+  if(!isCurrentPromoProofed()){openPromoProofModal(true);return;}
+  return openPromoExportCenterM5();
+};
+const showPromoPreviewM6=window.showPromoPreview;
+window.showPromoPreview=function(url){showPromoPreviewM6(url);updatePromoProofUI();};
+const resetPromoBuilderM6=window.resetPromoBuilder;
+window.resetPromoBuilder=function(){resetPromoBuilderM6();updatePromoProofUI();};
+
+document.addEventListener('DOMContentLoaded',()=>{installPromoModule6UI();updatePromoProofUI();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.getElementById('promo-proof-modal')?.classList.contains('show'))closePromoProofModal();});
 </script>
 </div>
 </body>

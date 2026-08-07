@@ -329,7 +329,7 @@ td{padding:10px 12px;vertical-align:middle;}
       <div class="field"><label>Phone # *</label><input class="phone-f" id="ref-phone" type="text" placeholder="(516) 000-0000" oninput="lookupRefillPhone(this.value)"></div>
       <div class="field"><label>Order #</label><input id="ref-order" type="text" placeholder="347798630"></div>
       <div class="field"><label>Date</label><input id="ref-date" type="date"></div>
-      <div class="field"><label>Plan</label><select id="ref-plan" onchange="refPlanChanged(this.value)"><option value="">Select...</option><option>$20 RTR</option><option>$25 RTR</option><option>$30 RTR</option><option>$40 RTR</option><option>$50 RTR</option><option>$60 RTR</option><option>Free Month (Promo)</option><option>Other</option></select></div>
+      <div class="field"><label>Plan</label><select id="ref-plan" onchange="refPlanChanged(this.value)"><option value="">Select...</option><option>$20 RTR</option><option>$25 RTR</option><option>$30 RTR</option><option>$40 RTR</option><option>$50 RTR</option><option>$60 RTR</option><option>Free Month (Promo)</option><option disabled>──────────</option><option>Boost Mobile Refill (ePay)</option><option>Other</option></select></div>
       <div class="field" id="ref-amount-field" style="display:none"><label>Amount Collected $</label><input class="money-f" id="ref-amount" type="number" step="0.01" placeholder="Enter amount"></div>
       <div class="field"><label>Family/Group Tag (optional)</label><input id="ref-group" type="text" list="existingGroupTags" placeholder="e.g. Smith Family" oninput="checkFamilyGroup(this.value)"><datalist id="existingGroupTags"></datalist></div>
     </div>
@@ -1195,11 +1195,12 @@ function renderActivations(){
 function refPlanChanged(val){
   const amtField=document.getElementById('ref-amount');
   const wrap=document.getElementById('ref-amount-field');
-  if(val&&val!=='Other'){
+  const isVariableAmount = val==='Other' || val==='Boost Mobile Refill (ePay)';
+  if(val && !isVariableAmount){
     const m=val.match(/\$([\d.]+)/);
     amtField.value=m?m[1]:'';
     wrap.style.display='none';
-  } else if(val==='Other'){
+  } else if(isVariableAmount){
     amtField.value='';
     wrap.style.display='';
     amtField.focus();
@@ -1212,12 +1213,16 @@ async function addRefill(){
   const phone=(document.getElementById('ref-phone')?.value||'').trim();
   if(!phone){alert('Phone # required');return;}
   const amount=parseFloat(document.getElementById('ref-amount')?.value)||0;
-  const isFreePromoMonth=(document.getElementById('ref-plan')?.value||'')==='Free Month (Promo)';
+  const planVal=document.getElementById('ref-plan')?.value||'';
+  const isFreePromoMonth=planVal==='Free Month (Promo)';
+  const isBoost=planVal==='Boost Mobile Refill (ePay)';
   if(amount<=0&&!isFreePromoMonth){alert('Pick a plan above (or choose "Other" and enter the amount) before saving.');return;}
   const orderNum=(document.getElementById('ref-order')?.value||'').trim();
   const refDate=document.getElementById('ref-date')?.value||null;
   
-  // Dedup check: prevent same phone+order# being logged twice
+  // Dedup check: VidaPay refills key off phone+order#. Boost has no order
+  // number at all — the only signal available at time of sale is phone+date,
+  // so that's what's checked instead to catch an accidental double-entry.
   if(orderNum){
     const exists=refills.find(r=>{
       const samePhone=(r.phone||'').replace(/\D/g,'')===(phone||'').replace(/\D/g,'');
@@ -1227,19 +1232,35 @@ async function addRefill(){
       alert('This refill (Order #'+orderNum+') has already been logged for '+phone+'.');
       return;
     }
+  } else if(isBoost&&refDate){
+    const exists=refills.find(r=>{
+      const samePhone=(r.phone||'').replace(/\D/g,'')===(phone||'').replace(/\D/g,'');
+      return samePhone&&r.vendor==='ePay'&&r.ref_date===refDate;
+    });
+    if(exists&&!confirm('A Boost refill was already logged today for '+phone+'. Log another one anyway (e.g. a second top-up same day)?')){
+      return;
+    }
   }
   
   const groupTag=(document.getElementById('ref-group')?.value||'').trim();
   const payload={
     phone, order_num:orderNum,
     ref_date:refDate,
-    plan:document.getElementById('ref-plan')?.value||'',
+    plan:planVal,
     amount,group_tag:groupTag,
     rep_id:currentUser?.id||null,
     rep_name:currentUser?.name||null,
     receipt_policy_snapshot:storeSettings?.refill_policy||null,
+    vendor: isBoost ? 'ePay' : 'VidaPay',
   };
   let{data,error}=await sb.from('refills').insert(payload).select().single();
+  if(error&&/vendor/i.test(error.message||'')){
+    // 'vendor' column doesn't exist in this Supabase project yet — save
+    // without it rather than blocking the refill. Run 03-add-epay-vendor.sql
+    // so Boost logging/verification works going forward.
+    const fbV={...payload};delete fbV.vendor;
+    ({data,error}=await sb.from('refills').insert(fbV).select().single());
+  }
   if(error&&/group_tag/i.test(error.message||'')){
     // 'group_tag' column doesn't exist in this Supabase project yet — save without it
     // rather than blocking the refill entirely. Run the SQL to add it so family/group
@@ -1481,18 +1502,22 @@ function renderRefills(){
   let col=0,prof=0,sm=0,lnk=0;
   if(!filtered.length){tbody.innerHTML=`<tr><td colspan="11" class="empty-state">${refills.length?'No refills in this range':'No refills logged yet'}</td></tr>`;}
   else tbody.innerHTML=filtered.map(r=>{
-    const amt=parseFloat(r.amount)||0,myP=amt*0.08,smP=amt*0.92;
+    const amt=parseFloat(r.amount)||0;
+    const isBoost=r.vendor==='ePay';
+    // VidaPay's flat 8%/92% split doesn't apply to Boost — its real commission
+    // only becomes known once the ePay invoice is matched (see verified flag).
+    const myP=isBoost?0:amt*0.08, smP=isBoost?0:amt*0.92;
     col+=amt;prof+=myP;sm+=smP;
     const isL=activations.some(a=>a.phone===r.phone);if(isL)lnk++;
     const cust=activations.find(a=>a.phone===r.phone)?.customer_name||'—';
     return`<tr>
       <td><span class="phone-t">${r.phone}</span>${r.group_tag?`<div><span class="badge b-blue" style="font-size:9px;margin-top:2px;">👨‍👩‍👧 ${r.group_tag}</span></div>`:''}</td>
-      <td><span class="order-t">${r.order_num||'—'}</span></td>
+      <td>${isBoost?`<span class="badge b-blue" style="font-size:9px;" title="ePay/Boost Mobile — no order # exists, verified by phone against the invoice">ePay</span> ${r.verified?`<span class="badge b-green" style="font-size:9px;" title="Matched to invoice #${r.matched_invoice_num||''}">✅ Verified</span>`:`<span class="badge b-gray" style="font-size:9px;" title="Not yet matched to an ePay invoice">⏳ Pending</span>`}`:`<span class="order-t">${r.order_num||'—'}</span>`}</td>
       <td>${fmtDate(r.ref_date)}</td>
       <td>${r.plan||'—'}</td>
       <td class="money-t" style="color:var(--green)">${fmt(amt)}</td>
-      <td class="money-t ownerOnlyCol" style="color:var(--red)">${fmt(smP)}</td>
-      <td class="money-t ownerOnlyCol" style="color:var(--gold)">${fmt(myP)}</td>
+      <td class="money-t ownerOnlyCol" style="color:var(--red)">${isBoost?'—':fmt(smP)}</td>
+      <td class="money-t ownerOnlyCol" style="color:var(--gold)">${isBoost?'—':fmt(myP)}</td>
       <td><span class="badge ${isL?'b-pink':'b-gray'}">${isL?'✅ Linked':'—'}</span></td>
       <td>${cust}</td>
       <td><span class="badge b-teal" style="font-size:10px">${isL?refillTrigger(r.phone,r.id):'—'}</span></td>
@@ -1622,6 +1647,30 @@ function parseEpayPdfText(rawText) {
 
   result.notes = 'ePay/Boost Mobile' + (result.account_number ? ' · Acct #'+result.account_number : '') +
     ' · Retail $'+result.retail_total.toFixed(2) + ' · Cost $'+result.cost_total.toFixed(2);
+
+  // Per-transaction detail lines — the "Control Number" column is the only
+  // per-sale identifier ePay provides, and per the store's own experience,
+  // it functions as the customer's phone number. Multiple product lines
+  // (e.g. a $4 fee + a $55 top-up) can share one Control Number when they're
+  // the same register transaction, so this groups by Control Number to get
+  // one match-able record per real-world sale — matching how a rep would
+  // have logged it as a single refill entry.
+  const detailIdx = t.search(/Invoice Prepaid Detail/i);
+  const detailText = detailIdx >= 0 ? t.slice(detailIdx) : '';
+  const detailRegex = /(\d{2}\/\d{2})\s+(.+?)\s+Sold\s+(\d{2}\/\d{2}\/\d{4})\s+\d{1,2}:\d{2}\s*[AP]M\s+(\d{7,12})\s+\$([\d,]+\.\d{2})\s+(?:\$[\d,]+\.\d{2}|[\d.]+%)\s+\$([\d,]+\.\d{2})\s+\$([\d,]+\.\d{2})/g;
+  const byControl = {};
+  let dm;
+  while ((dm = detailRegex.exec(detailText)) !== null) {
+    const cn = dm[4];
+    if (!byControl[cn]) {
+      byControl[cn] = { control_number: cn, transaction_date: dm[3], products: [], retail: 0, cost: 0, commission: 0 };
+    }
+    byControl[cn].products.push(dm[2].trim());
+    byControl[cn].retail += parseFloat(dm[5].replace(/,/g,''));
+    byControl[cn].cost += parseFloat(dm[6].replace(/,/g,''));
+    byControl[cn].commission += parseFloat(dm[7].replace(/,/g,''));
+  }
+  result.detail_lines = Object.values(byControl);
 
   return result;
 }
@@ -1824,8 +1873,43 @@ async function confirmPdfImport() {
 
   const { error } = await sb.from('invoices').insert(payload);
   if (error) { alert('Save error: ' + error.message); return; }
+
+  // For ePay: match each invoice detail line (by phone/Control Number)
+  // against logged Boost refills that haven't been verified yet, the same
+  // way VidaPay activations get verified against Order #. This is the only
+  // way to confirm a rep's logged Boost sale actually got paid, since Boost
+  // has no order number to check.
+  let matchSummary = '';
+  if (pdfExtracted.vendor === 'ePay' && Array.isArray(pdfExtracted.detail_lines) && pdfExtracted.detail_lines.length) {
+    let matched = 0, unmatched = 0;
+    for (const line of pdfExtracted.detail_lines) {
+      const digits = (line.control_number||'').replace(/\D/g,'');
+      const candidate = refills.find(r =>
+        r.vendor === 'ePay' &&
+        !r.verified &&
+        (r.phone||'').replace(/\D/g,'') === digits
+      );
+      if (candidate) {
+        const { error: uErr } = await sb.from('refills').update({
+          verified: true,
+          matched_invoice_num: pdfExtracted.invoice_num,
+        }).eq('id', candidate.id);
+        if (!uErr) {
+          candidate.verified = true;
+          candidate.matched_invoice_num = pdfExtracted.invoice_num;
+          matched++;
+        }
+      } else {
+        unmatched++;
+      }
+    }
+    matchSummary = `\n\nBoost sale matching: ${matched} matched to a logged refill` +
+      (unmatched ? `, ${unmatched} invoice line(s) had no matching logged sale (check for phone number typos or a sale that wasn't logged).` : '.');
+  }
+
   cancelPdfImport();
   showToast();
+  if (matchSummary) alert('✅ ePay invoice saved!' + matchSummary);
   pdfExtracted = null;
 }
 
@@ -1993,12 +2077,12 @@ function showMonthDrillDown(month,m,year){
   const refs=refills.filter(r=>inMonth(r.ref_date));
   const soldPhones=phones.filter(p=>p.status==='Sold'&&inMonth(p.sale_date));
   const commission=acts.reduce((s,a)=>s+spiffEarned(a),0);
-  const refillProfit=refs.reduce((s,r)=>s+(parseFloat(r.amount)||0)*0.08,0);
+  const refillProfit=refs.reduce((s,r)=>s+(r.vendor==='ePay'?0:(parseFloat(r.amount)||0)*0.08),0);
   const phoneProfit=soldPhones.reduce((s,p)=>s+((parseFloat(p.sale_price)||0)-(parseFloat(p.cost)||0)+(parseFloat(p.subsidy)||0)),0);
   const total=commission+refillProfit+phoneProfit;
   const rows=[
     ...acts.map(a=>({type:'📱 Activation',icon:'📱',color:'var(--teal)',phone:a.phone,detail:a.plan||'',date:a.act_date,amount:spiffEarned(a)})),
-    ...refs.map(r=>({type:'💳 Refill',icon:'💳',color:'var(--gold)',phone:r.phone,detail:r.plan||'',date:r.ref_date,amount:(parseFloat(r.amount)||0)*0.08})),
+    ...refs.map(r=>({type:'💳 Refill',icon:'💳',color:'var(--gold)',phone:r.phone,detail:r.plan||'',date:r.ref_date,amount:r.vendor==='ePay'?0:(parseFloat(r.amount)||0)*0.08})),
     ...soldPhones.map(p=>({type:'📦 Phone Sold',icon:'📦',color:'var(--orange)',phone:p.phone,detail:p.model||'',date:p.sale_date,amount:(parseFloat(p.sale_price)||0)-(parseFloat(p.cost)||0)+(parseFloat(p.subsidy)||0)})),
   ].sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
   el.style.display='block';
@@ -2056,7 +2140,7 @@ function renderDashboard(){
   // Residual credits are their own category — real money VidaPay credits us that isn't
   // tied to a specific traceable event, reported straight from saved invoices.
   const resid=invoices.reduce((s,i)=>s+(parseFloat(i.residual)||0),0);
-  const rp=refills.reduce((a,r)=>a+((parseFloat(r.amount)||0)*0.08),0);
+  const rp=refills.reduce((a,r)=>a+(r.vendor==='ePay'?0:(parseFloat(r.amount)||0)*0.08),0);
   // Only phones that have actually SOLD count toward profit — an unsold phone's cost is
   // still sitting in inventory, not a realized loss, so it shouldn't drag Net Profit down
   // before it's even had a chance to sell or get its rebate back. Unlocked/no-rebate sales
@@ -3386,7 +3470,7 @@ function dailyProfitBreakdown(){
     });
   });
   refills.forEach(r=>{
-    const b=bucket(r.ref_date);if(b)b.refillProfit+=(parseFloat(r.amount)||0)*0.08;
+    const b=bucket(r.ref_date);if(b)b.refillProfit+=(r.vendor==='ePay'?0:(parseFloat(r.amount)||0)*0.08);
   });
   phones.filter(p=>p.status==='Sold').forEach(p=>{
     const b=bucket(p.sale_date);

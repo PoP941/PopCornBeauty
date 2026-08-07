@@ -487,7 +487,7 @@ td{padding:10px 12px;vertical-align:middle;}
         ondragleave="this.style.borderColor='#f59e0b';this.style.background='#fffde7'"
         ondrop="event.preventDefault();this.style.borderColor='#f59e0b';this.style.background='#fffde7';runFullAudit(event.dataTransfer.files[0])">
         <div style="font-size:28px;margin-bottom:6px">📄</div>
-        <div style="font-size:13px;font-weight:800;color:var(--gold);">Drop VidaPay Invoice Here</div>
+        <div style="font-size:13px;font-weight:800;color:var(--gold);">Drop VidaPay or ePay/Boost Invoice Here</div>
         <div style="font-size:10px;color:var(--muted);margin-top:3px;">PDF (instant) · Screenshot (~15s)</div>
         <input type="file" id="invDropInput" accept=".pdf,image/*" style="display:none" onchange="runFullAudit(this.files[0])">
       </div>
@@ -1560,9 +1560,75 @@ if (typeof pdfjsLib !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 }
 
+// Distinguishes ePay/Boost Mobile invoices from VidaPay invoices so the
+// same "Drop Invoice" zone can auto-import either format.
+function detectPdfVendor(rawText) {
+  if (/epayworldwide\.com|Invoice Prepaid Summary|Invoice Prepaid Detail|POSA Transactions/i.test(rawText)) {
+    return 'ePay';
+  }
+  return 'VidaPay';
+}
+
+// ePay/Boost Mobile invoices are a flat retail/cost/commission model per
+// prepaid sale (settled same-day via ACH) — structurally different from
+// VidaPay's activation+residual schedule, so this gets its own parser.
+function parseEpayPdfText(rawText) {
+  const t = rawText;
+  const result = { vendor: 'ePay' };
+
+  // The header is three boxes — Account Number / Invoice Date / Invoice
+  // Number — and PDF text extraction lists all three LABELS first, then all
+  // three VALUES after, in the same left-to-right order (not label-value
+  // pairs). So this matches the whole block at once, in that exact order,
+  // rather than searching near each label individually.
+  const monthMap = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+  let m = t.match(/Account Number\s*Invoice Date\s*Invoice Number\s*(\d{4,10})\s*([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})\s*(\d{5,10})/i);
+  if (m) {
+    result.account_number = m[1].trim();
+    result.invoice_date = `${m[4]}-${monthMap[m[2].toLowerCase()]||'01'}-${m[3].padStart(2,'0')}`;
+    result.invoice_num = m[5].trim();
+  } else {
+    // Fallback for a differently-laid-out header — best effort, independent fields
+    result.invoice_num = (t.match(/Invoice Number\s*(\d{5,10})/i)||[])[1] || '';
+    result.account_number = (t.match(/Account Number\s*(\d{4,10})/i)||[])[1] || '';
+    const dm = t.match(/([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})/);
+    result.invoice_date = dm ? `${dm[3]}-${monthMap[dm[1].toLowerCase()]||'01'}-${dm[2].padStart(2,'0')}` : '';
+  }
+
+  // Amount Due (what actually gets debited via ACH)
+  m = t.match(/Amount Due\s*\$?([\d,]+\.\d{2})/i);
+  result.amount_due = m ? parseFloat(m[1].replace(/,/g,'')) : 0;
+
+  // Retail / Cost / Commission — pulled specifically from the "Invoice Prepaid
+  // Summary" section's Total row, not the earlier "Current Charges" total
+  // (which has a different 4-column Debit/Credit/Tax/Total shape and would
+  // otherwise get matched by mistake).
+  const summaryIdx = t.search(/Invoice Prepaid Summary/i);
+  const summaryText = summaryIdx >= 0 ? t.slice(summaryIdx) : t;
+  m = summaryText.match(/Total:\s*\d+\s*\$?([\d,]+\.\d{2})\s*\$?([\d,]+\.\d{2})\s*\$?([\d,]+\.\d{2})/i);
+  if (m) {
+    result.retail_total = parseFloat(m[1].replace(/,/g,''));
+    result.cost_total = parseFloat(m[2].replace(/,/g,''));
+    result.commission_total = parseFloat(m[3].replace(/,/g,''));
+  } else {
+    result.retail_total = 0;
+    result.cost_total = result.amount_due || 0;
+    result.commission_total = 0;
+  }
+  // Fallback if commission wasn't directly captured but retail/cost were
+  if (!result.commission_total && result.retail_total && result.cost_total) {
+    result.commission_total = +(result.retail_total - result.cost_total).toFixed(2);
+  }
+
+  result.notes = 'ePay/Boost Mobile' + (result.account_number ? ' · Acct #'+result.account_number : '') +
+    ' · Retail $'+result.retail_total.toFixed(2) + ' · Cost $'+result.cost_total.toFixed(2);
+
+  return result;
+}
+
 function parsePdfText(rawText) {
   const t = rawText;
-  const result = {};
+  const result = { vendor: 'VidaPay' };
 
   // Invoice number
   let m = t.match(/Invoice No[:.]\s*(\d{6,12})/i) || t.match(/Invoice #?\s*(\d{6,12})/i);
@@ -1659,17 +1725,28 @@ async function handlePdfDrop(file) {
 
     document.getElementById('pdfStatusMsg').textContent = 'Parsing invoice data...';
 
-    // Parse the extracted text
-    pdfExtracted = parsePdfText(fullText);
+    // Detect vendor first — VidaPay and ePay/Boost invoices have completely
+    // different layouts, so each gets its own parser.
+    const vendor = detectPdfVendor(fullText);
+    pdfExtracted = vendor === 'ePay' ? parseEpayPdfText(fullText) : parsePdfText(fullText);
 
-    if (!pdfExtracted.invoice_num) throw new Error('Could not find invoice number — is this a VidaPay invoice?');
+    if (!pdfExtracted.invoice_num) throw new Error('Could not find invoice number — is this a VidaPay or ePay invoice?');
 
     // Show success
     document.getElementById('pdfStatusIcon').textContent = '✅';
-    document.getElementById('pdfStatusMsg').textContent = 'Invoice read successfully!';
+    document.getElementById('pdfStatusMsg').textContent = (vendor==='ePay'?'ePay/Boost':'VidaPay') + ' invoice read successfully!';
 
     const fmtN = v => '$' + (parseFloat(v)||0).toFixed(2);
-    const fields = [
+    const fields = vendor === 'ePay' ? [
+      { label: 'Vendor',               val: 'ePay / Boost Mobile',                               color: 'var(--blue)' },
+      { label: 'Invoice #',            val: pdfExtracted.invoice_num,                            color: 'var(--blue)' },
+      { label: 'Account #',            val: pdfExtracted.account_number,                         color: 'var(--text)' },
+      { label: 'Date',                 val: pdfExtracted.invoice_date,                           color: 'var(--text)' },
+      { label: 'Retail (customer paid)', val: fmtN(pdfExtracted.retail_total),                   color: 'var(--blue)' },
+      { label: 'Cost (debited via ACH)', val: fmtN(pdfExtracted.cost_total),                     color: 'var(--red)' },
+      { label: 'Commission (your profit)', val: fmtN(pdfExtracted.commission_total),              color: 'var(--green)' },
+      { label: 'Amount Due',           val: fmtN(pdfExtracted.amount_due),                       color: 'var(--muted)' },
+    ] : [
       { label: 'Invoice #',            val: pdfExtracted.invoice_num,                            color: 'var(--blue)' },
       { label: 'Date',                 val: pdfExtracted.invoice_date,                           color: 'var(--text)' },
       { label: 'Period',               val: pdfExtracted.period,                                 color: 'var(--text)' },
@@ -1706,19 +1783,46 @@ async function handlePdfDrop(file) {
 
 async function confirmPdfImport() {
   if (!pdfExtracted) return;
-  const totalActOrders = (parseFloat(pdfExtracted.act_orders)||0) + (parseFloat(pdfExtracted.branded_marketplace)||0);
-  const totalCredits = (parseFloat(pdfExtracted.spiff)||0) + (parseFloat(pdfExtracted.subsidy)||0) + (parseFloat(pdfExtracted.residual)||0);
-  const { error } = await sb.from('invoices').insert({
-    invoice_num: pdfExtracted.invoice_num,
-    invoice_date: pdfExtracted.invoice_date || null,
-    period: pdfExtracted.period,
-    act_orders: totalActOrders,
-    spiff: parseFloat(pdfExtracted.spiff)||0,
-    subsidy: (parseFloat(pdfExtracted.subsidy)||0) + (parseFloat(pdfExtracted.residual)||0),
-    rtr: parseFloat(pdfExtracted.rtr)||0,
-    fee: parseFloat(pdfExtracted.fee)||0,
-    notes: pdfExtracted.notes || '',
-  });
+
+  let payload;
+  if (pdfExtracted.vendor === 'ePay') {
+    // ePay/Boost is a flat per-sale commission model, not an activation+
+    // residual schedule. There's no matching "collected" entry elsewhere
+    // (unlike VidaPay activations, which get logged individually by staff),
+    // so act_orders is intentionally left at 0 here — recording the real
+    // cost without an offsetting collected amount would show as a false
+    // loss. Commission is mapped straight to spiff, since that's the actual
+    // profit this invoice represents. Retail/cost stay visible in notes for
+    // audit purposes even though they don't feed the profit math directly.
+    payload = {
+      invoice_num: pdfExtracted.invoice_num,
+      invoice_date: pdfExtracted.invoice_date || null,
+      period: null,
+      act_orders: 0,
+      spiff: parseFloat(pdfExtracted.commission_total)||0,
+      subsidy: 0,
+      rtr: 0,
+      fee: 0,
+      notes: pdfExtracted.notes || '',
+      vendor: 'ePay',
+    };
+  } else {
+    const totalActOrders = (parseFloat(pdfExtracted.act_orders)||0) + (parseFloat(pdfExtracted.branded_marketplace)||0);
+    payload = {
+      invoice_num: pdfExtracted.invoice_num,
+      invoice_date: pdfExtracted.invoice_date || null,
+      period: pdfExtracted.period,
+      act_orders: totalActOrders,
+      spiff: parseFloat(pdfExtracted.spiff)||0,
+      subsidy: (parseFloat(pdfExtracted.subsidy)||0) + (parseFloat(pdfExtracted.residual)||0),
+      rtr: parseFloat(pdfExtracted.rtr)||0,
+      fee: parseFloat(pdfExtracted.fee)||0,
+      notes: pdfExtracted.notes || '',
+      vendor: 'VidaPay',
+    };
+  }
+
+  const { error } = await sb.from('invoices').insert(payload);
   if (error) { alert('Save error: ' + error.message); return; }
   cancelPdfImport();
   showToast();
@@ -1773,7 +1877,7 @@ function renderInvoices(){
     const net=deb-cred;td+=deb;tc+=cred;
     const nc=net<0?'var(--green)':net>0?'var(--red)':'var(--muted)';
     return`<tr>
-      <td style="font-size:11px;font-family:monospace">${inv.file_url
+      <td style="font-size:11px;font-family:monospace">${inv.vendor==='ePay'?`<span class="badge b-blue" style="font-size:9px;margin-right:4px;" title="ePay / Boost Mobile invoice">ePay</span>`:''}${inv.file_url
         ?`<a href="#" onclick="openInvoiceFile('${inv.file_url}');return false;" style="color:var(--blue);text-decoration:underline;" title="Open original invoice file">${inv.invoice_num} 📄</a>`
         :`<span style="color:var(--blue);">${inv.invoice_num}</span> <label style="cursor:pointer;font-size:10px;color:var(--muted);text-decoration:underline;" title="Attach the original PDF/screenshot for this invoice">📎 attach<input type="file" accept=".pdf,image/*" style="display:none" onchange="attachInvoiceFile(${inv.id},'${inv.invoice_num}',this.files[0])"></label>`}</td>
       <td><input type="date" value="${inv.invoice_date||''}" style="border:1px solid ${inv.invoice_date?'transparent':'var(--red)'};background:transparent;font-size:11px;font-family:inherit;color:var(--text);padding:2px;border-radius:3px;" onchange="updateInvoiceField(${inv.id},'invoice_date',this.value)"></td>

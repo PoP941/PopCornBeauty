@@ -1333,35 +1333,40 @@ function lookupRefillPhone(phone){
   // Find activation for this phone
   const act=activations.find(a=>a.phone===phone||a.phone===phone.replace(/\D/g,''));
   if(!act){
-    // No VidaPay activation — but this could still be a returning Boost/ePay
-    // customer. Boost has no plan term or front-loaded months, so it doesn't
-    // get the full 6-dot promo timeline — just a plain count of past
-    // payments, which is what actually matters for deciding when a customer
-    // has paid long enough to be offered a better promotion.
+    // No VidaPay activation — but this could still be a returning customer
+    // who's been paying refills all along without ever having an activation
+    // on file (common for both plain VidaPay refill-only lines AND Boost/
+    // ePay). Either way, it doesn't get the full 6-dot promo timeline (that's
+    // tied to a plan's front-loaded term, which only applies to activated
+    // lines) — just a plain count of past payments, which is what actually
+    // matters for deciding when a customer has paid long enough to be
+    // offered a better promotion.
     const digits=phone.replace(/\D/g,'');
-    const boostHistory=refills.filter(r=>r.vendor==='ePay'&&(r.phone||'').replace(/\D/g,'')===digits).sort((a,b)=>a.id-b.id);
-    if(boostHistory.length){
+    const history=refills.filter(r=>(r.phone||'').replace(/\D/g,'')===digits).sort((a,b)=>a.id-b.id);
+    if(history.length){
+      const isBoost=history.every(r=>r.vendor==='ePay');
+      const label=isBoost?'Boost Mobile (ePay)':'Refill-only (no activation on file)';
       hint.style.display='none';
       panel.style.display='block';
-      const count=boostHistory.length;
+      const count=history.length;
       const needsOffer=count>=6;
-      const custName=boostHistory.find(r=>r.customer_name)?.customer_name||'Unknown Customer';
-      const firstDate=boostHistory[0].ref_date?new Date(boostHistory[0].ref_date+'T12:00:00').toLocaleDateString():'Unknown';
-      const totalPaid=boostHistory.reduce((s,r)=>s+(parseFloat(r.amount)||0),0);
+      const custName=history.find(r=>r.customer_name)?.customer_name||'Unknown Customer';
+      const firstDate=history[0].ref_date?new Date(history[0].ref_date+'T12:00:00').toLocaleDateString():'Unknown';
+      const totalPaid=history.reduce((s,r)=>s+(parseFloat(r.amount)||0),0);
       document.getElementById('refLookupHeader').style.background=needsOffer?'#fef2f2':'#f0f4ff';
       document.getElementById('refLookupHeader').style.borderBottom='1px solid '+(needsOffer?'#dc2626':'#1a3fa5');
       document.getElementById('refLookupIcon').textContent=needsOffer?'🔔':'📱';
-      document.getElementById('refLookupName').textContent=custName+' — Boost Mobile (ePay)';
+      document.getElementById('refLookupName').textContent=custName+' — '+label;
       document.getElementById('refLookupStatus').textContent=
-        'First Boost payment: '+firstDate+' · '+count+' payment'+(count!==1?'s':'')+' logged · $'+totalPaid.toFixed(2)+' total collected';
+        'First payment: '+firstDate+' · '+count+' payment'+(count!==1?'s':'')+' logged · $'+totalPaid.toFixed(2)+' total collected';
       document.getElementById('refLookupPaidThru').textContent=count+' month'+(count!==1?'s':'')+' paid';
       const custInput=document.getElementById('ref-customer');
       if(custInput&&!custInput.value&&custName!=='Unknown Customer')custInput.value=custName;
       const timeline=document.getElementById('refLookupTimeline');
-      timeline.innerHTML=`<div style="display:flex;gap:4px;flex-wrap:wrap;">${boostHistory.map((r,i)=>
+      timeline.innerHTML=`<div style="display:flex;gap:4px;flex-wrap:wrap;">${history.map((r,i)=>
         `<div style="width:22px;height:22px;border-radius:50%;background:#dcfce7;border:2px solid #16a34a;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#16a34a;" title="${r.ref_date?new Date(r.ref_date+'T12:00:00').toLocaleDateString():''}">${i+1}</div>`
       ).join('')}</div>`+
-      (needsOffer?`<div style="margin-top:10px;padding:8px;border-radius:6px;background:#fef2f2;border:1px solid #fecaca;font-size:10px;color:#991b1b;font-weight:700;">🔔 ${count} months paid on Boost — worth reviewing whether a better promotion applies before processing this payment.</div>`:'');
+      (needsOffer?`<div style="margin-top:10px;padding:8px;border-radius:6px;background:#fef2f2;border:1px solid #fecaca;font-size:10px;color:#991b1b;font-weight:700;">🔔 ${count} months paid without an activation on file — worth reviewing whether a better promotion applies before processing this payment.</div>`:'');
       return;
     }
     panel.style.display='none';
@@ -1639,18 +1644,42 @@ function parseEpayPdfText(rawText) {
   const result = { vendor: 'ePay' };
 
   // The header is three boxes — Account Number / Invoice Date / Invoice
-  // Number — and PDF text extraction lists all three LABELS first, then all
-  // three VALUES after, in the same left-to-right order (not label-value
-  // pairs). So this matches the whole block at once, in that exact order,
-  // rather than searching near each label individually.
+  // Number — extracted as all three LABELS first, then all three VALUES
+  // after, but which order the three boxes themselves come out in varies by
+  // how the PDF was generated (doesn't always match left-to-right visual
+  // order). This finds each label's actual position, sorts them, then reads
+  // the value tokens immediately after the last label in that SAME relative
+  // order — so it self-adjusts to whatever order this particular PDF uses,
+  // rather than assuming one fixed order.
   const monthMap = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
-  let m = t.match(/Account Number\s*Invoice Date\s*Invoice Number\s*(\d{4,10})\s*([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})\s*(\d{5,10})/i);
-  if (m) {
-    result.account_number = m[1].trim();
-    result.invoice_date = `${m[4]}-${monthMap[m[2].toLowerCase()]||'01'}-${m[3].padStart(2,'0')}`;
-    result.invoice_num = m[5].trim();
+  const labelDefs = [
+    {key:'account', re:/Account Number/i},
+    {key:'date', re:/Invoice Date/i},
+    {key:'invoice', re:/Invoice Number/i},
+  ];
+  const positions = labelDefs.map(l=>({...l, idx:t.search(l.re)})).filter(l=>l.idx>=0);
+  let headerVals = null;
+  if (positions.length === 3) {
+    positions.sort((a,b)=>a.idx-b.idx);
+    const last = positions[positions.length-1];
+    const lastMatchLen = (t.slice(last.idx).match(last.re)||[''])[0].length;
+    const window = t.slice(last.idx+lastMatchLen, last.idx+lastMatchLen+120);
+    const tokenRe = /([A-Za-z]{3}[a-z]*\s+\d{1,2},?\s+\d{4}|\d{4,10})/g;
+    const tokens = [];
+    let tm;
+    while ((tm=tokenRe.exec(window)) && tokens.length<3) tokens.push(tm[1]);
+    if (tokens.length === 3) {
+      headerVals = {};
+      positions.forEach((p,i)=>{ headerVals[p.key]=tokens[i]; });
+    }
+  }
+  if (headerVals) {
+    result.account_number = headerVals.account.trim();
+    result.invoice_num = headerVals.invoice.trim();
+    const dm = headerVals.date.match(/([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})/);
+    result.invoice_date = dm ? `${dm[3]}-${monthMap[dm[1].toLowerCase()]||'01'}-${dm[2].padStart(2,'0')}` : '';
   } else {
-    // Fallback for a differently-laid-out header — best effort, independent fields
+    // Last-resort fallback — independent fields, best effort
     result.invoice_num = (t.match(/Invoice Number\s*(\d{5,10})/i)||[])[1] || '';
     result.account_number = (t.match(/Account Number\s*(\d{4,10})/i)||[])[1] || '';
     const dm = t.match(/([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})/);
@@ -2738,6 +2767,7 @@ function cancelReceiptImport(){
 
 // ── Invoice Audit ──
 let currentAuditFile=null;
+let currentEpayExtract=null;
 async function runFullAudit(file){
   if(!file)return;
   currentAuditFile=file;
@@ -2927,14 +2957,12 @@ async function runEpayAudit(flat){
   };
   setMsg('⏳','Auditing ePay/Boost invoice...');
   const ex=parseEpayPdfText(flat);
-  if(!ex.invoice_num){
-    setMsg('❌','Could not find an invoice number on this ePay invoice');
-    setTimeout(()=>{
-      document.getElementById('invDropZone').style.display='block';
-      status.style.display='none';
-    },4000);
-    return;
-  }
+  // Auto-extraction can miss the header on an unusual layout — rather than
+  // block entirely, this still shows everything it COULD read (transaction
+  // lines, totals) and makes Invoice #/Account #/Date editable so staff can
+  // fill in whatever didn't come through automatically, same pattern as the
+  // Order # workaround already used in Phones for unreliable OCR.
+  currentEpayExtract=ex;
 
   // Match each transaction (grouped by phone/Control Number) against logged
   // Boost refills that haven't been verified yet — same spirit as VidaPay's
@@ -2946,16 +2974,22 @@ async function runEpayAudit(flat){
   });
   const matchedCount=lineResults.filter(l=>l.match).length;
   const unmatchedCount=lineResults.length-matchedCount;
+  const missingHeader=!ex.invoice_num||!ex.account_number||!ex.invoice_date;
 
   status.style.display='none';
   results.style.display='block';
-  const hColor=unmatchedCount>0?'var(--gold)':'var(--green)';
+  const hColor=missingHeader?'var(--red)':unmatchedCount>0?'var(--gold)':'var(--green)';
   results.innerHTML=`<div style="border-radius:8px;overflow:hidden;border:2px solid ${hColor};">
-    <div style="background:${hColor};color:#fff;padding:12px 16px;display:flex;justify-content:space-between;">
-      <div style="font-weight:900;">${unmatchedCount>0?unmatchedCount+' Boost sale(s) not yet logged':'✅ All Boost sales matched'}</div>
-      <div style="font-size:11px;">ePay Invoice #${ex.invoice_num}${ex.account_number?' · Acct #'+ex.account_number:''}</div>
+    <div style="background:${hColor};color:#fff;padding:12px 16px;">
+      <div style="font-weight:900;">${missingHeader?'⚠️ Some fields need manual entry':unmatchedCount>0?unmatchedCount+' Boost sale(s) not yet logged':'✅ All Boost sales matched'}</div>
     </div>
     <div style="padding:14px;background:#fff;">
+      ${missingHeader?`<div style="margin-bottom:10px;padding:8px 10px;background:#fef2f2;border:1px solid #fecaca;border-radius:5px;font-size:11px;color:#991b1b;">Couldn't automatically read one or more header fields on this invoice's layout. Fill them in below from the PDF before saving.</div>`:''}
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
+        <div><label style="font-size:9px;font-weight:800;color:var(--muted);text-transform:uppercase;">Invoice #</label><input id="epayInvNum" type="text" value="${ex.invoice_num||''}" style="width:100%;padding:6px 8px;border:1px solid ${ex.invoice_num?'var(--border)':'var(--red)'};border-radius:5px;font-size:12px;"></div>
+        <div><label style="font-size:9px;font-weight:800;color:var(--muted);text-transform:uppercase;">Account #</label><input id="epayAcctNum" type="text" value="${ex.account_number||''}" style="width:100%;padding:6px 8px;border:1px solid ${ex.account_number?'var(--border)':'var(--red)'};border-radius:5px;font-size:12px;"></div>
+        <div><label style="font-size:9px;font-weight:800;color:var(--muted);text-transform:uppercase;">Date</label><input id="epayInvDate" type="date" value="${ex.invoice_date||''}" style="width:100%;padding:6px 8px;border:1px solid ${ex.invoice_date?'var(--border)':'var(--red)'};border-radius:5px;font-size:12px;"></div>
+      </div>
       ${lineResults.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--blue);text-transform:uppercase;margin-bottom:6px;">Boost Transactions (matched by phone number)</div>
         ${lineResults.map(l=>l.match
           ?`<div style="padding:6px 10px;background:var(--green-l);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span><strong>${l.match.phone}</strong> ${l.match.customer_name||''} · ${l.products.join(', ')}</span><span style="color:var(--green);font-weight:700;">Commission ${fmt(l.commission)} <span class="badge b-green">✅</span></span></div>`
@@ -2968,16 +3002,27 @@ async function runEpayAudit(flat){
         <div style="text-align:center;padding:8px;background:var(--green-l);border-radius:5px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">COMMISSION (YOUR PROFIT)</div><div style="font-size:16px;font-weight:900;color:var(--green);">${fmt(ex.commission_total)}</div></div>
       </div>
       <div style="margin-top:12px;display:flex;gap:8px;">
-        <button class="btn" style="background:var(--green);color:#fff;" onclick='saveEpayAuditResult(${JSON.stringify(ex).replace(/'/g,"&#39;")})'>💾 Save to Invoice History</button>
+        <button class="btn" style="background:var(--green);color:#fff;" onclick="saveEpayAuditResult()">💾 Save to Invoice History</button>
         <button class="btn btn-ghost" onclick="document.getElementById('invAuditResults').style.display='none';document.getElementById('invDropZone').style.display='block';">↩ Another</button>
       </div>
     </div>
   </div>`;
 }
 
-async function saveEpayAuditResult(ex){
-  if(!ex.invoice_num){alert('No invoice # found');return;}
-  if(invoices.find(i=>i.invoice_num===String(ex.invoice_num))){alert('Invoice #'+ex.invoice_num+' already saved');return;}
+async function saveEpayAuditResult(){
+  const ex=currentEpayExtract;
+  if(!ex){alert('Nothing to save — drop an invoice first.');return;}
+  // Pull the current (possibly manually corrected) values from the editable
+  // fields rather than trusting only what auto-extraction originally found.
+  const invNum=(document.getElementById('epayInvNum')?.value||'').trim();
+  const acctNum=(document.getElementById('epayAcctNum')?.value||'').trim();
+  const invDate=(document.getElementById('epayInvDate')?.value||'').trim();
+  if(!invNum){alert('Invoice # is required — check the invoice and enter it before saving.');return;}
+  if(invoices.find(i=>i.invoice_num===String(invNum))){alert('Invoice #'+invNum+' already saved');return;}
+  ex.invoice_num=invNum;
+  ex.account_number=acctNum;
+  ex.invoice_date=invDate||null;
+  ex.notes='ePay/Boost Mobile'+(acctNum?' · Acct #'+acctNum:'')+' · Retail $'+(ex.retail_total||0).toFixed(2)+' · Cost $'+(ex.cost_total||0).toFixed(2);
 
   let fileUrl=null;
   if(currentAuditFile){

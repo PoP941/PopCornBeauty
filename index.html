@@ -1644,33 +1644,40 @@ function parseEpayPdfText(rawText) {
   const result = { vendor: 'ePay' };
 
   // The header is three boxes — Account Number / Invoice Date / Invoice
-  // Number — extracted as all three LABELS first, then all three VALUES
-  // after, but which order the three boxes themselves come out in varies by
-  // how the PDF was generated (doesn't always match left-to-right visual
-  // order). This finds each label's actual position, sorts them, then reads
-  // the value tokens immediately after the last label in that SAME relative
-  // order — so it self-adjusts to whatever order this particular PDF uses,
-  // rather than assuming one fixed order.
+  // Number. Verified directly against a real ePay invoice's actual PDF.js
+  // extraction order (not just visual reading order, which is different):
+  // "Invoice Date Invoice Number INVOICE Aug 07, 2026 66946045 Account
+  // Number 492778" — i.e. Date+Invoice# labels, a heading, then their two
+  // values, THEN the Account Number label+value pair separately. This is
+  // the primary pattern now; the order-agnostic block-window approach below
+  // stays as a fallback in case a different invoice template lays out
+  // differently, then a last-resort independent-field search after that.
   const monthMap = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+  let headerVals = null;
+  let m = t.match(/Invoice Date\s*Invoice Number[^0-9]{0,20}([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})\s+(\d{5,10})\s*Account Number\s*(\d{4,10})/i);
+  if (m) {
+    headerVals = { date: `${m[1]} ${m[2]}, ${m[3]}`, invoice: m[4], account: m[5] };
+  }
   const labelDefs = [
     {key:'account', re:/Account Number/i},
     {key:'date', re:/Invoice Date/i},
     {key:'invoice', re:/Invoice Number/i},
   ];
-  const positions = labelDefs.map(l=>({...l, idx:t.search(l.re)})).filter(l=>l.idx>=0);
-  let headerVals = null;
-  if (positions.length === 3) {
-    positions.sort((a,b)=>a.idx-b.idx);
-    const last = positions[positions.length-1];
-    const lastMatchLen = (t.slice(last.idx).match(last.re)||[''])[0].length;
-    const window = t.slice(last.idx+lastMatchLen, last.idx+lastMatchLen+120);
-    const tokenRe = /([A-Za-z]{3}[a-z]*\s+\d{1,2},?\s+\d{4}|\d{4,10})/g;
-    const tokens = [];
-    let tm;
-    while ((tm=tokenRe.exec(window)) && tokens.length<3) tokens.push(tm[1]);
-    if (tokens.length === 3) {
-      headerVals = {};
-      positions.forEach((p,i)=>{ headerVals[p.key]=tokens[i]; });
+  if (!headerVals) {
+    const positions = labelDefs.map(l=>({...l, idx:t.search(l.re)})).filter(l=>l.idx>=0);
+    if (positions.length === 3) {
+      positions.sort((a,b)=>a.idx-b.idx);
+      const last = positions[positions.length-1];
+      const lastMatchLen = (t.slice(last.idx).match(last.re)||[''])[0].length;
+      const window = t.slice(last.idx+lastMatchLen, last.idx+lastMatchLen+120);
+      const tokenRe = /([A-Za-z]{3}[a-z]*\s+\d{1,2},?\s+\d{4}|\d{4,10})/g;
+      const tokens = [];
+      let tm;
+      while ((tm=tokenRe.exec(window)) && tokens.length<3) tokens.push(tm[1]);
+      if (tokens.length === 3) {
+        headerVals = {};
+        positions.forEach((p,i)=>{ headerVals[p.key]=tokens[i]; });
+      }
     }
   }
   if (headerVals) {
@@ -1723,7 +1730,7 @@ function parseEpayPdfText(rawText) {
   // have logged it as a single refill entry.
   const detailIdx = t.search(/Invoice Prepaid Detail/i);
   const detailText = detailIdx >= 0 ? t.slice(detailIdx) : '';
-  const detailRegex = /(\d{2}\/\d{2})\s+(.+?)\s+Sold\s+(\d{2}\/\d{2}\/\d{4})\s+\d{1,2}:\d{2}\s*[AP]M\s+(\d{7,12})\s+\$([\d,]+\.\d{2})\s+(?:\$[\d,]+\.\d{2}|[\d.]+%)\s+\$([\d,]+\.\d{2})\s+\$([\d,]+\.\d{2})/g;
+  const detailRegex = /(\d{2}\/\d{2})\s+(.+?)\s+Sold\s+(\d{2}\/\d{2}\/\d{4})\s+\d{1,2}:\d{2}\s*[AP]M\s*(\d{7,12})\s+\$([\d,]+\.\d{2})\s+(?:\$[\d,]+\.\d{2}|[\d.]+%)\s+\$([\d,]+\.\d{2})\s+\$([\d,]+\.\d{2})/g;
   const byControl = {};
   let dm;
   while ((dm = detailRegex.exec(detailText)) !== null) {

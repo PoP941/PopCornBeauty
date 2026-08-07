@@ -135,7 +135,18 @@ td{padding:10px 12px;vertical-align:middle;}
   @page{size:80mm auto;margin:0;}
   body *{visibility:hidden;}
   #printableReceipt,#printableReceipt *{visibility:visible;}
-  #printableReceipt{position:absolute;top:0;left:0;width:80mm;padding:2mm;}
+  /* Deliberately NOT position:absolute here — an absolutely (or fixed)
+     positioned element gets re-drawn on EVERY page a print job generates,
+     pinned to that page's top-left corner. If the printer driver doesn't
+     fully honor @page height:auto and internally splits the job into a
+     few short pages, an absolutely-positioned receipt reprints in full on
+     each one — which is exactly what caused triplicate receipts on a
+     one-shot continuous roll. Letting it sit in normal flow means it only
+     exists once, so it can only print once, however many pages the driver
+     decides to use internally. */
+  .receipt-modal-overlay{position:static!important;display:block!important;background:none!important;inset:auto!important;padding:0!important;margin:0!important;}
+  .receipt-modal-card{position:static!important;padding:0!important;margin:0!important;max-width:none!important;width:auto!important;max-height:none!important;overflow:visible!important;}
+  #printableReceipt{width:80mm;padding:2mm;border:none;}
   .receipt-no-print{display:none!important;}
 }
 </style>

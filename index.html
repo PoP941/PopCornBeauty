@@ -154,7 +154,10 @@ td{padding:10px 12px;vertical-align:middle;}
      .rc-row), so short left-aligned labels never sit flush against
      whatever the container's own edge is — two independent buffers
      instead of relying on getting one exact number right. */
-  #printableReceipt{width:80mm;padding:5mm 6mm 5mm 8mm;border:none;box-sizing:border-box;}
+  /* Content box is narrower than the full 80mm page and centered within
+     it (margin:0 auto), rather than stretching edge-to-edge — gives even
+     breathing room on both sides instead of text hugging the left edge. */
+  #printableReceipt{width:68mm;margin:0 auto;padding:5mm;border:none;box-sizing:border-box;}
   .receipt-no-print{display:none!important;}
 }
 </style>

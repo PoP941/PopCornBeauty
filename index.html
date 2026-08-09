@@ -185,7 +185,26 @@ td{padding:10px 12px;vertical-align:middle;}
       <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" style="padding:11px 14px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;font-family:inherit;" onkeydown="if(event.key==='Enter')doSignIn()">
       <button onclick="doSignIn()" style="padding:12px;border:none;border-radius:7px;background:#5b21b6;color:#fff;font-weight:800;font-size:14px;cursor:pointer;margin-top:4px;">Sign In</button>
       <div id="auth-error" style="color:#dc2626;font-size:12px;text-align:center;display:none;"></div>
+      <div style="text-align:center;margin-top:2px;">
+        <a href="#" onclick="showForgotPassword();return false;" style="font-size:12px;color:#5b21b6;text-decoration:none;font-weight:700;">Forgot password?</a>
+      </div>
       <div style="font-size:11px;color:#999;text-align:center;margin-top:8px;">No account? Ask your admin to add you in Supabase.</div>
+    </div>
+    <div id="forgot-password-panel" style="display:none;flex-direction:column;gap:10px;">
+      <div style="font-size:13px;color:#444;text-align:center;margin-bottom:2px;">Enter your email and we'll send a reset link.</div>
+      <input id="forgot-email" type="email" placeholder="Email" autocomplete="username" style="padding:11px 14px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;font-family:inherit;" onkeydown="if(event.key==='Enter')doRequestPasswordReset()">
+      <button onclick="doRequestPasswordReset()" style="padding:12px;border:none;border-radius:7px;background:#5b21b6;color:#fff;font-weight:800;font-size:14px;cursor:pointer;">Send Reset Link</button>
+      <div id="forgot-status" style="font-size:12px;text-align:center;display:none;"></div>
+      <div style="text-align:center;margin-top:2px;">
+        <a href="#" onclick="hideForgotPassword();return false;" style="font-size:12px;color:#666;text-decoration:none;">← Back to sign in</a>
+      </div>
+    </div>
+    <div id="reset-password-panel" style="display:none;flex-direction:column;gap:10px;">
+      <div style="font-size:13px;color:#444;text-align:center;margin-bottom:2px;">Set a new password for your account.</div>
+      <input id="new-password-1" type="password" placeholder="New password" autocomplete="new-password" style="padding:11px 14px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;font-family:inherit;">
+      <input id="new-password-2" type="password" placeholder="Confirm new password" autocomplete="new-password" style="padding:11px 14px;border:1.5px solid #ddd;border-radius:7px;font-size:14px;font-family:inherit;" onkeydown="if(event.key==='Enter')doSetNewPassword()">
+      <button onclick="doSetNewPassword()" style="padding:12px;border:none;border-radius:7px;background:#5b21b6;color:#fff;font-weight:800;font-size:14px;cursor:pointer;">Set New Password</button>
+      <div id="reset-status" style="color:#dc2626;font-size:12px;text-align:center;display:none;"></div>
     </div>
   </div>
 </div>
@@ -3875,6 +3894,44 @@ async function doSignIn(){
   if(error){errEl.textContent=error.message;errEl.style.display='block';return;}
   // onAuthStateChange below will pick up the new session and call showApp()
 }
+function showForgotPassword(){
+  document.querySelector('#auth-email').closest('div').style.display='none';
+  document.getElementById('forgot-password-panel').style.display='flex';
+  document.getElementById('forgot-email').value=document.getElementById('auth-email').value||'';
+}
+function hideForgotPassword(){
+  document.getElementById('forgot-password-panel').style.display='none';
+  document.querySelector('#auth-email').closest('div').style.display='flex';
+  document.getElementById('forgot-status').style.display='none';
+}
+async function doRequestPasswordReset(){
+  const email=document.getElementById('forgot-email').value.trim();
+  const statusEl=document.getElementById('forgot-status');
+  if(!email){statusEl.style.color='#dc2626';statusEl.textContent='Enter your email first.';statusEl.style.display='block';return;}
+  // redirectTo points back at this same page — Supabase appends recovery
+  // tokens to the URL, which onAuthStateChange below catches as a
+  // PASSWORD_RECOVERY event and routes to the "set new password" screen
+  // instead of the normal app.
+  const{error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:window.location.origin+window.location.pathname});
+  if(error){statusEl.style.color='#dc2626';statusEl.textContent=error.message;statusEl.style.display='block';return;}
+  statusEl.style.color='#16a34a';
+  statusEl.textContent='✅ Check your email for a reset link.';
+  statusEl.style.display='block';
+}
+async function doSetNewPassword(){
+  const p1=document.getElementById('new-password-1').value;
+  const p2=document.getElementById('new-password-2').value;
+  const statusEl=document.getElementById('reset-status');
+  statusEl.style.display='none';
+  if(!p1||p1.length<6){statusEl.textContent='Password must be at least 6 characters.';statusEl.style.display='block';return;}
+  if(p1!==p2){statusEl.textContent='Passwords don\'t match.';statusEl.style.display='block';return;}
+  const{error}=await sb.auth.updateUser({password:p1});
+  if(error){statusEl.textContent=error.message;statusEl.style.display='block';return;}
+  alert('✅ Password updated! You\'re now signed in.');
+  document.getElementById('reset-password-panel').style.display='none';
+  isPasswordRecovery=false;
+  showApp();
+}
 async function doSignOut(){
   await sb.auth.signOut();
   currentUser=null;
@@ -3883,11 +3940,28 @@ async function doSignOut(){
   hideIdleWarning();
   showAuthGate();
 }
+// PASSWORD_RECOVERY fires when someone lands here via a reset-link email —
+// Supabase establishes a real (temporary) session for that click so the
+// password can be updated, but that session should NOT be treated as a
+// normal login. Without this check, onAuthStateChange's default handling
+// below would call showApp() and drop them straight into the dashboard
+// instead of making them set a new password first.
+let isPasswordRecovery=false;
 sb.auth.onAuthStateChange((event,session)=>{
+  if(event==='PASSWORD_RECOVERY'){
+    isPasswordRecovery=true;
+    document.getElementById('appRoot').style.display='none';
+    document.getElementById('authGate').style.display='flex';
+    document.querySelector('#auth-email').closest('div').style.display='none';
+    document.getElementById('forgot-password-panel').style.display='none';
+    document.getElementById('reset-password-panel').style.display='flex';
+    return;
+  }
+  if(isPasswordRecovery)return; // stay on the reset screen until they actually set a new password
   if(session)showApp();else showAuthGate();
 });
 sb.auth.getSession().then(({data})=>{
-  if(data.session)showApp();else showAuthGate();
+  if(data.session&&!isPasswordRecovery)showApp();else if(!isPasswordRecovery)showAuthGate();
 });
 
 // ── Idle session timeout ──────────────────────────────────────────────

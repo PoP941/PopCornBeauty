@@ -2388,7 +2388,7 @@ function renderTeam(){
       :p.role==='manager'
       ?(()=>{const monthNames=['January','February','March','April','May','June','July','August','September','October','November','December'];const curMonth=monthNames[new Date().getMonth()];return`<input type="number" min="1" max="99" value="${goals[curMonth]||10}" style="border:1px solid var(--border);background:transparent;font-size:12px;padding:4px 6px;border-radius:4px;width:70px;" onchange="updateGoal('${curMonth}',this.value)" title="Store-wide goal for ${curMonth} — same number everyone sees on the Dashboard">`;})()
       :'<span style="color:var(--muted);font-size:11px;">—</span>'}</td>
-    <td style="font-size:11px;color:var(--muted);">${fmtDate(p.created_at)}</td>
+    <td><input type="date" value="${p.joined_date||''}" style="border:1px solid var(--border);background:transparent;font-size:11px;color:var(--muted);padding:4px 6px;border-radius:4px;" onchange="updateProfileField('${p.id}','joined_date',this.value||null)"></td>
   </tr>`).join('');
 }
 const soStatusColors={Pending:'var(--gold)',Ordered:'var(--blue)',Received:'var(--teal)',Fulfilled:'var(--green)',Cancelled:'var(--muted)'};

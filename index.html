@@ -2891,16 +2891,25 @@ async function runFullAudit(file){
     const marketplaceRows=rows.filter(r=>r.type.includes('marketplace'));
     const rtrRows=rows.filter(r=>r.type.includes('sales'));
     const feeRows=rows.filter(r=>r.type==='fee');
+    // A negative Sales Order = a reversal (customer canceled within
+    // seconds/minutes of the sale). Its matching original charge — same
+    // product, exact opposite amount — never got money collected either,
+    // so neither side of the pair should be flagged as a missing refill.
+    const reversedKeys=new Set(rtrRows.filter(r=>r.amount<0).map(r=>Math.abs(r.amount)+'|'+r.product));
 
     // Cross-check against what's actually logged in the app
     const actResults=actRows.map(r=>({...r,act:activations.find(a=>a.order_num===r.order)}));
-    const rtrResults=rtrRows.map(r=>({...r,ref:refills.find(f=>f.order_num===r.order)}));
+    const rtrResults=rtrRows.map(r=>({
+      ...r,
+      ref:refills.find(f=>f.order_num===r.order),
+      isRefund:r.amount<0||reversedKeys.has(r.amount+'|'+r.product),
+    }));
     const spiffResults=spiffRows.map(r=>({...r,act:activations.find(a=>a.order_num===r.order)}));
     // Branded MarketPlace = device/phone purchases. One order # can cover multiple physical
     // units (see the multi-IMEI inventory import), so it's a match as long as AT LEAST ONE
     // phone in inventory carries this order #.
     const marketplaceResults=marketplaceRows.map(r=>({...r,phone:phones.find(p=>p.order_num===r.order)}));
-    const issues=actResults.filter(r=>!r.act).length+rtrResults.filter(r=>!r.ref).length+marketplaceResults.filter(r=>!r.phone).length;
+    const issues=actResults.filter(r=>!r.act).length+rtrResults.filter(r=>!r.ref&&!r.isRefund).length+marketplaceResults.filter(r=>!r.phone).length;
     const allGood=issues===0&&(actResults.length+rtrResults.length+marketplaceResults.length)>0;
     const hColor=allGood?'var(--green)':issues>0?'var(--red)':'var(--gold)';
     const feeTotal=feeRows.reduce((s,r)=>s+r.amount,0);
@@ -2912,8 +2921,15 @@ async function runFullAudit(file){
     // isn't recognized by rowRe yet and is being silently dropped — same failure mode as the
     // earlier Promo Order bug, just with a different label next time. Catch it here instead
     // of finding out from a wrong saved total months later.
-    const reconDebits=actRows.reduce((s,r)=>s+r.amount,0)+rtrRows.reduce((s,r)=>s+r.amount,0)+feeTotal+marketplaceTotal+Math.max(0,residualTotal);
-    const reconCredits=spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)+promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)+additionalSpiffTotal+Math.max(0,-residualTotal);
+    // Sales Order reversals (a negative amount, shown in parens on the PDF)
+    // happen when a customer cancels seconds after a sale — VidaPay records
+    // it as a full charge-then-reversal pair on the SAME invoice, and its
+    // own header keeps that reversal in the CREDIT column rather than
+    // netting it against the original charge in the DEBIT column. The
+    // reconciliation check needs to split them the same way, or it
+    // undercounts debits by exactly the refunded amount every time.
+    const reconDebits=actRows.reduce((s,r)=>s+r.amount,0)+rtrRows.filter(r=>r.amount>=0).reduce((s,r)=>s+r.amount,0)+feeTotal+marketplaceTotal+Math.max(0,residualTotal);
+    const reconCredits=spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)+promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)+additionalSpiffTotal+Math.max(0,-residualTotal)+rtrRows.filter(r=>r.amount<0).reduce((s,r)=>s+Math.abs(r.amount),0);
     const reconMismatch=Math.abs(reconDebits-totalDebits)>0.02||Math.abs(reconCredits-totalCredits)>0.02;
     if(status)status.style.display='none';
     if(results)results.style.display='block';
@@ -2948,6 +2964,8 @@ async function runFullAudit(file){
         ${rtrResults.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--gold);text-transform:uppercase;margin-bottom:6px;">RTR/Refill Orders</div>
           ${rtrResults.map(r=>r.ref
             ?`<div style="padding:6px 10px;background:var(--green-l);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span><strong>${r.ref.phone}</strong></span><span style="color:var(--blue);font-family:monospace;">#${r.order} <span class="badge b-green">✅</span></span></div>`
+            :r.isRefund
+            ?`<div style="padding:6px 10px;background:#f3f4f6;border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--muted);">Order #${r.order}${r.product?' · '+r.product:''}</span><span style="color:var(--muted);font-weight:700;">↩ Refunded — no action needed</span></div>`
             :`<div style="padding:6px 10px;background:#fff8e1;border-left:3px solid var(--gold);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--gold);font-weight:700;">Order #${r.order} — not logged</span><button class="btn btn-ghost" style="font-size:10px;padding:2px 8px;" onclick="document.getElementById('ref-order').value='${r.order}';document.getElementById('ref-date').value=mdyToIso('${r.date}');showTab('refills')">Log →</button></div>`
           ).join('')}
         </div>`:''}

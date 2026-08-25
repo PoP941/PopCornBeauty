@@ -252,7 +252,7 @@ td{padding:10px 12px;vertical-align:middle;}
       <div class="net-item"><div class="net-item-val" id="dashRefillProfit" style="color:#fcd34d">$0.00</div><div class="net-item-lbl">Refill Profit</div></div>
       <div class="net-div"></div>
   <div id="managerCountsBox" style="display:none;background:#1a1a1a;border-left:5px solid var(--teal);border-radius:8px;padding:22px 28px;margin-bottom:20px;">
-    <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">This Month So Far — Store-Wide</div>
+    <div style="font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;" id="mgrCountsLabel">This Month So Far — Store-Wide</div>
     <div style="display:flex;gap:32px;flex-wrap:wrap;">
       <div><div style="font-size:28px;font-weight:900;color:#86efac;" id="mgrActCount">0</div><div style="font-size:11px;color:#9ca3af;">Activations</div></div>
       <div><div style="font-size:28px;font-weight:900;color:#fcd34d;" id="mgrRefCount">0</div><div style="font-size:11px;color:#9ca3af;">Refills</div></div>
@@ -402,7 +402,7 @@ td{padding:10px 12px;vertical-align:middle;}
   </div>
   <div class="ref-stats">
     <div class="kpi" style="--acc:var(--teal)"><div class="kpi-label">Total Refills</div><div class="kpi-value" id="refCount" style="color:var(--teal)">0</div></div>
-    <div class="kpi" style="--acc:var(--green)"><div class="kpi-label">Total Collected</div><div class="kpi-value" id="refCollected" style="color:var(--green);font-size:16px">$0.00</div></div>
+    <div class="kpi ownerOnlyCol" style="--acc:var(--green)"><div class="kpi-label">Total Collected</div><div class="kpi-value" id="refCollected" style="color:var(--green);font-size:16px">$0.00</div></div>
     <div class="kpi ownerOnlyCol" style="--acc:var(--gold)"><div class="kpi-label">Your Profit 8%</div><div class="kpi-value" id="refProfit" style="color:var(--gold);font-size:16px">$0.00</div></div>
     <div class="kpi ownerOnlyCol" style="--acc:var(--red)"><div class="kpi-label">SM Payout 92%</div><div class="kpi-value" id="refSM" style="color:var(--red);font-size:16px">$0.00</div></div>
     <div class="kpi" style="--acc:var(--pink)"><div class="kpi-label">Linked Acts.</div><div class="kpi-value" id="refLinked" style="color:var(--pink)">0</div></div>
@@ -1071,6 +1071,11 @@ async function loadAll(){
   storeSettings=s.data||{store_name:'Popcorn Beauty',store_address:'',store_phone:'',
     activation_policy:'',refill_policy:'',phone_sale_policy:''};
   promotions=pr.data||[];
+  // Default to This Month on load, not the full history — staff working day to
+  // day want today's/this month's activity front and center, not scrolling
+  // past months of old rows. "All Time" is still one click away.
+  setRefillRange('month');
+  if(isOwner)setInvoiceRange('month');
   renderAll();
 }
 function setupRealtime(){
@@ -1335,7 +1340,7 @@ async function addRefill(){
   alert('✅ Refill saved!\n'+phone);
   showReceiptModal('refill',{phone,plan:refPlan,amount,date:new Date(),repName:currentUser?.name,policySnapshot:storeSettings?.refill_policy});
 }
-function clearRef(){['ref-phone','ref-customer','ref-order','ref-date','ref-amount','ref-group'].forEach(id=>document.getElementById(id).value='');document.getElementById('ref-plan').value='';refPlanChanged('');document.getElementById('refLookupPanel').style.display='none';document.getElementById('refLookupHint').style.display='inline';document.getElementById('familyGroupHint').style.display='none';}
+function clearRef(){['ref-phone','ref-customer','ref-order','ref-date','ref-amount','ref-group'].forEach(id=>document.getElementById(id).value='');document.getElementById('ref-plan').value='';refPlanChanged('');document.getElementById('refLookupPanel').style.display='none';document.getElementById('refLookupHint').style.display='inline';document.getElementById('familyGroupHint').style.display='none';delete document.getElementById('ref-customer').dataset.autofilled;lastLookupDigits='';}
 // Live check: does this tag already link to other phone numbers? Lets a rep confirm
 // they're tagging the right household before saving, e.g. a second line on the same
 // family plan the invoice bills together but under separate order #s.
@@ -1354,10 +1359,26 @@ function checkFamilyGroup(tag){
   }
 }
 
+let lastLookupDigits='';
 function lookupRefillPhone(phone){
   const panel=document.getElementById('refLookupPanel');
   const hint=document.getElementById('refLookupHint');
-  if(!phone||phone.length<7){panel.style.display='none';hint.style.display='inline';return;}
+  if(!phone||phone.length<7){panel.style.display='none';hint.style.display='inline';lastLookupDigits='';return;}
+
+  const digitsNow=phone.replace(/\D/g,'');
+  if(digitsNow!==lastLookupDigits){
+    // Phone number changed since the last lookup (rep deleted and entered a
+    // different number). If the customer name currently showing was filled
+    // in automatically for the PREVIOUS number, clear it before looking up
+    // the new one — otherwise the old customer's name silently lingers.
+    // A name the rep typed in themselves is left alone either way.
+    const custInput=document.getElementById('ref-customer');
+    if(custInput&&custInput.dataset.autofilled==='1'){
+      custInput.value='';
+      delete custInput.dataset.autofilled;
+    }
+    lastLookupDigits=digitsNow;
+  }
 
   // Auto-fill the Family/Group Tag if this number has ever been linked to one before, so
   // a rep never has to remember or retype which family a returning number belongs to —
@@ -1402,7 +1423,7 @@ function lookupRefillPhone(phone){
         'First payment: '+firstDate+' · '+count+' payment'+(count!==1?'s':'')+' logged · $'+totalPaid.toFixed(2)+' total collected';
       document.getElementById('refLookupPaidThru').textContent=count+' month'+(count!==1?'s':'')+' paid';
       const custInput=document.getElementById('ref-customer');
-      if(custInput&&!custInput.value&&custName!=='Unknown Customer')custInput.value=custName;
+      if(custInput&&custName!=='Unknown Customer'&&(!custInput.value||custInput.dataset.autofilled==='1')){custInput.value=custName;custInput.dataset.autofilled='1';}
       const timeline=document.getElementById('refLookupTimeline');
       timeline.innerHTML=`<div style="display:flex;gap:4px;flex-wrap:wrap;">${history.map((r,i)=>
         `<div style="width:22px;height:22px;border-radius:50%;background:#dcfce7;border:2px solid #16a34a;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#16a34a;" title="${r.ref_date?new Date(r.ref_date+'T12:00:00').toLocaleDateString():''}">${i+1}</div>`
@@ -1471,7 +1492,7 @@ function lookupRefillPhone(phone){
     ' · '+planMo+'-month plan ('+planMo+' month'+(planMo!==1?'s':'')+' front-loaded at activation)';
   document.getElementById('refLookupPaidThru').textContent=paidLabel;
   const custInput=document.getElementById('ref-customer');
-  if(custInput&&!custInput.value&&act.customer_name)custInput.value=act.customer_name;
+  if(custInput&&act.customer_name&&(!custInput.value||custInput.dataset.autofilled==='1')){custInput.value=act.customer_name;custInput.dataset.autofilled='1';}
 
   // Timeline dots — the fixed 6-month promo schedule. First `planMo` are blue (bundled with
   // the plan itself). Beyond that, each green dot represents an actual logged refill.
@@ -1603,7 +1624,7 @@ function renderRefills(){
     const cust=r.customer_name||activations.find(a=>a.phone===r.phone)?.customer_name||'—';
     return`<tr>
       <td><span class="phone-t">${r.phone}</span>${r.group_tag?`<div><span class="badge b-blue" style="font-size:9px;margin-top:2px;">👨‍👩‍👧 ${r.group_tag}</span></div>`:''}</td>
-      <td>${isBoost?`<span class="badge b-blue" style="font-size:9px;" title="ePay/Boost Mobile — no order # exists, verified by phone against the invoice">ePay</span> ${r.verified?`<span class="badge b-green" style="font-size:9px;" title="Matched to invoice #${r.matched_invoice_num||''}">✅ Verified</span>`:`<span class="badge b-gray" style="font-size:9px;" title="Not yet matched to an ePay invoice">⏳ Pending</span>`}`:`<span class="order-t">${r.order_num||'—'}</span>`}</td>
+      <td>${isBoost?`<span class="badge b-blue" style="font-size:9px;" title="ePay/Boost Mobile — no order # exists, verified by phone against the invoice">ePay</span> ${r.verified?`<span class="badge b-green" style="font-size:9px;" title="Matched to invoice #${r.matched_invoice_num||''}">✅ Verified</span>`:`<span class="badge b-gray" style="font-size:9px;" title="Not yet matched to an ePay invoice">⏳ Pending</span>`}`:((currentUser?.role||'')==='owner'?`<input type="text" value="${r.order_num||''}" class="order-t" style="border:1px solid var(--border);background:transparent;font-size:12px;padding:3px 5px;border-radius:4px;width:100px;" onchange="updateRefillField(${r.id},'order_num',this.value.trim())" title="Owner-only: fix a mistyped order number without deleting the row">`:`<span class="order-t">${r.order_num||'—'}</span>`)}</td>
       <td>${fmtDate(r.ref_date)}</td>
       <td>${r.plan||'—'}</td>
       <td class="money-t" style="color:var(--green)">${fmt(amt)}</td>
@@ -3608,18 +3629,25 @@ function renderMonthSnapshot(){
 // Manager view: counts only, no dollar figures — activations/refills/phones sold this
 // month, store-wide (not just this manager's own).
 function renderManagerCounts(){
-  if(currentUser?.role!=='manager')return;
+  const role=currentUser?.role;
+  if(role!=='manager'&&role!=='rep')return;
   const now=new Date();
   const inThisMonth=(d)=>{
     if(!d)return false;
     const dt=new Date(d+'T12:00:00');
     return dt.getFullYear()===now.getFullYear()&&dt.getMonth()===now.getMonth();
   };
-  const actCount=activations.filter(a=>inThisMonth(a.act_date)).length;
-  const refCount=refills.filter(r=>inThisMonth(r.ref_date)).length;
-  const phoneCount=phones.filter(p=>p.status==='Sold'&&inThisMonth(p.sale_date)).length;
+  // Manager sees store-wide totals (their job is overseeing everyone); rep
+  // sees only their own numbers — same split already used for the goal
+  // countdown banner, kept consistent here.
+  const isRep=role==='rep';
+  const actCount=activations.filter(a=>inThisMonth(a.act_date)&&(!isRep||a.rep_id===currentUser.id)).length;
+  const refCount=refills.filter(r=>inThisMonth(r.ref_date)&&(!isRep||r.rep_id===currentUser.id)).length;
+  const phoneCount=phones.filter(p=>p.status==='Sold'&&inThisMonth(p.sale_date)&&(!isRep||p.sold_by===currentUser.id)).length;
   const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v;};
   set('mgrActCount',actCount);set('mgrRefCount',refCount);set('mgrPhoneCount',phoneCount);
+  const labelEl=document.getElementById('mgrCountsLabel');
+  if(labelEl)labelEl.textContent=isRep?'This Month So Far — Your Numbers':'This Month So Far — Store-Wide';
 }
 // Goal countdown — individual per rep (their own activations this month vs their personal
 // monthly_goal), or store-wide for manager (their job is driving overall traffic, so their
@@ -3894,9 +3922,10 @@ function applyRoleGating(){
   // actually need (IMEI, rebate, return date to verify before a sale).
   const salesLog=document.getElementById('salesLogSection');
   if(salesLog)salesLog.style.display=role==='owner'?'':'none';
-  // Manager gets counts + commission structure instead of the $ hero.
+  // Manager and rep both get counts + commission structure instead of the $ hero
+  // (manager: store-wide, rep: their own — see renderManagerCounts).
   const mgrBox=document.getElementById('managerCountsBox');
-  if(mgrBox)mgrBox.style.display=role==='manager'?'block':'none';
+  if(mgrBox)mgrBox.style.display=(role==='manager'||role==='rep')?'block':'none';
 }
 function showAuthGate(){
   document.getElementById('authGate').style.display='flex';

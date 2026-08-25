@@ -355,7 +355,17 @@ td{padding:10px 12px;vertical-align:middle;}
   </div>
   <div class="section-hdr">
     <div class="section-title">📱 Activation Log (<span id="actCount">0</span>)</div>
-    <span class="ownerOnlyCol" style="font-size:13px;font-weight:800;color:var(--gold)" id="actTotalSpiff">$0.00 earned</span>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+      <span class="ownerOnlyCol" style="font-size:13px;font-weight:800;color:var(--gold)" id="actTotalSpiff">$0.00 earned</span>
+      <button class="btn btn-ghost" id="actBtnAll" style="font-size:10px;padding:4px 10px;" onclick="setActivationRange('all')">All Time</button>
+      <button class="btn btn-ghost" id="actBtnToday" style="font-size:10px;padding:4px 10px;" onclick="setActivationRange('today')">Today</button>
+      <button class="btn btn-ghost" id="actBtnMonth" style="font-size:10px;padding:4px 10px;" onclick="setActivationRange('month')">This Month</button>
+      <button class="btn btn-ghost" id="actBtnYear" style="font-size:10px;padding:4px 10px;" onclick="setActivationRange('year')">This Year</button>
+      <span style="font-size:10px;color:var(--muted);">or:</span>
+      <input id="activation-from" type="date" style="padding:3px 5px;border:1.5px solid var(--border);border-radius:5px;font-size:11px;" onchange="setActivationRange('custom')">
+      <span style="font-size:10px;color:var(--muted);">to</span>
+      <input id="activation-to" type="date" style="padding:3px 5px;border:1.5px solid var(--border);border-radius:5px;font-size:11px;" onchange="setActivationRange('custom')">
+    </div>
   </div>
   <div class="table-wrap"><div class="table-scroll"><table>
     <thead><tr><th>Phone #</th><th>Order #</th><th>Customer</th><th>PIN</th><th>IMEI</th><th>Date</th><th>Carrier</th><th>Plan</th><th>MRC</th><th>Subsidy</th><th>Spiff Adj</th><th>Net</th><th>M1</th><th>M2</th><th>M3</th><th>M4</th><th>M5</th><th>M6</th><th class="ownerOnlyCol">Earned to Date</th><th>Refills</th><th>Status</th><th></th></tr></thead>
@@ -463,7 +473,17 @@ td{padding:10px 12px;vertical-align:middle;}
   <div id="salesLogSection">
   <div class="section-hdr">
     <div class="section-title">✅ Sales Log (<span id="soldCount">0</span>)</div>
-    <span style="font-size:13px;font-weight:800;color:var(--gold)" id="totalSaleProfit">Total Profit: $0.00</span>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+      <span style="font-size:13px;font-weight:800;color:var(--gold)" id="totalSaleProfit">Total Profit: $0.00</span>
+      <button class="btn btn-ghost" id="phBtnAll" style="font-size:10px;padding:4px 10px;" onclick="setPhoneRange('all')">All Time</button>
+      <button class="btn btn-ghost" id="phBtnToday" style="font-size:10px;padding:4px 10px;" onclick="setPhoneRange('today')">Today</button>
+      <button class="btn btn-ghost" id="phBtnMonth" style="font-size:10px;padding:4px 10px;" onclick="setPhoneRange('month')">This Month</button>
+      <button class="btn btn-ghost" id="phBtnYear" style="font-size:10px;padding:4px 10px;" onclick="setPhoneRange('year')">This Year</button>
+      <span style="font-size:10px;color:var(--muted);">or:</span>
+      <input id="phone-from" type="date" style="padding:3px 5px;border:1.5px solid var(--border);border-radius:5px;font-size:11px;" onchange="setPhoneRange('custom')">
+      <span style="font-size:10px;color:var(--muted);">to</span>
+      <input id="phone-to" type="date" style="padding:3px 5px;border:1.5px solid var(--border);border-radius:5px;font-size:11px;" onchange="setPhoneRange('custom')">
+    </div>
   </div>
   <div class="table-wrap"><div class="table-scroll"><table>
     <thead><tr><th>Customer Phone #</th><th>IMEI</th><th>Model</th><th>Cost</th><th>Sale Price</th><th>Profit</th><th>Subsidy</th><th>Phone Total</th><th>+ Plan Commission</th><th>Grand Total</th><th>Sale Date</th><th></th></tr></thead>
@@ -1075,6 +1095,8 @@ async function loadAll(){
   // day want today's/this month's activity front and center, not scrolling
   // past months of old rows. "All Time" is still one click away.
   setRefillRange('month');
+  setActivationRange('month');
+  setPhoneRange('month');
   if(isOwner)setInvoiceRange('month');
   renderAll();
 }
@@ -1187,10 +1209,12 @@ function monthPositionLabel(pos){
 }
 
 function renderActivations(){
+  updateActivationRangeButtons();
   const tbody=document.getElementById('actTable');
-  if(!activations.length){tbody.innerHTML='<tr><td colspan="22" class="empty-state">No activations yet</td></tr>';document.getElementById('actCount').textContent='0';document.getElementById('actTotalSpiff').textContent='$0.00 earned';return;}
+  const filtered=activations.filter(a=>inActivationRange(a.act_date));
+  if(!filtered.length){tbody.innerHTML='<tr><td colspan="22" class="empty-state">No activations '+(activationRangeMode==='all'?'yet':'in this range')+'</td></tr>';document.getElementById('actCount').textContent='0';document.getElementById('actTotalSpiff').textContent='$0.00 earned';return;}
   let totalEarned=0;
-  tbody.innerHTML=activations.map(a=>{
+  tbody.innerHTML=filtered.map(a=>{
     const mrc=parseFloat(a.mrc)||0,sub=parseFloat(a.subsidy)||0,sp=parseFloat(a.spiff)||0;
     const moMrc=monthlyMrc(a); // true monthly rate the spiff table is actually applied to
     const sched=pctsForDate(a.act_date); // schedule locked to THIS activation's own date
@@ -1235,7 +1259,7 @@ function renderActivations(){
       <td><button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="reprintActivationReceipt(${a.id})" title="Reprint receipt">🖨️</button>${(currentUser?.role||'owner')==='owner'?`<button class="del-btn" onclick="deleteActivation(${a.id})">✕</button>`:''}</td>
     </tr>`;
   }).join('');
-  document.getElementById('actCount').textContent=activations.length;
+  document.getElementById('actCount').textContent=filtered.length;
   document.getElementById('actTotalSpiff').textContent=fmt(totalEarned)+' earned so far';
 }
 
@@ -1573,6 +1597,58 @@ function refillTrigger(phone,rid){
 }
 
 let refillRangeMode='all';
+let activationRangeMode='all';
+function setActivationRange(mode){
+  activationRangeMode=mode;
+  const fromEl=document.getElementById('activation-from'),toEl=document.getElementById('activation-to');
+  const today=new Date().toISOString().slice(0,10);
+  if(mode==='today'){fromEl.value=today;toEl.value=today;}
+  else if(mode==='month'){fromEl.value=today.slice(0,8)+'01';toEl.value=today;}
+  else if(mode==='year'){fromEl.value=today.slice(0,4)+'-01-01';toEl.value=today.slice(0,4)+'-12-31';}
+  else if(mode==='all'){fromEl.value='';toEl.value='';}
+  renderActivations();
+}
+function updateActivationRangeButtons(){
+  [['actBtnAll','all'],['actBtnToday','today'],['actBtnMonth','month'],['actBtnYear','year']].forEach(([id,mode])=>{
+    const btn=document.getElementById(id);if(!btn)return;
+    btn.style.cssText=activationRangeMode===mode?'font-size:10px;padding:4px 10px;background:var(--blue);color:#fff;':'font-size:10px;padding:4px 10px;';
+  });
+}
+function inActivationRange(dateStr){
+  const from=document.getElementById('activation-from')?.value,to=document.getElementById('activation-to')?.value;
+  if(!from&&!to)return true;
+  if(!dateStr)return false;
+  const d=String(dateStr).slice(0,10);
+  if(from&&d<from)return false;
+  if(to&&d>to)return false;
+  return true;
+}
+let phoneRangeMode='all';
+function setPhoneRange(mode){
+  phoneRangeMode=mode;
+  const fromEl=document.getElementById('phone-from'),toEl=document.getElementById('phone-to');
+  const today=new Date().toISOString().slice(0,10);
+  if(mode==='today'){fromEl.value=today;toEl.value=today;}
+  else if(mode==='month'){fromEl.value=today.slice(0,8)+'01';toEl.value=today;}
+  else if(mode==='year'){fromEl.value=today.slice(0,4)+'-01-01';toEl.value=today.slice(0,4)+'-12-31';}
+  else if(mode==='all'){fromEl.value='';toEl.value='';}
+  renderPhones();
+}
+function updatePhoneRangeButtons(){
+  [['phBtnAll','all'],['phBtnToday','today'],['phBtnMonth','month'],['phBtnYear','year']].forEach(([id,mode])=>{
+    const btn=document.getElementById(id);if(!btn)return;
+    btn.style.cssText=phoneRangeMode===mode?'font-size:10px;padding:4px 10px;background:var(--blue);color:#fff;':'font-size:10px;padding:4px 10px;';
+  });
+}
+function inPhoneRange(dateStr){
+  const from=document.getElementById('phone-from')?.value,to=document.getElementById('phone-to')?.value;
+  if(!from&&!to)return true;
+  if(!dateStr)return false;
+  const d=String(dateStr).slice(0,10);
+  if(from&&d<from)return false;
+  if(to&&d>to)return false;
+  return true;
+}
 function setRefillRange(mode){
   refillRangeMode=mode;
   const fromEl=document.getElementById('refill-from'),toEl=document.getElementById('refill-to');
@@ -1644,42 +1720,6 @@ function renderRefills(){
 }
 
 function daysLeft(d){if(!d)return null;const dl=new Date(d+'T12:00:00');dl.setDate(dl.getDate()+30);return Math.round((dl-new Date())/86400000);}
-
-function renderPhones(){
-  const tbody=document.getElementById('phTable');let tp=0;
-  document.getElementById('phoneCount').textContent=phones.length;
-  if(!phones.length){tbody.innerHTML='<tr><td colspan="17" class="empty-state">No phones logged yet</td></tr>';document.getElementById('phoneTotalProfit').textContent='Total Profit: $0.00';return;}
-  tbody.innerHTML=phones.map(p=>{
-    const cost=parseFloat(p.cost)||0,sale=parseFloat(p.sale_price)||0,sub=parseFloat(p.subsidy)||0,reb=parseFloat(p.rebate_expected)||0;
-    const sp=sale-cost,tot=sp+sub;tp+=tot;
-    const dl=daysLeft(p.purchase_date);
-    const dlC=dl===null?'var(--muted)':dl<0?'var(--red)':dl<7?'var(--orange)':'var(--green)';
-    const dlT=dl===null?'—':dl<0?`${Math.abs(dl)}d expired`:`${dl}d left`;
-    const rd=p.purchase_date?new Date(new Date(p.purchase_date+'T12:00:00').getTime()+30*86400000).toLocaleDateString():'—';
-    const hasAct=activations.find(a=>a.imei&&p.imei&&a.imei===p.imei);
-    const sc={'In Stock':'b-blue','Sold — Awaiting Rebate':'b-orange','Sold — Rebate Received':'b-green',Returned:'b-red'};
-    return`<tr style="${hasAct?'background:#f0fff4;':''}">
-      <td><span class="phone-t">${p.phone||'—'}</span></td>
-      <td><span class="order-t">${p.order_num||'—'}</span></td>
-      <td style="font-size:10px;color:var(--blue);font-family:monospace">${p.imei||'—'}${hasAct?' <span class="badge b-teal" style="font-size:9px">✓ Activated</span>':''}</td>
-      <td style="font-weight:700">${p.model}</td>
-      <td>${fmtDate(p.purchase_date)}</td>
-      <td class="money-t" style="color:var(--orange)">${fmt(cost)}</td>
-      <td class="money-t" style="color:var(--purple)">${reb?fmt(reb)+' 🔗':'—'}</td>
-      <td style="font-size:11px;color:var(--muted)">${p.req_plan||'—'}</td>
-      <td>${fmtDate(p.sale_date)}</td>
-      <td class="money-t" style="color:var(--green)">${sale?fmt(sale):'—'}</td>
-      <td class="money-t" style="color:${sp>=0?'var(--gold)':'var(--red)'}">${fmt(sp)}</td>
-      <td class="money-t" style="color:var(--purple)">${sub?fmt(sub):'—'}</td>
-      <td class="money-t" style="color:var(--gold);font-weight:900">${fmt(tot)}</td>
-      <td style="font-size:11px">${rd}</td>
-      <td style="color:${dlC};font-weight:700;font-size:11px">${dlT}</td>
-      <td><span class="badge ${sc[p.status]||'b-gray'}">${p.status}</span></td>
-      <td><button class="del-btn" onclick="deletePhone(${p.id})">✕</button></td>
-    </tr>`;
-  }).join('');
-  document.getElementById('phoneTotalProfit').textContent='Total Profit: '+fmt(tp);
-}
 
 async function addInvoice(){
   const num=document.getElementById('inv-num').value.trim();
@@ -2509,11 +2549,16 @@ async function updateInvoiceField(id,field,value){
 
 // ── renderPhones with two tables ──
 function renderPhones(){
+  updatePhoneRangeButtons();
   const inStockBody=document.getElementById('inStockTable');
   const soldBody=document.getElementById('soldTable');
   const pc=document.getElementById('phoneCount');if(pc)pc.textContent=phones.length;
   const inStock=phones.filter(p=>!p.status||p.status==='In Stock');
-  const sold=phones.filter(p=>p.status&&p.status.toLowerCase().includes('sold'));
+  // Date filter applies only to Sold (a completed-sale log people browse by
+  // when it happened) — In Stock never gets filtered, since hiding older
+  // unsold inventory behind a date range would bury exactly the phones that
+  // most need attention.
+  const sold=phones.filter(p=>p.status&&p.status.toLowerCase().includes('sold')&&inPhoneRange(p.sale_date));
   const isc=document.getElementById('inStockCount');if(isc)isc.textContent=inStock.length;
   const sc=document.getElementById('soldCount');if(sc)sc.textContent=sold.length;
   if(inStockBody){

@@ -624,18 +624,6 @@ tbody tr:hover{background:#fafbfc;}
 
 <!-- ACTIVATIONS -->
 <div id="tab-activations" class="tab-panel">
-  <div class="section-hdr" style="cursor:pointer;margin-bottom:8px;" onclick="const g=document.getElementById('planBrowserBody');const open=g.style.display!=='none';g.style.display=open?'none':'block';document.getElementById('planBrowserArrow').textContent=open?'▸':'▾';">
-    <div class="section-title">Browse plans <span id="planBrowserArrow" style="font-size:10px;">▸</span></div>
-  </div>
-  <div id="planBrowserBody" style="display:none;margin-bottom:16px;">
-    <div class="alert-box" id="mrcBannerBox" style="display:none;"><div class="alert-icon">🔥</div><div><div class="alert-title" id="mrcBannerTitle"></div><div class="alert-desc">Every qualifying activation earns 4x MRC. Click any plan below to use it below.</div></div></div>
-    <div class="plan-sec-title">Monthly Plans</div>
-    <div class="plan-grid" id="monthlyPlans"></div>
-    <div class="plan-sec-title">3-Month Plans</div>
-    <div class="plan-grid" id="threeMonthPlans"></div>
-    <div class="plan-sec-title">6-Month Plans</div>
-    <div class="plan-grid" id="sixMonthPlans"></div>
-  </div>
   <div style="background:#eff6ff;border:2px solid var(--blue);border-radius:10px;padding:18px;margin-bottom:16px;">
     <div style="font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px;">Log activation</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Enter Phone #, Order #, and Plan. Commission calculates automatically.</div>
@@ -1323,7 +1311,9 @@ const plans={
 function renderPlans(){
   const pairs=[['monthly','monthlyPlans','/mo'],['three','threeMonthPlans','/3 mo'],['six','sixMonthPlans','/6 mo']];
   pairs.forEach(([key,id,per])=>{
-    document.getElementById(id).innerHTML=plans[key].map(p=>`
+    const el=document.getElementById(id);
+    if(!el)return; // Browse Plans section removed — nothing to render into
+    el.innerHTML=plans[key].map(p=>`
       <div class="plan-card" onclick="prefillPlan('${p.name}',${p.mrc})">
         <div class="plan-use">+ Use Plan</div>
         <div class="plan-name">Simple Mobile ${p.name}</div>

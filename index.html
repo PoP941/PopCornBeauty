@@ -354,6 +354,12 @@ td{padding:10px 12px;vertical-align:middle;}
       <span style="font-size:10px;color:var(--muted);">Commission unlocks each month as the customer returns to pay</span>
     </div>
   </div>
+  <div class="ref-stats">
+    <div class="kpi" style="--acc:var(--teal)"><div class="kpi-label">Total Activations</div><div class="kpi-value" id="actKpiCount" style="color:var(--teal)">0</div></div>
+    <div class="kpi ownerOnlyCol" style="--acc:var(--purple)"><div class="kpi-label">Total MRC Collected</div><div class="kpi-value" id="actKpiMrc" style="color:var(--purple);font-size:16px">$0.00</div></div>
+    <div class="kpi ownerOnlyCol" style="--acc:var(--gold)"><div class="kpi-label">Total Earned</div><div class="kpi-value" id="actKpiEarned" style="color:var(--gold);font-size:16px">$0.00</div></div>
+    <div class="kpi" style="--acc:var(--pink)"><div class="kpi-label">Rebates Pending</div><div class="kpi-value" id="actKpiRebates" style="color:var(--pink)">0</div></div>
+  </div>
   <div class="section-hdr">
     <div class="section-title">📱 Activation Log (<span id="actCount">0</span>)</div>
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
@@ -473,6 +479,12 @@ td{padding:10px 12px;vertical-align:middle;}
     <tbody id="returnsLogTable"><tr><td colspan="8" class="empty-state">No returns logged</td></tr></tbody>
   </table></div></div>
   <div id="salesLogSection">
+  <div class="ref-stats">
+    <div class="kpi" style="--acc:var(--teal)"><div class="kpi-label">Total Sold</div><div class="kpi-value" id="phKpiCount" style="color:var(--teal)">0</div></div>
+    <div class="kpi ownerOnlyCol" style="--acc:var(--green)"><div class="kpi-label">Total Sale Price</div><div class="kpi-value" id="phKpiSalePrice" style="color:var(--green);font-size:16px">$0.00</div></div>
+    <div class="kpi ownerOnlyCol" style="--acc:var(--gold)"><div class="kpi-label">Total Profit</div><div class="kpi-value" id="phKpiProfit" style="color:var(--gold);font-size:16px">$0.00</div></div>
+    <div class="kpi" style="--acc:var(--pink)"><div class="kpi-label">Linked to Activation</div><div class="kpi-value" id="phKpiLinked" style="color:var(--pink)">0</div></div>
+  </div>
   <div class="section-hdr">
     <div class="section-title">✅ Sales Log (<span id="soldCount">0</span>)</div>
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
@@ -1212,12 +1224,34 @@ function monthPositionLabel(pos){
   return 'Month '+pos;
 }
 
+let activationDefaultApplied=false;
 function renderActivations(){
+  // Belt-and-suspenders: loadAll() already sets this to 'month' on startup,
+  // but this guarantees it happens exactly once regardless of call order,
+  // in case something else renders Activations before that line runs.
+  if(!activationDefaultApplied){
+    activationDefaultApplied=true;
+    const fromEl=document.getElementById('activation-from'),toEl=document.getElementById('activation-to');
+    if(fromEl&&toEl&&!fromEl.value&&!toEl.value){
+      activationRangeMode='month';
+      const today=new Date().toISOString().slice(0,10);
+      fromEl.value=today.slice(0,8)+'01';toEl.value=today;
+    }
+  }
   updateActivationRangeButtons();
   const tbody=document.getElementById('actTable');
   const filtered=activations.filter(a=>inActivationRange(a.act_date));
-  if(!filtered.length){tbody.innerHTML='<tr><td colspan="22" class="empty-state">No activations '+(activationRangeMode==='all'?'yet':'in this range')+'</td></tr>';document.getElementById('actCount').textContent='0';document.getElementById('actTotalSpiff').textContent='$0.00 earned';return;}
-  let totalEarned=0;
+  if(!filtered.length){
+    tbody.innerHTML='<tr><td colspan="22" class="empty-state">No activations '+(activationRangeMode==='all'?'yet':'in this range')+'</td></tr>';
+    document.getElementById('actCount').textContent='0';
+    document.getElementById('actTotalSpiff').textContent='$0.00 earned';
+    document.getElementById('actKpiCount').textContent='0';
+    document.getElementById('actKpiMrc').textContent='$0.00';
+    document.getElementById('actKpiEarned').textContent='$0.00';
+    document.getElementById('actKpiRebates').textContent='0';
+    return;
+  }
+  let totalEarned=0,totalMrc=0,rebatesPending=0;
   tbody.innerHTML=filtered.map(a=>{
     const mrc=parseFloat(a.mrc)||0,sub=parseFloat(a.subsidy)||0,sp=parseFloat(a.spiff)||0;
     const moMrc=monthlyMrc(a); // true monthly rate the spiff table is actually applied to
@@ -1228,8 +1262,9 @@ function renderActivations(){
     const earned=spiffEarned(a);
     const extraMonths=Math.max(0,n-PROMO_MONTHS);
     const newOffer=needsNewOffer(a);
-    const net=mrc-sub-sp;totalEarned+=earned;
+    const net=mrc-sub-sp;totalEarned+=earned;totalMrc+=mrc;
     const hp=a.imei&&phones.find(p=>p.imei&&p.imei===a.imei);
+    if(hp)rebatesPending++;
     // M1-M6 columns show the 6-month promo schedule applied to the TRUE MONTHLY rate (bundle
     // price ÷ plan term), matching VidaPay's own payout table — never the full bundle price.
     // Green = unlocked (front-loaded by the plan's term, or earned via a later refill),
@@ -1267,6 +1302,10 @@ function renderActivations(){
   const actCEl=document.getElementById('actFilterCount');
   if(actCEl)actCEl.textContent=activationRangeMode==='all'?'':`Showing ${filtered.length} of ${activations.length} activations`;
   document.getElementById('actTotalSpiff').textContent=fmt(totalEarned)+' earned so far';
+  document.getElementById('actKpiCount').textContent=filtered.length;
+  document.getElementById('actKpiMrc').textContent=fmt(totalMrc);
+  document.getElementById('actKpiEarned').textContent=fmt(totalEarned);
+  document.getElementById('actKpiRebates').textContent=rebatesPending;
 }
 
 function refPlanChanged(val){
@@ -1680,7 +1719,17 @@ function inRefillRange(dateStr){
   if(to&&d>to)return false;
   return true;
 }
+let refillDefaultApplied=false;
 function renderRefills(){
+  if(!refillDefaultApplied){
+    refillDefaultApplied=true;
+    const fromEl=document.getElementById('refill-from'),toEl=document.getElementById('refill-to');
+    if(fromEl&&toEl&&!fromEl.value&&!toEl.value){
+      refillRangeMode='month';
+      const today=new Date().toISOString().slice(0,10);
+      fromEl.value=today.slice(0,8)+'01';toEl.value=today;
+    }
+  }
   updateRefillRangeButtons();
   const tagList=document.getElementById('existingGroupTags');
   if(tagList){
@@ -2584,7 +2633,17 @@ async function updateInvoiceField(id,field,value){
 }
 
 // ── renderPhones with two tables ──
+let phoneDefaultApplied=false;
 function renderPhones(){
+  if(!phoneDefaultApplied){
+    phoneDefaultApplied=true;
+    const fromEl=document.getElementById('phone-from'),toEl=document.getElementById('phone-to');
+    if(fromEl&&toEl&&!fromEl.value&&!toEl.value){
+      phoneRangeMode='month';
+      const today=new Date().toISOString().slice(0,10);
+      fromEl.value=today.slice(0,8)+'01';toEl.value=today;
+    }
+  }
   updatePhoneRangeButtons();
   const inStockBody=document.getElementById('inStockTable');
   const soldBody=document.getElementById('soldTable');
@@ -2656,18 +2715,19 @@ function renderPhones(){
         <td>${(currentUser?.role||'owner')==='owner'?`<button class="del-btn" onclick="deletePhone(${p.id})">✕</button>`:''}</td>
       </tr>`).join('');
   }
-  let totalProfit=0;
+  let totalProfit=0,totalSalePrice=0,linkedCount=0;
   if(soldBody){
     soldBody.innerHTML=!sold.length
       ?'<tr><td colspan="12" class="empty-state">No sales yet</td></tr>'
       :sold.map(p=>{
         const cost=parseFloat(p.cost)||0,sale=parseFloat(p.sale_price)||0,sub=parseFloat(p.subsidy)||0;
-        const profit=sale-cost,total=profit+sub;totalProfit+=total;
+        const profit=sale-cost,total=profit+sub;totalProfit+=total;totalSalePrice+=sale;
         // Phones sold as part of a bundled activation deal make their real money on the
         // linked plan's commission, not the phone leg alone — show both here for the full
         // picture. This is informational only and does NOT get added into the Dashboard's
         // separate Commission/Phone Profit KPIs, to avoid double-counting.
         const linkedAct=p.phone?activations.find(a=>a.phone===p.phone):null;
+        if(linkedAct)linkedCount++;
         const commission=linkedAct?spiffEarned(linkedAct):0;
         const grandTotal=total+commission;
         return`<tr style="background:#f0fff4;">
@@ -2687,6 +2747,10 @@ function renderPhones(){
       }).join('');
   }
   const tsp=document.getElementById('totalSaleProfit');if(tsp)tsp.textContent='Total Profit: '+fmt(totalProfit);
+  const pc2=document.getElementById('phKpiCount');if(pc2)pc2.textContent=sold.length;
+  const psp=document.getElementById('phKpiSalePrice');if(psp)psp.textContent=fmt(totalSalePrice);
+  const pp=document.getElementById('phKpiProfit');if(pp)pp.textContent=fmt(totalProfit);
+  const pl=document.getElementById('phKpiLinked');if(pl)pl.textContent=linkedCount;
 }
 
 // ── Receipt OCR ──

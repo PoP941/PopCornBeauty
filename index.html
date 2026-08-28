@@ -239,6 +239,7 @@ td{padding:10px 12px;vertical-align:middle;}
   <div id="goalCountdownBanner" style="display:none;"></div>
   <div id="phoneUrgencyBanner" style="display:none;"></div>
   <div id="returnWarningBannerDash" style="display:none;"></div>
+  <div id="invoiceGapBannerDash" style="display:none;"></div>
   <div class="net-hero" id="netTotalBox">
     <div>
       <div class="net-label">Total Net Profit — All Sources</div>
@@ -367,6 +368,7 @@ td{padding:10px 12px;vertical-align:middle;}
       <input id="activation-to" type="date" style="padding:3px 5px;border:1.5px solid var(--border);border-radius:5px;font-size:11px;" onchange="setActivationRange('custom')">
     </div>
   </div>
+  <div style="font-size:10px;color:var(--muted);margin-bottom:6px;" id="actFilterCount"></div>
   <div class="table-wrap"><div class="table-scroll"><table>
     <thead><tr><th>Phone #</th><th>Order #</th><th>Customer</th><th>PIN</th><th>IMEI</th><th>Date</th><th>Carrier</th><th>Plan</th><th>MRC</th><th>Subsidy</th><th>Spiff Adj</th><th>Net</th><th>M1</th><th>M2</th><th>M3</th><th>M4</th><th>M5</th><th>M6</th><th class="ownerOnlyCol">Earned to Date</th><th>Refills</th><th>Status</th><th></th></tr></thead>
     <tbody id="actTable"><tr><td colspan="22" class="empty-state">No activations yet</td></tr></tbody>
@@ -485,6 +487,7 @@ td{padding:10px 12px;vertical-align:middle;}
       <input id="phone-to" type="date" style="padding:3px 5px;border:1.5px solid var(--border);border-radius:5px;font-size:11px;" onchange="setPhoneRange('custom')">
     </div>
   </div>
+  <div style="font-size:10px;color:var(--muted);margin-bottom:6px;" id="phFilterCount"></div>
   <div class="table-wrap"><div class="table-scroll"><table>
     <thead><tr><th>Customer Phone #</th><th>IMEI</th><th>Model</th><th>Cost</th><th>Sale Price</th><th>Profit</th><th>Subsidy</th><th>Phone Total</th><th>+ Plan Commission</th><th>Grand Total</th><th>Sale Date</th><th></th></tr></thead>
     <tbody id="soldTable"><tr><td colspan="12" class="empty-state">No sales yet</td></tr></tbody>
@@ -537,6 +540,7 @@ td{padding:10px 12px;vertical-align:middle;}
 </div>
 
 <div id="tab-invoices" class="tab-panel">
+  <div id="invoiceGapBanner" style="display:none;"></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
 
     <!-- DROP INVOICE AUDIT -->
@@ -1260,6 +1264,8 @@ function renderActivations(){
     </tr>`;
   }).join('');
   document.getElementById('actCount').textContent=filtered.length;
+  const actCEl=document.getElementById('actFilterCount');
+  if(actCEl)actCEl.textContent=activationRangeMode==='all'?'':`Showing ${filtered.length} of ${activations.length} activations`;
   document.getElementById('actTotalSpiff').textContent=fmt(totalEarned)+' earned so far';
 }
 
@@ -1879,6 +1885,7 @@ function inInvoiceRange(dateStr){
 }
 function renderInvoices(){
   updateInvoiceRangeButtons();
+  renderInvoiceGapWarning();
   const tbody=document.getElementById('invTable');let td=0,tc=0;
   const cEl=document.getElementById('invCount');if(cEl)cEl.textContent=invoices.length;
   const visible=invoices.filter(inv=>inInvoiceRange(inv.invoice_date));
@@ -2124,6 +2131,35 @@ function returnCountdown(d){
   if(days<=3)return '<span style="color:var(--red);">'+days+'d left</span>';
   if(days<=7)return '<span style="color:var(--orange);">'+days+'d left</span>';
   return '<span style="color:var(--green);">'+days+'d left</span>';
+}
+// VidaPay's own invoices state their cadence explicitly ("Twice a week —
+// Mon, Thu"), so the longest normal gap between two invoices is about 4
+// days (Thu to the following Mon). If it's been noticeably longer than
+// that since the last logged VidaPay invoice, either an invoice was
+// missed entirely or forgotten — and since nothing else in the app would
+// ever flag that on its own, this is the one place that actually checks.
+function renderInvoiceGapWarning(){
+  const vidapayInvoices=invoices.filter(i=>!i.vendor||i.vendor==='VidaPay');
+  const html=(()=>{
+    if(!vidapayInvoices.length)return ''; // no history yet — nothing to compare against
+    const mostRecent=vidapayInvoices.reduce((latest,i)=>{
+      if(!i.invoice_date)return latest;
+      return (!latest||i.invoice_date>latest.invoice_date)?i:latest;
+    },null);
+    if(!mostRecent||!mostRecent.invoice_date)return '';
+    const days=Math.round((new Date()-new Date(mostRecent.invoice_date+'T12:00:00'))/86400000);
+    if(days<5)return ''; // within normal Mon/Thu range, nothing to flag
+    const severity=days>=8?'red':'gold';
+    const color=severity==='red'?'var(--red)':'var(--gold)';
+    const bg=severity==='red'?'#fef2f2':'#fffbeb';
+    return `
+    <div style="background:${bg};border:2px solid ${color};border-radius:10px;padding:14px 18px;margin-bottom:16px;">
+      <div style="font-size:12px;font-weight:800;color:${color};text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">⚠️ No VidaPay Invoice Logged in ${days} Days</div>
+      <div style="font-size:12px;color:#444;">Last one on file: #${mostRecent.invoice_num||'—'} · ${fmtDate(mostRecent.invoice_date)}. VidaPay bills twice a week (Mon/Thu) — this gap suggests one may have been missed. Check your VidaPay portal or email for an invoice that hasn't been dropped into the audit yet.</div>
+    </div>`;
+  })();
+  const b1=document.getElementById('invoiceGapBanner');if(b1){b1.innerHTML=html;b1.style.display=html?'block':'none';}
+  const b2=document.getElementById('invoiceGapBannerDash');if(b2){b2.innerHTML=html;b2.style.display=html?'block':'none';}
 }
 function renderReturnWarning(){
   const inStock=phones.filter(p=>p.status!=='Sold'&&p.status!=='Returned'&&p.return_date);
@@ -2561,6 +2597,11 @@ function renderPhones(){
   const sold=phones.filter(p=>p.status&&p.status.toLowerCase().includes('sold')&&inPhoneRange(p.sale_date));
   const isc=document.getElementById('inStockCount');if(isc)isc.textContent=inStock.length;
   const sc=document.getElementById('soldCount');if(sc)sc.textContent=sold.length;
+  const phCEl=document.getElementById('phFilterCount');
+  if(phCEl){
+    const totalSold=phones.filter(p=>p.status&&p.status.toLowerCase().includes('sold')).length;
+    phCEl.textContent=phoneRangeMode==='all'?'':`Showing ${sold.length} of ${totalSold} sold`;
+  }
   if(inStockBody){
     const isOwner=(currentUser?.role||'owner')==='owner';
     const reqPlanOpts=(cur)=>{

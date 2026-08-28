@@ -698,18 +698,6 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
 
 <!-- ACTIVATIONS -->
 <div id="tab-activations" class="tab-panel">
-  <div class="section-hdr" style="cursor:pointer;margin-bottom:8px;" onclick="const g=document.getElementById('planBrowserBody');const open=g.style.display!=='none';g.style.display=open?'none':'block';document.getElementById('planBrowserArrow').textContent=open?'▸':'▾';">
-    <div class="section-title">Browse plans <span id="planBrowserArrow" style="font-size:10px;">▸</span></div>
-  </div>
-  <div id="planBrowserBody" style="display:none;margin-bottom:16px;">
-    <div class="alert-box" id="mrcBannerBox" style="display:none;"><div class="alert-icon">🔥</div><div><div class="alert-title" id="mrcBannerTitle"></div><div class="alert-desc">Every qualifying activation earns 4x MRC. Click any plan below to use it below.</div></div></div>
-    <div class="plan-sec-title">Monthly Plans</div>
-    <div class="plan-grid" id="monthlyPlans"></div>
-    <div class="plan-sec-title">3-Month Plans</div>
-    <div class="plan-grid" id="threeMonthPlans"></div>
-    <div class="plan-sec-title">6-Month Plans</div>
-    <div class="plan-grid" id="sixMonthPlans"></div>
-  </div>
   <div style="background:#eff6ff;border:2px solid var(--blue);border-radius:10px;padding:18px;margin-bottom:16px;">
     <div style="font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px;">Log activation</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Enter Phone #, Order #, and Plan. Commission calculates automatically.</div>
@@ -887,12 +875,6 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
     <tbody id="returnsLogTable"><tr><td colspan="8" class="empty-state">No returns logged</td></tr></tbody>
   </table></div></div>
   <div id="salesLogSection">
-  <div class="ref-stats">
-    <div class="kpi" style="--acc:var(--teal)"><div class="kpi-label">Total Sold</div><div class="kpi-value" id="phKpiCount" style="color:var(--teal)">0</div></div>
-    <div class="kpi ownerOnlyCol" style="--acc:var(--green)"><div class="kpi-label">Total Sale Price</div><div class="kpi-value" id="phKpiSalePrice" style="color:var(--green);font-size:16px">$0.00</div></div>
-    <div class="kpi ownerOnlyCol" style="--acc:var(--gold)"><div class="kpi-label">Total Profit</div><div class="kpi-value" id="phKpiProfit" style="color:var(--gold);font-size:16px">$0.00</div></div>
-    <div class="kpi" style="--acc:var(--pink)"><div class="kpi-label">Linked to Activation</div><div class="kpi-value" id="phKpiLinked" style="color:var(--pink)">0</div></div>
-  </div>
   <div class="section-hdr">
     <div class="section-title">Sales log (<span id="soldCount">0</span>)</div>
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
@@ -1418,7 +1400,9 @@ const plans={
 function renderPlans(){
   const pairs=[['monthly','monthlyPlans','/mo'],['three','threeMonthPlans','/3 mo'],['six','sixMonthPlans','/6 mo']];
   pairs.forEach(([key,id,per])=>{
-    document.getElementById(id).innerHTML=plans[key].map(p=>`
+    const el=document.getElementById(id);
+    if(!el)return; // Browse Plans section removed — nothing to render into
+    el.innerHTML=plans[key].map(p=>`
       <div class="plan-card" onclick="prefillPlan('${p.name}',${p.mrc})">
         <div class="plan-use">+ Use Plan</div>
         <div class="plan-name">Simple Mobile ${p.name}</div>
@@ -3391,10 +3375,14 @@ async function handleReceiptDrop(file){
 }
 function rerenderReceiptRows(){
   const wrap=document.getElementById('receiptRowsWrap');if(!wrap)return;
-  wrap.innerHTML=receiptExtractedRows.map((r,i)=>`<div style="background:#fff;padding:6px 10px;border-radius:5px;border:1px solid var(--border);display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;align-items:center;">
+  wrap.innerHTML=receiptExtractedRows.map((r,i)=>`<div style="background:#fff;padding:6px 10px;border-radius:5px;border:1px solid var(--border);display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:8px;align-items:center;">
       <input value="${r.imei}" placeholder="IMEI" style="border:none;outline:none;font-size:11px;font-weight:800;color:var(--purple);font-family:monospace;background:transparent;" oninput="receiptExtractedRows[${i}].imei=this.value">
       <input type="number" step="0.01" value="${r.price||''}" placeholder="Cost $" style="border:none;outline:none;font-size:11px;font-weight:700;color:var(--orange);background:transparent;" oninput="receiptExtractedRows[${i}].price=parseFloat(this.value)||0">
       <input type="number" step="0.01" value="${r.rebate||''}" placeholder="Rebate $" style="border:none;outline:none;font-size:11px;font-weight:700;color:var(--green);background:transparent;" oninput="receiptExtractedRows[${i}].rebate=parseFloat(this.value)||0">
+      <select style="border:1px solid var(--border);border-radius:4px;font-size:10px;padding:3px 4px;background:#fff;" onchange="receiptExtractedRows[${i}].category=this.value" title="Set this now — it silently defaults wrong otherwise">
+        <option value="unlocked" ${(r.category||'unlocked')==='unlocked'?'selected':''}>Unlocked</option>
+        <option value="promo" ${r.category==='promo'?'selected':''}>Promo</option>
+      </select>
       <div style="font-size:10px;color:var(--muted);">${r.activationOrder?'Act #'+r.activationOrder:''}</div>
       <button onclick="receiptExtractedRows.splice(${i},1);rerenderReceiptRows()" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;">✕</button>
     </div>`).join('');
@@ -3416,7 +3404,7 @@ async function confirmReceiptImport(){
       order_num:orderNum,imei:r.imei.trim(),model,
       purchase_date:pdate,cost:r.price||0,rebate_expected:r.rebate||0,
       req_plan:'',status:'In Stock',phone:'',sale_price:0,subsidy:0,
-      phone_category:'unlocked',return_date:suggestedReturn,
+      phone_category:r.category||'unlocked',return_date:suggestedReturn,
     };
     let{data,error}=await sb.from('phones').insert(payload).select().single();
     if(error&&/phone_category/i.test(error.message||'')){

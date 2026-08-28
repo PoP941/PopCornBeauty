@@ -160,6 +160,310 @@ td{padding:10px 12px;vertical-align:middle;}
   #printableReceipt{width:68mm;margin:0 auto;padding:5mm;border:none;box-sizing:border-box;}
   .receipt-no-print{display:none!important;}
 }
+
+/* =========================================================
+   MODERN UI REDESIGN — presentation-only layer
+   Keeps existing IDs, functions, Supabase logic and workflows intact.
+   ========================================================= */
+:root{
+  --bg:#f6f7fb;
+  --surface:#ffffff;
+  --surface2:#f8fafc;
+  --surface3:#f1f5f9;
+  --border:#e5e7eb;
+  --border2:#cbd5e1;
+  --text:#172033;
+  --muted:#667085;
+  --red:#d92d20;
+  --red-l:#fff4f2;
+  --green:#12805c;
+  --green-l:#ecfdf5;
+  --gold:#b7791f;
+  --gold-l:#fffbeb;
+  --blue:#2563eb;
+  --blue-l:#eff6ff;
+  --purple:#7c3aed;
+  --purple-l:#f5f3ff;
+  --pink:#c0266d;
+  --pink-l:#fdf2f8;
+  --teal:#0f766e;
+  --teal-l:#f0fdfa;
+  --orange:#c2410c;
+  --orange-l:#fff7ed;
+  --lime:#4d7c0f;
+  --lime-l:#f7fee7;
+  --shadow-sm:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);
+  --shadow-md:0 6px 20px rgba(16,24,40,.07);
+  --radius:14px;
+}
+html{background:var(--bg);}
+body{
+  font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  font-size:13px;
+  line-height:1.45;
+}
+.header{
+  height:72px;
+  padding:0 32px;
+  background:rgba(255,255,255,.94);
+  backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border);
+  box-shadow:none;
+}
+.logo img{height:40px;max-width:210px;object-fit:contain;}
+.header-right{gap:10px;}
+#headerUserName{font-size:12px!important;color:var(--text)!important;font-weight:700!important;}
+.date-text{font-size:12px;color:var(--muted);}
+.live-pill{padding:5px 10px;border:1px solid #a7f3d0;background:#ecfdf5;}
+.live-text{font-size:10px;letter-spacing:.7px;}
+.header-right button[onclick="doSignOut()"]{
+  margin-left:4px!important;padding:8px 12px!important;border:1px solid var(--border)!important;
+  border-radius:9px!important;background:#fff!important;color:#475467!important;font-size:11px!important;
+}
+.nav{
+  position:sticky;top:72px;z-index:90;
+  padding:10px 28px;
+  gap:5px;
+  background:rgba(246,247,251,.94);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--border);
+}
+.nav-tab{
+  padding:9px 13px;
+  border:1px solid transparent;
+  border-radius:9px;
+  margin:0;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:0;
+  text-transform:none;
+  color:#667085;
+}
+.nav-tab:hover:not(.active){background:#fff;color:var(--text);border-color:var(--border);}
+.nav-tab.active{
+  color:#fff;
+  background:#172033;
+  border-color:#172033;
+  box-shadow:var(--shadow-sm);
+}
+.main{padding:28px 32px 56px;max-width:1480px;}
+.tab-panel{animation:uiFade .16s ease-out;}
+@keyframes uiFade{from{opacity:.45;transform:translateY(3px)}to{opacity:1;transform:none}}
+
+/* Quick actions */
+.quick-actions-wrap{margin:0 0 18px;}
+.quick-actions-title{font-size:12px;font-weight:700;color:#475467;margin-bottom:9px;}
+.quick-actions{display:flex;gap:9px;flex-wrap:wrap;}
+.quick-action{
+  appearance:none;border:1px solid var(--border);background:#fff;color:var(--text);
+  padding:10px 13px;border-radius:10px;font:inherit;font-weight:700;cursor:pointer;
+  box-shadow:var(--shadow-sm);transition:.15s ease;
+}
+.quick-action:hover{transform:translateY(-1px);box-shadow:var(--shadow-md);border-color:#cbd5e1;}
+.quick-action.primary{background:#172033;color:#fff;border-color:#172033;}
+
+.net-hero{
+  background:linear-gradient(135deg,#172033 0%,#24324b 100%);
+  border:0;
+  border-radius:18px;
+  padding:26px 30px;
+  box-shadow:0 12px 34px rgba(23,32,51,.14);
+  margin-bottom:18px;
+}
+.net-label{font-size:11px;color:#b8c2d5;text-transform:none;letter-spacing:.1px;font-weight:600;}
+.net-value{font-size:42px;line-height:1.05;color:#fff;letter-spacing:-1.3px;}
+.net-breakdown{gap:22px;}
+.net-item-val{font-size:18px;}
+.net-item-lbl{font-size:10px;text-transform:none;letter-spacing:0;color:#98a2b3;}
+.net-div{background:rgba(255,255,255,.15);}
+#managerCountsBox{border:0!important;border-radius:16px!important;background:#172033!important;box-shadow:var(--shadow-md);}
+
+.kpi-grid,.ref-stats{gap:12px;}
+.kpi-grid{grid-template-columns:repeat(6,minmax(0,1fr));}
+.ref-stats{grid-template-columns:repeat(auto-fit,minmax(165px,1fr));}
+.kpi,.inv-card,.goal-card,.cheat-card,.plan-card{
+  background:#fff;
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow-sm);
+}
+.kpi{padding:17px 18px;min-height:98px;}
+.kpi::before{height:0;display:none;}
+.kpi-label,.inv-card-label{
+  font-size:11px;
+  color:#667085;
+  text-transform:none;
+  letter-spacing:0;
+  margin-bottom:8px;
+  font-weight:650;
+}
+.kpi-value,.inv-card-value{font-size:25px;font-weight:800;letter-spacing:-.4px;}
+.kpi-sub{font-size:11px;margin-top:5px;color:#98a2b3;}
+.goal-grid{gap:12px;}
+.goal-card{padding:17px;}
+.goal-card.current{border:1px solid #f3b2ad;box-shadow:0 0 0 3px #fff4f2;}
+.goal-month{font-size:11px;text-transform:none;letter-spacing:0;color:#667085;}
+.goal-bar-track{height:7px;background:#edf0f4;}
+
+.section-hdr{margin:22px 0 10px;gap:12px;}
+.section-title{
+  font-size:15px;
+  font-weight:750;
+  text-transform:none;
+  letter-spacing:-.15px;
+  color:var(--text);
+}
+
+/* Turn legacy colored work panels into clean cards while preserving semantic title colors */
+.tab-panel > div[style*="border:2px solid"],
+.tab-panel > div[style*="border: 2px solid"]{
+  background:#fff!important;
+  border:1px solid var(--border)!important;
+  border-radius:16px!important;
+  padding:20px!important;
+  box-shadow:var(--shadow-sm);
+}
+.form-panel{border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:var(--shadow-sm);}
+.form-title{font-size:14px;text-transform:none;letter-spacing:0;color:var(--text);}
+.form-grid{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:13px;}
+.field{gap:6px;}
+.field label{font-size:11px;text-transform:none;letter-spacing:0;color:#475467;font-weight:650;}
+.field input,.field select{
+  min-height:40px;
+  background:#fff;
+  border:1px solid #d0d5dd;
+  border-radius:9px;
+  padding:9px 11px;
+  color:var(--text);
+  font-size:13px;
+  box-shadow:0 1px 2px rgba(16,24,40,.02);
+}
+.field input:focus,.field select:focus{
+  border-color:#84a9f9;
+  box-shadow:0 0 0 3px rgba(37,99,235,.10);
+  background:#fff;
+}
+.field input::placeholder{font-style:normal!important;color:#98a2b3!important;opacity:1;}
+
+.btn{
+  min-height:36px;
+  padding:8px 13px;
+  border-radius:9px;
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:0;
+  box-shadow:none;
+}
+.btn-red{background:#d92d20;}.btn-red:hover{background:#b42318;}
+.btn-green{background:#12805c;}.btn-green:hover{background:#0f6b4d;}
+.btn-ghost{background:#fff;color:#475467;border:1px solid #d0d5dd;}
+.btn-ghost:hover{background:#f8fafc;color:var(--text);border-color:#b9c0ca;}
+
+.table-wrap{
+  border:1px solid var(--border);
+  border-radius:14px;
+  box-shadow:var(--shadow-sm);
+  overflow:hidden;
+  background:#fff;
+}
+.table-scroll{padding-bottom:0;}
+table{font-size:12px;}
+thead tr{background:#f8fafc;}
+th{
+  padding:12px 14px;
+  font-size:10px;
+  text-transform:none;
+  letter-spacing:.1px;
+  color:#667085;
+  font-weight:700;
+  border-bottom:1px solid var(--border);
+}
+td{padding:12px 14px;border-bottom:1px solid #f0f2f5;}
+tbody tr{border-bottom:0;}
+tbody tr:last-child td{border-bottom:0;}
+tbody tr:hover{background:#fafbfc;}
+.empty-state{padding:48px 20px;color:#98a2b3;font-size:12px;}
+.badge{padding:4px 8px;border-radius:999px;font-size:10px;letter-spacing:0;}
+.del-btn{border-radius:7px;}
+
+.alert-box,.rebate-banner{
+  border:1px solid #dbe6ff;
+  border-radius:12px;
+  padding:13px 15px;
+  box-shadow:none;
+}
+.alert-title{font-size:12px;}.alert-desc{font-size:11px;line-height:1.45;}
+.cheat-grid{gap:12px;}
+.cheat-card{border-top:1px solid var(--border);padding:17px;}
+.cheat-term{font-size:13px;}.cheat-desc{font-size:12px;}.cheat-ex{border-radius:8px;padding:7px 9px;}
+.plan-card{border:1px solid var(--border);padding:16px;}
+.plan-card:hover{border-color:#b9c0ca;box-shadow:var(--shadow-md);transform:translateY(-1px);}
+.plan-sec-title{font-size:12px;text-transform:none;letter-spacing:0;border-bottom:1px solid var(--border);}
+
+/* Search/date controls */
+.section-hdr input[type="date"],
+.section-hdr input[type="text"],
+.tab-panel input[type="date"]{
+  min-height:36px;
+  border:1px solid #d0d5dd!important;
+  border-radius:9px!important;
+  background:#fff!important;
+  padding:7px 9px!important;
+  font-size:11px!important;
+  color:var(--text);
+}
+#ph-search{min-height:38px;width:240px!important;border-radius:9px!important;}
+
+/* Auth screen */
+#authGate{background:linear-gradient(145deg,#f2f4f7 0%,#e8edf5 100%)!important;}
+#authGate > div{
+  max-width:410px!important;
+  border-radius:20px!important;
+  padding:40px!important;
+  border:1px solid rgba(255,255,255,.8);
+  box-shadow:0 24px 60px rgba(16,24,40,.16)!important;
+}
+#authGate input{min-height:44px;border:1px solid #d0d5dd!important;border-radius:10px!important;}
+#authGate button{min-height:44px;border-radius:10px!important;background:#172033!important;}
+
+/* Modal refinement */
+.receipt-modal-overlay{background:rgba(16,24,40,.58);backdrop-filter:blur(3px);}
+.receipt-modal-card{border-radius:16px;box-shadow:0 24px 70px rgba(16,24,40,.22);}
+
+@media(max-width:1100px){
+  .kpi-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
+  .net-hero{align-items:flex-start;}
+  .net-breakdown{width:100%;justify-content:flex-start;}
+}
+@media(max-width:760px){
+  .header{height:64px;padding:0 16px;}
+  .logo img{height:34px;max-width:165px;}
+  .date-text{display:none;}
+  #headerUserName{display:none;}
+  .nav{top:64px;padding:8px 12px;gap:4px;}
+  .nav-tab{padding:8px 10px;font-size:10px;}
+  .main{padding:18px 14px 40px;}
+  .kpi-grid,.ref-stats,.goal-grid,.inv-summary{grid-template-columns:repeat(2,minmax(0,1fr))!important;}
+  .kpi{min-height:88px;padding:14px;}
+  .kpi-value{font-size:21px;}
+  .net-hero{padding:20px;border-radius:15px;}
+  .net-value{font-size:34px;}
+  .net-breakdown{gap:12px;}
+  .net-div{display:none;}
+  .form-grid{grid-template-columns:1fr!important;}
+  .section-hdr{align-items:flex-start;flex-direction:column;}
+  .section-hdr > div[style*="display:flex"]{width:100%;overflow-x:auto;padding-bottom:4px;flex-wrap:nowrap!important;}
+  #ph-search{width:100%!important;}
+  .quick-action{flex:1 1 calc(50% - 8px);justify-content:center;}
+}
+@media(max-width:430px){
+  .kpi-grid,.ref-stats,.goal-grid,.inv-summary{grid-template-columns:1fr!important;}
+  .header-right .live-pill{display:none;}
+  .header-right button[onclick="doSignOut()"]{padding:7px 9px!important;}
+}
+
 </style>
 </head>
 <body>
@@ -240,9 +544,18 @@ td{padding:10px 12px;vertical-align:middle;}
   <div id="phoneUrgencyBanner" style="display:none;"></div>
   <div id="returnWarningBannerDash" style="display:none;"></div>
   <div id="invoiceGapBannerDash" style="display:none;"></div>
+  <div class="quick-actions-wrap">
+    <div class="quick-actions-title">Quick actions</div>
+    <div class="quick-actions">
+      <button class="quick-action primary" onclick="showTab('activations',document.querySelectorAll('.nav-tab')[2])">📱 Log activation</button>
+      <button class="quick-action" onclick="showTab('refills',document.querySelectorAll('.nav-tab')[1])">💳 Log refill</button>
+      <button class="quick-action" onclick="showTab('phones',document.querySelectorAll('.nav-tab')[3])">📲 Log phone sale</button>
+      <button class="quick-action" onclick="showTab('invoices',document.querySelectorAll('.nav-tab')[6])">📄 Review invoice</button>
+    </div>
+  </div>
   <div class="net-hero" id="netTotalBox">
     <div>
-      <div class="net-label">Total Net Profit — All Sources</div>
+      <div class="net-label">Total net profit</div>
       <div class="net-value" id="netTotal">$0.00</div>
     </div>
     <div class="net-breakdown">
@@ -265,17 +578,17 @@ td{padding:10px 12px;vertical-align:middle;}
     </div>
   </div>
   <div class="kpi-grid" id="kpiGridMain">
-    <div class="kpi" style="--acc:var(--teal)"><div class="kpi-label">Activations</div><div class="kpi-value" id="kpiActivations" style="color:var(--teal)">0</div><div class="kpi-sub">Total logged</div></div>
-    <div class="kpi" style="--acc:var(--green)"><div class="kpi-label">Commission</div><div class="kpi-value" id="kpiCommission" style="color:var(--green)">$0</div><div class="kpi-sub">earned so far</div></div>
+    <div class="kpi" style="--acc:var(--teal)"><div class="kpi-label">Activations</div><div class="kpi-value" id="kpiActivations" style="color:var(--teal)">0</div><div class="kpi-sub">Logged</div></div>
+    <div class="kpi" style="--acc:var(--green)"><div class="kpi-label">Commission</div><div class="kpi-value" id="kpiCommission" style="color:var(--green)">$0</div><div class="kpi-sub">Earned so far</div></div>
     <div class="kpi" style="--acc:var(--purple)"><div class="kpi-label">Residual</div><div class="kpi-value" id="kpiSubsidy" style="color:var(--purple)">$0</div><div class="kpi-sub" id="kpiSubsidySub">From invoices</div></div>
     <div class="kpi" style="--acc:var(--gold)"><div class="kpi-label">Refills</div><div class="kpi-value" id="kpiRefills" style="color:var(--gold)">0</div><div class="kpi-sub">Processed</div></div>
     <div class="kpi" style="--acc:var(--lime)"><div class="kpi-label">Refill Profit</div><div class="kpi-value" id="kpiRefillProfit" style="color:var(--lime)">$0</div><div class="kpi-sub">8% kept</div></div>
-    <div class="kpi" style="--acc:var(--orange)"><div class="kpi-label">Phone Profit</div><div class="kpi-value" id="kpiPhoneProfit" style="color:var(--orange)">$0</div><div class="kpi-sub">Sale + subsidy</div></div>
+    <div class="kpi" style="--acc:var(--orange)"><div class="kpi-label">Phone Profit</div><div class="kpi-value" id="kpiPhoneProfit" style="color:var(--orange)">$0</div><div class="kpi-sub">Sales + subsidy</div></div>
   </div>
 
   <!-- THIS MONTH SNAPSHOT — quick real-time read on the current period -->
   <div id="monthSnapshotBox">
-  <div class="section-hdr" style="margin-top:4px"><div class="section-title">📆 This Month So Far</div></div>
+  <div class="section-hdr" style="margin-top:4px"><div class="section-title">This month</div></div>
   <div class="kpi-grid" style="margin-bottom:4px;">
     <div class="kpi" style="--acc:var(--teal)"><div class="kpi-label">Commission</div><div class="kpi-value" id="monCommission" style="color:var(--teal)">$0</div><div class="kpi-sub" id="monCommissionSub">—</div></div>
     <div class="kpi" style="--acc:var(--lime)"><div class="kpi-label">Refill Profit</div><div class="kpi-value" id="monRefillProfit" style="color:var(--lime)">$0</div><div class="kpi-sub" id="monRefillSub">—</div></div>
@@ -285,7 +598,7 @@ td{padding:10px 12px;vertical-align:middle;}
   </div>
 
   <div class="section-hdr" style="margin-top:4px">
-    <div class="section-title">📦 Phones In Stock</div>
+    <div class="section-title">Phones in stock</div>
     <div style="font-size:10px;color:var(--muted)" id="dashStockCount">0 in stock</div>
   </div>
   <div class="table-wrap" style="margin-bottom:4px;"><div class="table-scroll"><table>
@@ -296,7 +609,7 @@ td{padding:10px 12px;vertical-align:middle;}
   <div class="goal-grid" id="goalGrid"></div>
   <div id="monthDrillDown" style="display:none;margin-top:12px;"></div>
   <div class="section-hdr" style="margin-top:4px;cursor:pointer;" onclick="const g=document.getElementById('quickGuideBody');const open=g.style.display!=='none';g.style.display=open?'none':'grid';document.getElementById('quickGuideArrow').textContent=open?'▸':'▾';">
-    <div class="section-title">VidaPay Quick Guide <span id="quickGuideArrow" style="font-size:10px;">▸</span></div>
+    <div class="section-title">VidaPay quick guide <span id="quickGuideArrow" style="font-size:10px;">▸</span></div>
   </div>
   <div class="cheat-grid" id="quickGuideBody" style="display:none;">
     <div class="cheat-card" style="--acc:var(--red)"><div class="cheat-term" style="color:var(--red)">⬆️ Activation — You Pay</div><div class="cheat-desc">When you activate a customer, VidaPay charges you a fee — less than the plan price.</div><div class="cheat-ex" style="background:var(--red-l);color:var(--red)">$150 plan → you pay $138</div></div>
@@ -312,7 +625,7 @@ td{padding:10px 12px;vertical-align:middle;}
 <!-- ACTIVATIONS -->
 <div id="tab-activations" class="tab-panel">
   <div class="section-hdr" style="cursor:pointer;margin-bottom:8px;" onclick="const g=document.getElementById('planBrowserBody');const open=g.style.display!=='none';g.style.display=open?'none':'block';document.getElementById('planBrowserArrow').textContent=open?'▸':'▾';">
-    <div class="section-title">📋 Browse Plans <span id="planBrowserArrow" style="font-size:10px;">▸</span></div>
+    <div class="section-title">Browse plans <span id="planBrowserArrow" style="font-size:10px;">▸</span></div>
   </div>
   <div id="planBrowserBody" style="display:none;margin-bottom:16px;">
     <div class="alert-box" id="mrcBannerBox" style="display:none;"><div class="alert-icon">🔥</div><div><div class="alert-title" id="mrcBannerTitle"></div><div class="alert-desc">Every qualifying activation earns 4x MRC. Click any plan below to use it below.</div></div></div>
@@ -324,7 +637,7 @@ td{padding:10px 12px;vertical-align:middle;}
     <div class="plan-grid" id="sixMonthPlans"></div>
   </div>
   <div style="background:#eff6ff;border:2px solid var(--blue);border-radius:10px;padding:18px;margin-bottom:16px;">
-    <div style="font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px;">📱 Log Activation</div>
+    <div style="font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px;">Log activation</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Enter Phone #, Order #, and Plan. Commission calculates automatically.</div>
     <div class="form-grid">
       <div class="field"><label>Customer Phone # *</label><input class="phone-f" id="act-phone" type="text" placeholder="customer phone #"></div>
@@ -449,7 +762,7 @@ td{padding:10px 12px;vertical-align:middle;}
 <div id="tab-phones" class="tab-panel">
   <div id="returnWarningBanner" style="display:none;"></div>
   <div style="background:var(--green-l);border:2px solid var(--green);border-radius:10px;padding:18px;margin-bottom:16px;">
-    <div style="font-size:12px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">💰 Log a Phone Sale</div>
+    <div style="font-size:12px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Log phone sale</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Enter customer phone # and IMEI — finds phone from inventory and logs the sale</div>
     <div class="form-grid">
       <div class="field"><label>Customer Phone # *</label><input class="phone-f" id="sale-phone" type="text" placeholder="customer phone #" oninput="lookupSaleImeiByPhone(this.value)"></div>
@@ -509,7 +822,7 @@ td{padding:10px 12px;vertical-align:middle;}
 
 <div id="tab-specialorders" class="tab-panel">
   <div style="background:#fff7ed;border:2px solid var(--orange);border-radius:10px;padding:18px;margin-bottom:16px;">
-    <div style="font-size:12px;font-weight:800;color:var(--orange);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">📦 Log a Special Order Request</div>
+    <div style="font-size:12px;font-weight:800;color:var(--orange);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Log special order request</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">Customer asked for something we don't have in stock? Log it here — everyone (including whoever handles ordering) sees it immediately.</div>
     <div class="form-grid">
       <div class="field"><label>Customer Name</label><input id="so-name" type="text" placeholder="customer name"></div>
@@ -662,7 +975,7 @@ td{padding:10px 12px;vertical-align:middle;}
 
 <div id="tab-team" class="tab-panel">
   <div style="background:#eff6ff;border:2px solid var(--blue);border-radius:10px;padding:18px;margin-bottom:16px;">
-    <div style="font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">👥 Team — Roles & Goals</div>
+    <div style="font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Team roles and goals</div>
     <div style="font-size:11px;color:var(--muted);">Edit name, role, or monthly goal below — saves automatically.</div>
   </div>
   <div class="section-hdr" style="margin-top:0;cursor:pointer;" onclick="const g=document.getElementById('addMemberBody');const open=g.style.display!=='none';g.style.display=open?'none':'block';document.getElementById('addMemberArrow').textContent=open?'▸':'▾';">
@@ -705,7 +1018,7 @@ td{padding:10px 12px;vertical-align:middle;}
 
 <div id="tab-promos" class="tab-panel">
   <div style="background:#fffbeb;border:2px solid var(--gold);border-radius:10px;padding:18px;margin-bottom:16px;">
-    <div style="font-size:12px;font-weight:800;color:var(--gold);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;">📧 Drop a Promo Email Screenshot</div>
+    <div style="font-size:12px;font-weight:800;color:var(--gold);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;">Import promotion</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">Reads dates, eligible plans, free-month offers, and a M1–M6 percentage table if one is shown. Always pre-fills the form below for you to review — never saves automatically, since flyer layouts vary.</div>
     <div id="promoDropZone" style="border:2px dashed #f59e0b;border-radius:8px;padding:20px;text-align:center;cursor:pointer;background:#fffde7;transition:all .2s;"
       onclick="document.getElementById('promoDropInput').click()"
@@ -1301,7 +1614,7 @@ function renderActivations(){
   document.getElementById('actCount').textContent=filtered.length;
   const actCEl=document.getElementById('actFilterCount');
   if(actCEl)actCEl.textContent=activationRangeMode==='all'?'':`Showing ${filtered.length} of ${activations.length} activations`;
-  document.getElementById('actTotalSpiff').textContent=fmt(totalEarned)+' earned so far';
+  document.getElementById('actTotalSpiff').textContent=fmt(totalEarned)+' Earned so far';
   document.getElementById('actKpiCount').textContent=filtered.length;
   document.getElementById('actKpiMrc').textContent=fmt(totalMrc);
   document.getElementById('actKpiEarned').textContent=fmt(totalEarned);
@@ -1971,7 +2284,7 @@ function renderInvoices(){
   const totalResidualCredit=invoices.reduce((s,i)=>s+(parseFloat(i.residual)||0),0);
   const scEl=document.getElementById('invSpiffCreditTotal');if(scEl)scEl.textContent=fmt(totalResidualCredit);
   // Activations profit is our own internal per-plan schedule (matches the Activation Log's
-  // own "earned so far" figure) — not derived from invoices. Residual is tracked as its own
+  // own "Earned so far" figure) — not derived from invoices. Residual is tracked as its own
   // category from saved invoices. Subsidy is intentionally excluded from profit anywhere
   // here — it's the reimbursement for a phone we already paid for, and it's already
   // reflected once, correctly, inside Phone Profit. This box explains that breakdown and

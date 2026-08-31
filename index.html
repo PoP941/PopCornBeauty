@@ -1091,7 +1091,7 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
   <div style="background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:18px;margin-bottom:16px;">
     <div class="form-grid" style="margin-bottom:8px;">
       <div class="field"><label>Current VidaPay Tier</label><input id="set-tier-current" type="text" placeholder="e.g. Tier 2" onchange="updateSetting('tier_current',this.value)"></div>
-      <div class="field"><label>2MR % (from Tier Details → 2MR Final)</label><input id="set-tier-2mr" type="number" min="0" max="100" step="0.1" placeholder="e.g. 74" onchange="updateSetting('tier_2mr_pct',parseFloat(this.value)||0)"></div>
+      <div class="field"><label>2MR % override (optional)</label><input id="set-tier-2mr" type="number" min="0" max="100" step="0.1" placeholder="only if computed figure looks wrong" onchange="updateSetting('tier_2mr_pct',parseFloat(this.value)||0)"></div>
     </div>
     <div style="font-size:10px;color:var(--muted);">Average activations per month (trailing 90 days) is calculated automatically from invoice-confirmed activations logged in this app. 2MR % isn't something the app can compute — it's a replenishment metric VidaPay tracks internally — so copy it from the portal's Tier Details tab (2MR Final) whenever you check. Tier thresholds: Tier 1 needs 1+/mo; Tier 2 needs 1+/mo and 2MR 70-74%; Tier 3 needs 10+/mo and 2MR 75%+. Cross-checked against any phones tagged "tier-dependent" below.</div>
   </div>
@@ -2665,7 +2665,34 @@ function renderSpiffDiscrepancies(){
   const b1=document.getElementById('spiffDiscrepancyBanner');if(b1){b1.innerHTML=html;b1.style.display=html?'block':'none';}
   const b2=document.getElementById('spiffDiscrepancyBannerDash');if(b2){b2.innerHTML=html;b2.style.display=html?'block':'none';}
 }
-// VidaPay's real published thresholds (from the portal's own Tier Details screen):
+// How many full calendar months separate an activation's month from now — used to know
+// when a cohort is old enough to fairly judge (matches VidaPay's own "Pacing" vs "Final"
+// distinction: a cohort isn't "Final" until enough real time has actually passed).
+function monthsElapsedSince(dateStr){
+  if(!dateStr)return 0;
+  const d=new Date(dateStr+'T12:00:00');
+  const now=new Date();
+  return (now.getFullYear()-d.getFullYear())*12+(now.getMonth()-d.getMonth());
+}
+// Replenishment rate for one cohort month: what fraction of that month's activations have
+// reached a given position (unlockedSlots >= position) by now. Position 2 = "1 Replenishment"
+// = VidaPay's "2MR"; position 3 = "2 Replenishments" = "3MR". Reuses the exact same
+// unlockedSlots()/planMonths() logic already trusted for commission math — a bundled
+// 3-month plan counts positions 1-3 as pre-unlocked with no separate refill needed, same
+// as everywhere else in the app. Only counts invoice-verified activations, same standard
+// as the 90-day average above. monthsAgo must equal position for this to be the "Final"
+// (fully matured) reading, not the still-forming "Pacing" one — e.g. replenishmentRate(2,2)
+// checks activations from exactly 2 months ago against position 2, matching VidaPay's own
+// "2MR Final (# of [2 months ago] activations with 1 Replenishment)" wording exactly.
+function replenishmentRate(monthsAgo,position){
+  const cohort=activations.filter(a=>a.verified&&a.act_date&&monthsElapsedSince(a.act_date)===monthsAgo);
+  if(!cohort.length)return null; // no confirmed activations that month — nothing to compute
+  const reached=cohort.filter(a=>unlockedSlots(a)>=position).length;
+  return {pct:(reached/cohort.length)*100,reached,total:cohort.length};
+}
+// The tier-determining figure is the most recently FULLY matured 2-month cohort.
+function computed2MR(){return replenishmentRate(2,2);}
+
 //   Tier 3 (Advanced, 10% residual): 10+ activations/mo avg over 90 days AND 2MR >= 75%
 //   Tier 2 (Smart,    6% residual):  1+ activations/mo avg over 90 days  AND 2MR 70-74%
 //   Tier 1 (Basic,    3% residual):  1+ activations/mo avg over 90 days  (no 2MR floor)
@@ -2676,9 +2703,10 @@ function renderSpiffDiscrepancies(){
 // logged and possibly still pending an invoice match. If a lot of this month's activations
 // haven't been audited yet, the computed average will run low until they are — that's
 // flagged explicitly rather than silently under-counting.
-// 2MR (2-month replenishment rate) is NOT computed here — its exact formula isn't nailed
-// down, and a guessed number that looks authoritative is worse than an honest manual entry.
-// It's typed in by hand in Settings from the portal's own "2MR Final" figure.
+// 2MR (2-month replenishment rate) IS now computed automatically, from real refill/bundle
+// history via computed2MR() above — see that function for the exact logic. The manual
+// Settings field becomes a fallback only, used when there isn't yet a confirmed cohort to
+// compute from (e.g. a brand-new store, or invoices from 2 months ago still unaudited).
 const TIER_THRESHOLDS=[
   {name:'Tier 3',label:'Tier 3 (Advanced)',minAvg:10,min2mr:75},
   {name:'Tier 2',label:'Tier 2 (Smart)',minAvg:1,min2mr:70},
@@ -2703,8 +2731,15 @@ function computedTierFor(avg,mr2){
 function renderTierRisk(){
   const html=(()=>{
     const{avg,count}=tierAvgPerMonth90();
-    const mr2=(storeSettings.tier_2mr_pct!==undefined&&storeSettings.tier_2mr_pct!==null&&storeSettings.tier_2mr_pct!=='')?parseFloat(storeSettings.tier_2mr_pct):null;
-    if(mr2===null)return ''; // 2MR not entered yet — can't determine tier accurately, nothing to flag
+    const mr2Computed=computed2MR(); // {pct,reached,total} or null if no confirmed cohort
+    const mr2Manual=(storeSettings.tier_2mr_pct!==undefined&&storeSettings.tier_2mr_pct!==null&&storeSettings.tier_2mr_pct!=='')?parseFloat(storeSettings.tier_2mr_pct):null;
+    // Manual entry is a true override — if you've typed a number in Settings (e.g. because
+    // the computed figure looks off), it wins outright. Leave it blank and the computed
+    // figure (from this store's own confirmed refill/bundle history) is used automatically.
+    const mr2=mr2Manual!==null?mr2Manual:(mr2Computed?mr2Computed.pct:null);
+    const mr2Source=mr2Manual!==null?'manually overridden in Settings':(mr2Computed?`computed from ${mr2Computed.reached}/${mr2Computed.total} confirmed activations 2 months ago`:'no confirmed 2-month-old cohort to compute from yet');
+    const mr2LowSample=mr2Manual===null&&mr2Computed&&mr2Computed.total<3; // a 1-2 activation cohort can swing 0%↔100% on a single case, but a deliberate manual override shouldn't get second-guessed this way
+    if(mr2===null)return ''; // nothing computed, nothing entered — can't determine tier, nothing to flag
     const computed=computedTierFor(avg,mr2);
     const stated=storeSettings.tier_current||'';
     const unverifiedThisPeriod=activations.filter(a=>{
@@ -2715,6 +2750,7 @@ function renderTierRisk(){
     }).length;
     const taggedPhones=phones.filter(p=>p.tier_required&&p.status!=='Sold'&&p.status!=='Returned');
     // Only actually alarming when there's a real gap to close or a mismatch to the stated tier
+    if(mr2LowSample&&!unverifiedThisPeriod&&!(stated&&computed&&!stated.toLowerCase().includes(computed.name.toLowerCase()))&&computed)return ''; // low-sample and otherwise consistent — not worth alarming over
     const belowStated=stated&&computed&&!stated.toLowerCase().includes(computed.name.toLowerCase());
     const belowAnyTier=!computed;
     if(!belowStated&&!belowAnyTier&&!unverifiedThisPeriod)return ''; // nothing to flag
@@ -2723,11 +2759,11 @@ function renderTierRisk(){
     const bg=severity==='red'?'#fef2f2':'#fffbeb';
     const headline=belowAnyTier
       ?`⚠️ Below Tier 1 pace — ${avg.toFixed(1)}/mo avg, needs 1+`
-      :(belowStated?`⚠️ Computed tier (${computed.label}) doesn't match what's set as current (${stated})`:`ℹ️ Tier check — ${count} unverified activation${unverifiedThisPeriod!==1?'s':''} in the last 90 days`);
+      :(belowStated?`⚠️ Computed tier (${computed.label}) doesn't match what's set as current (${stated})`:`ℹ️ Tier check — ${unverifiedThisPeriod?`${unverifiedThisPeriod} unverified activation${unverifiedThisPeriod!==1?'s':''} in the last 90 days`:`2MR sample is small, worth a portal cross-check`}`);
     return `
     <div style="background:${bg};border:2px solid ${color};border-radius:10px;padding:14px 18px;margin-bottom:16px;">
       <div style="font-size:12px;font-weight:800;color:${color};text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">${headline}</div>
-      <div style="font-size:12px;color:#444;margin-bottom:${taggedPhones.length?'8px':'0'};">${avg.toFixed(1)} invoice-confirmed activations/mo avg (trailing 90 days, ${count} total) · 2MR ${mr2}% (entered in Settings) → computed: ${computed?computed.label:'below Tier 1'}.${unverifiedThisPeriod?` ${unverifiedThisPeriod} more activation${unverifiedThisPeriod!==1?'s':''} in this window ${unverifiedThisPeriod!==1?"haven't":"hasn't"} been matched to an audited invoice yet — the average will rise once those clear, so treat this as a floor, not the final number.`:''}</div>
+      <div style="font-size:12px;color:#444;margin-bottom:${taggedPhones.length?'8px':'0'};">${avg.toFixed(1)} invoice-confirmed activations/mo avg (trailing 90 days, ${count} total) · 2MR ${mr2.toFixed(1)}% (${mr2Source}${mr2LowSample?' — small sample, treat as rough':''}) → computed: ${computed?computed.label:'below Tier 1'}.${unverifiedThisPeriod?` ${unverifiedThisPeriod} more activation${unverifiedThisPeriod!==1?'s':''} in this window ${unverifiedThisPeriod!==1?"haven't":"hasn't"} been matched to an audited invoice yet — the average will rise once those clear, so treat this as a floor, not the final number.`:''}</div>
       ${taggedPhones.length?`
       <div style="margin-top:4px;padding:10px;background:#fff;border:1px solid ${color};border-radius:6px;">
         <div style="font-size:12px;font-weight:800;color:${color};margin-bottom:4px;">${taggedPhones.length} phone${taggedPhones.length!==1?'s':''} in stock depend${taggedPhones.length===1?'s':''} on staying at the current tier</div>

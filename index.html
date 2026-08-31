@@ -946,6 +946,7 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
 <div id="tab-invoices" class="tab-panel">
   <div id="invoiceGapBanner" style="display:none;"></div>
   <div id="spiffDiscrepancyBanner" style="display:none;"></div>
+  <div id="pendingInvoicesBanner" style="display:none;"></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
 
     <!-- DROP INVOICE AUDIT -->
@@ -1201,7 +1202,7 @@ function planMatchesReq(reqCode,planName){
 const SB_URL='https://timtwxrpanjtacstcfvz.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpbXR3eHJwYW5qdGFjc3RjZnZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMTM5MTMsImV4cCI6MjA5OTc4OTkxM30.vfr72cFDKEPQNbFGALSyFFEtQRBHqiF99pmf6J4Dktw';
 const sb=supabase.createClient(SB_URL,SB_KEY);
-let activations=[],refills=[],phones=[],invoices=[],goals={},teamProfiles=[],storeSettings={},specialOrders=[],promotions=[];
+let activations=[],refills=[],phones=[],invoices=[],goals={},teamProfiles=[],storeSettings={},specialOrders=[],promotions=[],pendingInvoices=[];
 // Every activation uses the same monthly spiff schedule (90/55/55/70/65/65% of MRC) for its
 // first 6 months. A plan's term controls how many months are already PAID FOR — and so
 // unlock immediately — at activation: pay for 1 month, only M1 unlocks; pay for 3 months,
@@ -1492,7 +1493,7 @@ async function loadAll(){
   // account has no profiles row). Only an EXPLICIT rep/manager role gets restricted.
   const isOwner=!currentUser||currentUser.role==='owner';
   const phonesTable=isOwner?'phones':'phones_safe';
-  let[a,r,p,i,g,t,s,so,pr]=await Promise.all([
+  let[a,r,p,i,g,t,s,so,pr,pi]=await Promise.all([
     sb.from('activations').select('*').order('created_at',{ascending:false}),
     sb.from('refills').select('*').order('created_at',{ascending:false}),
     sb.from(phonesTable).select('*').order('created_at',{ascending:false}),
@@ -1502,6 +1503,7 @@ async function loadAll(){
     sb.from('settings').select('*').eq('id',1).single(),
     sb.from('special_orders').select('*').order('created_at',{ascending:false}),
     sb.from('promotions').select('*').order('start_date',{ascending:false}),
+    isOwner?sb.from('pending_invoices').select('*').eq('status','pending').order('received_at',{ascending:false}):Promise.resolve({data:[]}),
   ]);
   if(p.error&&!isOwner){
     // phones_safe view doesn't exist yet (SQL not run) — fall back to the real table so
@@ -1509,6 +1511,7 @@ async function loadAll(){
     p=await sb.from('phones').select('*').order('created_at',{ascending:false});
   }
   activations=a.data||[];refills=r.data||[];phones=p.data||[];invoices=i.data||[];
+  pendingInvoices=pi.data||[]; // empty array if the table hasn't been created yet — fails silently, not loudly
   goals={};(g.data||[]).forEach(row=>goals[row.month]=row.target);
   teamProfiles=t.data||[];
   specialOrders=so.data||[];
@@ -3073,6 +3076,53 @@ async function deleteInvoice(id){
   invoices=invoices.filter(i=>String(i.id)!==String(id));
   renderInvoices();renderDashboard();showToast();
 }
+// Invoices that arrived via the Gmail → Make.com pipeline, not yet reviewed. Clicking one
+// downloads it from the private 'incoming-invoices' bucket and hands it to the EXACT same
+// runFullAudit() the manual drop zone already uses — nothing about the OCR/audit logic
+// itself is duplicated, only how the file arrives.
+function renderPendingInvoices(){
+  const el=document.getElementById('pendingInvoicesBanner');
+  if(!el)return;
+  if(!pendingInvoices.length){el.innerHTML='';el.style.display='none';return;}
+  el.style.display='block';
+  el.innerHTML=`
+    <div style="background:#eff6ff;border:2px solid var(--blue);border-radius:10px;padding:14px 18px;margin-bottom:16px;">
+      <div style="font-size:12px;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;">📥 ${pendingInvoices.length} Invoice${pendingInvoices.length!==1?'s':''} Received, Not Yet Reviewed</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        ${pendingInvoices.map(p=>`
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:#fff;border:1px solid var(--border);border-radius:6px;padding:8px 12px;">
+            <div style="font-size:12px;">
+              <div style="font-weight:700;">${p.subject||'(no subject)'}</div>
+              <div style="color:var(--muted);font-size:11px;">${p.from_email||'unknown sender'} · ${fmtDate(p.received_at?p.received_at.slice(0,10):'')}</div>
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button class="btn" style="font-size:11px;padding:6px 10px;background:var(--blue);color:#fff;" onclick="reviewPendingInvoice(${p.id})">Review</button>
+              <button class="btn btn-ghost" style="font-size:11px;padding:6px 10px;" onclick="dismissPendingInvoice(${p.id})" title="Not a real invoice — remove from this list without auditing">✕</button>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+async function reviewPendingInvoice(id){
+  const p=pendingInvoices.find(x=>String(x.id)===String(id));
+  if(!p)return;
+  const{data,error}=await sb.storage.from('incoming-invoices').download(p.file_path);
+  if(error){alert('Could not download this invoice: '+error.message);return;}
+  const filename=p.file_path.split('/').pop()||'invoice.pdf';
+  const file=new File([data],filename,{type:'application/pdf'});
+  // Mark reviewed now, not after audit completes — prevents the same email accidentally
+  // getting reviewed twice if someone clicks it again while the audit is still running.
+  await sb.from('pending_invoices').update({status:'reviewed',reviewed_at:new Date().toISOString()}).eq('id',id);
+  pendingInvoices=pendingInvoices.filter(x=>String(x.id)!==String(id));
+  renderPendingInvoices();
+  runFullAudit(file);
+}
+async function dismissPendingInvoice(id){
+  if(!confirm('Remove this from the review queue without auditing it? (e.g. spam, not a real invoice)'))return;
+  await sb.from('pending_invoices').update({status:'dismissed'}).eq('id',id);
+  pendingInvoices=pendingInvoices.filter(x=>String(x.id)!==String(id));
+  renderPendingInvoices();
+}
 async function attachInvoiceFile(id,invoiceNum,file){
   if(!file)return;
   try{
@@ -4056,7 +4106,7 @@ function renderOverdue(){
     <div style="background:${newOffer?'#fef2f2':'var(--red-l)'};color:${newOffer?'#dc2626':'var(--red)'};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;">${newOffer?'🔔 new offer':'needs refill'}</div>
   </div>`).join(''):'<div style="padding:16px;text-align:center;color:var(--green);">✅ All up to date</div>';
 }
-function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDashStock();renderMonthSnapshot();renderReturnWarning();renderManagerCounts();renderGoalCountdown();renderPhoneUrgencyBanner();renderTeam();renderSettingsForm();renderSpecialOrders();renderPromotions();renderMrcBanner();renderSpiffDiscrepancies();renderTierRisk();runLookup(document.getElementById('lookup-q')?.value||'');}
+function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDashStock();renderMonthSnapshot();renderReturnWarning();renderManagerCounts();renderGoalCountdown();renderPhoneUrgencyBanner();renderTeam();renderSettingsForm();renderSpecialOrders();renderPromotions();renderMrcBanner();renderSpiffDiscrepancies();renderTierRisk();renderPendingInvoices();runLookup(document.getElementById('lookup-q')?.value||'');}
 
 // ══ PROMOTIONS ══
 // A promo is "live" if today falls within its start/end dates (inclusive). This is the

@@ -619,6 +619,7 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
   <div id="returnWarningBannerDash" style="display:none;"></div>
   <div id="invoiceGapBannerDash" style="display:none;"></div>
   <div id="spiffDiscrepancyBannerDash" style="display:none;"></div>
+  <div id="tierRiskBannerDash" style="display:none;"></div>
   <div class="quick-actions-wrap">
     <div class="quick-actions-title">Quick actions</div>
     <div class="quick-actions">
@@ -1015,6 +1016,10 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
             <optgroup label="3 Month"><option value="3x$50">3 Months — $50/mo ($150)</option><option value="3x$60">3 Months — $60/mo ($180)</option><option value="3xWorld">3 Month Unlimited World ($150)</option><option value="3xWorld+">3 Month Unlimited World+ ($180)</option></optgroup>
             <optgroup label="6 Month"><option value="6x$50">6 Months — $50/mo ($300)</option><option value="6x$60">6 Months — $60/mo ($360)</option></optgroup>
           </select></div>
+        <div class="field" style="grid-column:span 2;display:flex;align-items:center;gap:8px;padding-top:8px;">
+          <input id="ph-tier-required" type="checkbox" style="width:16px;height:16px;">
+          <label for="ph-tier-required" style="margin:0;cursor:pointer;">🎯 Tied to current VidaPay tier (e.g. a free-with-activation promo only valid at Tier 2+) — flag if the store drops a tier</label>
+        </div>
       </div>
       <div style="margin-top:12px;display:flex;gap:8px;">
         <button class="btn" style="background:var(--blue);color:#fff;" onclick="addPhone()">+ Add to Inventory</button>
@@ -1081,6 +1086,15 @@ body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
     <thead><tr><th>Name</th><th>Role</th><th>Monthly Goal</th><th>Joined</th></tr></thead>
     <tbody id="teamTable"><tr><td colspan="4" class="empty-state">No team members yet</td></tr></tbody>
   </table></div></div>
+
+  <div class="section-hdr" style="margin-top:24px"><div class="section-title">🎯 VidaPay Tier Status</div></div>
+  <div style="background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:18px;margin-bottom:16px;">
+    <div class="form-grid" style="margin-bottom:8px;">
+      <div class="field"><label>Current VidaPay Tier</label><input id="set-tier-current" type="text" placeholder="e.g. Tier 2" onchange="updateSetting('tier_current',this.value)"></div>
+      <div class="field"><label>2MR % (from Tier Details → 2MR Final)</label><input id="set-tier-2mr" type="number" min="0" max="100" step="0.1" placeholder="e.g. 74" onchange="updateSetting('tier_2mr_pct',parseFloat(this.value)||0)"></div>
+    </div>
+    <div style="font-size:10px;color:var(--muted);">Average activations per month (trailing 90 days) is calculated automatically from invoice-confirmed activations logged in this app. 2MR % isn't something the app can compute — it's a replenishment metric VidaPay tracks internally — so copy it from the portal's Tier Details tab (2MR Final) whenever you check. Tier thresholds: Tier 1 needs 1+/mo; Tier 2 needs 1+/mo and 2MR 70-74%; Tier 3 needs 10+/mo and 2MR 75%+. Cross-checked against any phones tagged "tier-dependent" below.</div>
+  </div>
 
   <div class="section-hdr" style="margin-top:24px"><div class="section-title">🖨️ Receipt Settings</div></div>
   <div style="background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:18px;margin-bottom:16px;">
@@ -2651,6 +2665,79 @@ function renderSpiffDiscrepancies(){
   const b1=document.getElementById('spiffDiscrepancyBanner');if(b1){b1.innerHTML=html;b1.style.display=html?'block':'none';}
   const b2=document.getElementById('spiffDiscrepancyBannerDash');if(b2){b2.innerHTML=html;b2.style.display=html?'block':'none';}
 }
+// VidaPay's real published thresholds (from the portal's own Tier Details screen):
+//   Tier 3 (Advanced, 10% residual): 10+ activations/mo avg over 90 days AND 2MR >= 75%
+//   Tier 2 (Smart,    6% residual):  1+ activations/mo avg over 90 days  AND 2MR 70-74%
+//   Tier 1 (Basic,    3% residual):  1+ activations/mo avg over 90 days  (no 2MR floor)
+//   Below Tier 1: under 1/mo average
+// The activation-count side of this is fully computable and is done automatically below,
+// using ONLY invoice-verified activations (see the `verified` flag set during invoice
+// audit) so the number reflects what VidaPay has actually confirmed, not just what's
+// logged and possibly still pending an invoice match. If a lot of this month's activations
+// haven't been audited yet, the computed average will run low until they are — that's
+// flagged explicitly rather than silently under-counting.
+// 2MR (2-month replenishment rate) is NOT computed here — its exact formula isn't nailed
+// down, and a guessed number that looks authoritative is worse than an honest manual entry.
+// It's typed in by hand in Settings from the portal's own "2MR Final" figure.
+const TIER_THRESHOLDS=[
+  {name:'Tier 3',label:'Tier 3 (Advanced)',minAvg:10,min2mr:75},
+  {name:'Tier 2',label:'Tier 2 (Smart)',minAvg:1,min2mr:70},
+  {name:'Tier 1',label:'Tier 1 (Basic)',minAvg:1,min2mr:null}, // no 2MR floor at Tier 1
+];
+function tierAvgPerMonth90(){
+  const now=new Date();
+  const cutoff=new Date(now);cutoff.setDate(cutoff.getDate()-90);
+  const verifiedRecent=activations.filter(a=>{
+    if(!a.verified||!a.act_date)return false;
+    const d=new Date(a.act_date+'T12:00:00');
+    return d>=cutoff&&d<=now;
+  });
+  return {avg:verifiedRecent.length/3,count:verifiedRecent.length};
+}
+function computedTierFor(avg,mr2){
+  for(const t of TIER_THRESHOLDS){
+    if(avg>=t.minAvg&&(t.min2mr===null||mr2>=t.min2mr))return t;
+  }
+  return null; // below Tier 1
+}
+function renderTierRisk(){
+  const html=(()=>{
+    const{avg,count}=tierAvgPerMonth90();
+    const mr2=(storeSettings.tier_2mr_pct!==undefined&&storeSettings.tier_2mr_pct!==null&&storeSettings.tier_2mr_pct!=='')?parseFloat(storeSettings.tier_2mr_pct):null;
+    if(mr2===null)return ''; // 2MR not entered yet — can't determine tier accurately, nothing to flag
+    const computed=computedTierFor(avg,mr2);
+    const stated=storeSettings.tier_current||'';
+    const unverifiedThisPeriod=activations.filter(a=>{
+      if(a.verified||!a.act_date)return false;
+      const now=new Date();const cutoff=new Date(now);cutoff.setDate(cutoff.getDate()-90);
+      const d=new Date(a.act_date+'T12:00:00');
+      return d>=cutoff&&d<=now;
+    }).length;
+    const taggedPhones=phones.filter(p=>p.tier_required&&p.status!=='Sold'&&p.status!=='Returned');
+    // Only actually alarming when there's a real gap to close or a mismatch to the stated tier
+    const belowStated=stated&&computed&&!stated.toLowerCase().includes(computed.name.toLowerCase());
+    const belowAnyTier=!computed;
+    if(!belowStated&&!belowAnyTier&&!unverifiedThisPeriod)return ''; // nothing to flag
+    const severity=belowAnyTier?'red':'gold';
+    const color=severity==='red'?'var(--red)':'var(--gold)';
+    const bg=severity==='red'?'#fef2f2':'#fffbeb';
+    const headline=belowAnyTier
+      ?`⚠️ Below Tier 1 pace — ${avg.toFixed(1)}/mo avg, needs 1+`
+      :(belowStated?`⚠️ Computed tier (${computed.label}) doesn't match what's set as current (${stated})`:`ℹ️ Tier check — ${count} unverified activation${unverifiedThisPeriod!==1?'s':''} in the last 90 days`);
+    return `
+    <div style="background:${bg};border:2px solid ${color};border-radius:10px;padding:14px 18px;margin-bottom:16px;">
+      <div style="font-size:12px;font-weight:800;color:${color};text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">${headline}</div>
+      <div style="font-size:12px;color:#444;margin-bottom:${taggedPhones.length?'8px':'0'};">${avg.toFixed(1)} invoice-confirmed activations/mo avg (trailing 90 days, ${count} total) · 2MR ${mr2}% (entered in Settings) → computed: ${computed?computed.label:'below Tier 1'}.${unverifiedThisPeriod?` ${unverifiedThisPeriod} more activation${unverifiedThisPeriod!==1?'s':''} in this window ${unverifiedThisPeriod!==1?"haven't":"hasn't"} been matched to an audited invoice yet — the average will rise once those clear, so treat this as a floor, not the final number.`:''}</div>
+      ${taggedPhones.length?`
+      <div style="margin-top:4px;padding:10px;background:#fff;border:1px solid ${color};border-radius:6px;">
+        <div style="font-size:12px;font-weight:800;color:${color};margin-bottom:4px;">${taggedPhones.length} phone${taggedPhones.length!==1?'s':''} in stock depend${taggedPhones.length===1?'s':''} on staying at the current tier</div>
+        <div style="font-size:11px;color:var(--muted);">${taggedPhones.slice(0,6).map(p=>p.model||'Unnamed phone').join(', ')}${taggedPhones.length>6?` +${taggedPhones.length-6} more`:''} — check the Phones tab if the tier drops before these sell.</div>
+      </div>`:''}
+    </div>`;
+  })();
+  const b1=document.getElementById('tierRiskBanner');if(b1){b1.innerHTML=html;b1.style.display=html?'block':'none';}
+  const b2=document.getElementById('tierRiskBannerDash');if(b2){b2.innerHTML=html;b2.style.display=html?'block':'none';}
+}
 function renderReturnWarning(){
   const inStock=phones.filter(p=>p.status!=='Sold'&&p.status!=='Returned'&&p.return_date);
   const dueSoon=inStock.filter(p=>{
@@ -2705,12 +2792,20 @@ async function addPhone(){
     cost:parseFloat(document.getElementById('ph-cost')?.value)||0,
     rebate_expected:parseFloat(document.getElementById('ph-rebate')?.value)||0,
     req_plan:document.getElementById('ph-req-plan')?.value||'',
+    tier_required:!!document.getElementById('ph-tier-required')?.checked,
     phone_category:document.getElementById('ph-category')?.value||'unlocked',
     status:'In Stock',phone:'',sale_price:0,subsidy:0,
   };
   const rd=document.getElementById('ph-return-date')?.value;
   if(rd)payload.return_date=rd;
   let{data,error}=await sb.from('phones').insert(payload).select().single();
+  if(error&&/tier_required/i.test(error.message||'')){
+    // The 'tier_required' column doesn't exist yet — save without it rather than
+    // blocking the phone entirely. Run the tier-tracking SQL to add it.
+    const fb={...payload};delete fb.tier_required;
+    ({data,error}=await sb.from('phones').insert(fb).select().single());
+    if(!error)alert('Saved, but the tier flag wasn\'t stored — the tier_required column needs to be added first.');
+  }
   if(error&&/phone_category/i.test(error.message||'')){
     // The 'phone_category' column doesn't exist yet — save without it rather than
     // blocking the phone entirely. Run add-return-tracking.sql to add it.
@@ -2749,6 +2844,7 @@ function clearPh(){
   });
   const rp=document.getElementById('ph-req-plan');if(rp)rp.selectedIndex=0;
   const cat=document.getElementById('ph-category');if(cat)cat.selectedIndex=0;
+  const tr=document.getElementById('ph-tier-required');if(tr)tr.checked=false;
   const hint=document.getElementById('ph-return-hint');if(hint)hint.textContent='Unlocked: auto-set to 45 days after purchase (true deadline is 60 days) — edit if needed.';
   const prev=document.getElementById('receiptPreview');if(prev)prev.style.display='none';
   const dz=document.getElementById('receiptDropZone');if(dz)dz.style.display='block';
@@ -2831,11 +2927,15 @@ function applyInventoryFilters(){
 
 // ── Delete functions ──
 async function updatePhoneField(id,field,value){
-  const{error}=await sb.from('phones').update({[field]:value||null}).eq('id',id);
+  // Booleans need to stay true/false — the old `value||null` coercion (still used for
+  // every other field here) would turn tier_required:false into null, which reads as
+  // "unknown" instead of "not tier-dependent" and breaks the dashboard's tier-risk check.
+  const v=(typeof value==='boolean')?value:(value||null);
+  const{error}=await sb.from('phones').update({[field]:v}).eq('id',id);
   if(error){alert('Update failed: '+error.message);return;}
   const p=phones.find(x=>String(x.id)===String(id));
-  if(p)p[field]=value||null;
-  renderPhones();renderDashStock();renderPhoneUrgencyBanner();renderReturnWarning();showToast();
+  if(p)p[field]=v;
+  renderPhones();renderDashStock();renderPhoneUrgencyBanner();renderReturnWarning();renderTierRisk();showToast();
 }
 // ── Mark Returned ──────────────────────────────────────────────────────
 // Replaces the old "just delete it" behavior for a phone going back to VidaPay. Captures
@@ -2928,7 +3028,7 @@ async function updateActivationField(id,field,value){
   if(error){alert('Update failed: '+error.message);return;}
   const a=activations.find(x=>String(x.id)===String(id));
   if(a)a[field]=value||null;
-  renderActivations();renderDashboard();renderGoals();showToast();
+  renderActivations();renderDashboard();renderGoals();renderTierRisk();showToast();
 }
 async function deleteInvoice(id){
   if(!confirm('Delete?'))return;
@@ -3055,6 +3155,8 @@ function renderSettingsForm(){
   if((currentUser?.role||'owner')!=='owner')return; // section is hidden anyway, belt-and-suspenders
   const set=(id,v)=>{const el=document.getElementById(id);if(el&&document.activeElement!==el)el.value=v||'';};
   set('set-store-name',storeSettings.store_name);
+  set('set-tier-current',storeSettings.tier_current);
+  set('set-tier-2mr',storeSettings.tier_2mr_pct);
   set('set-store-phone',storeSettings.store_phone);
   set('set-store-address',storeSettings.store_address);
   set('set-activation-policy',storeSettings.activation_policy);
@@ -3065,6 +3167,7 @@ async function updateSetting(field,value){
   const{error}=await sb.from('settings').update({[field]:value}).eq('id',1);
   if(error){alert('Update failed: '+error.message+'\n\nMost likely the settings table hasn\'t been set up yet — run add-settings-table.sql first.');return;}
   storeSettings[field]=value;
+  renderTierRisk();
   showToast();
 }
 async function updateProfileField(id,field,value){
@@ -3171,7 +3274,10 @@ function renderPhones(){
           <td class="ownerOnlyCol"><div class="financial-stack"><div class="financial-row"><span>Cost</span><strong>${p.cost===undefined?'—':fmt(p.cost)}</strong></div><div class="financial-row"><span>Rebate</span><strong>${p.rebate_expected?fmt(p.rebate_expected):'—'}</strong></div></div></td>
           <td>${isOwner
             ?`<select class="plan-select" aria-label="Required plan" onchange="updatePhoneField(${p.id},'req_plan',this.value)">${reqPlanOpts(p.req_plan||'')}</select>`
-            :`<span style="font-size:11px;color:#475467;">${p.req_plan||'No rebate plan'}</span>`}</td>
+            :`<span style="font-size:11px;color:#475467;">${p.req_plan||'No rebate plan'}</span>`}
+            ${isOwner
+              ?`<label style="display:flex;align-items:center;gap:4px;margin-top:4px;font-size:10px;color:${p.tier_required?'var(--gold)':'var(--muted)'};cursor:pointer;" title="Tag this phone as tied to the current VidaPay tier — flagged on the dashboard if the store is at risk of dropping below it"><input type="checkbox" style="width:12px;height:12px;" ${p.tier_required?'checked':''} onchange="updatePhoneField(${p.id},'tier_required',this.checked)">🎯 Tier-dependent</label>`
+              :(p.tier_required?`<span class="badge b-gold" style="font-size:9px;margin-top:4px;display:inline-block;">🎯 Tier-dependent</span>`:'')}</td>
           <td>${isOwner
             ?`<input class="return-date-input" type="date" value="${p.return_date||''}" aria-label="Return by date" onchange="updatePhoneField(${p.id},'return_date',this.value)">`
             :(p.return_date?fmtDate(p.return_date):'—')}</td>
@@ -3914,7 +4020,7 @@ function renderOverdue(){
     <div style="background:${newOffer?'#fef2f2':'var(--red-l)'};color:${newOffer?'#dc2626':'var(--red)'};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;">${newOffer?'🔔 new offer':'needs refill'}</div>
   </div>`).join(''):'<div style="padding:16px;text-align:center;color:var(--green);">✅ All up to date</div>';
 }
-function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDashStock();renderMonthSnapshot();renderReturnWarning();renderManagerCounts();renderGoalCountdown();renderPhoneUrgencyBanner();renderTeam();renderSettingsForm();renderSpecialOrders();renderPromotions();renderMrcBanner();renderSpiffDiscrepancies();runLookup(document.getElementById('lookup-q')?.value||'');}
+function renderAll(){renderDashboard();renderGoals();renderActivations();renderRefills();renderPhones();renderInvoices();renderPlans();renderCommPipeline();renderOverdue();renderDashStock();renderMonthSnapshot();renderReturnWarning();renderManagerCounts();renderGoalCountdown();renderPhoneUrgencyBanner();renderTeam();renderSettingsForm();renderSpecialOrders();renderPromotions();renderMrcBanner();renderSpiffDiscrepancies();renderTierRisk();runLookup(document.getElementById('lookup-q')?.value||'');}
 
 // ══ PROMOTIONS ══
 // A promo is "live" if today falls within its start/end dates (inclusive). This is the

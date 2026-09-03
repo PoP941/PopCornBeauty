@@ -2626,6 +2626,20 @@ function renderInvoiceGapWarning(){
   const b1=document.getElementById('invoiceGapBanner');if(b1){b1.innerHTML=html;b1.style.display=html?'block':'none';}
   const b2=document.getElementById('invoiceGapBannerDash');if(b2){b2.innerHTML=html;b2.style.display=html?'block':'none';}
 }
+// Finds the original activation a Retroactive Spiff row belongs to. Confirmed pattern so
+// far: the retroactive row's order # is exactly the original activation's order # + 1
+// (e.g. retroactive spiff on order 356369169 corrects activation order 356369168) — this
+// showed up when an activation landed right at a daily settlement cutoff and the Instant
+// Spiff engine hadn't finished calculating in time, so the original invoice showed $0 and
+// the real payment appeared 1-2 cycles later under this adjacent order #. Only one
+// confirmed example exists so far — worth re-checking this pattern holds as more retroactive
+// rows come through real invoices.
+function retroLinkedActivation(retroOrderNum){
+  const n=parseInt(retroOrderNum,10);
+  if(!n)return null;
+  const targetOrder=String(n-1);
+  return activations.find(a=>a.order_num===targetOrder)||null;
+}
 // Compares what VidaPay actually paid (matched_spiff, captured at audit time from the
 // invoice's own spiff-credit rows) against what our own M1-M6 schedule says the initial
 // activation spiff should have been. This is the one place that checks the DOLLAR AMOUNT,
@@ -3737,7 +3751,15 @@ async function runFullAudit(file){
     // unrelated order #, so they're shown informationally instead of flagged as a missing
     // activation.
     const spiffRows=rows.filter(r=>r.type.includes('spiff')&&!r.type.includes('additional')&&!r.type.includes('retroactive'));
-    const additionalSpiffRows=rows.filter(r=>r.type.includes('spiff')&&(r.type.includes('additional')||r.type.includes('retroactive')));
+    // Retroactive Spiff shows up when VidaPay's Instant Spiff engine didn't finish
+    // calculating before an invoice's cutoff (seen with activations landing right at a
+    // settlement boundary) — the original invoice shows $0.00, then the real payment
+    // appears 1-2 invoice cycles later as its own "Retroactive Spiff" line, observed so
+    // far under order# = original activation's order# + 1. That's a real VidaPay quirk
+    // worth surfacing, not a shortage — see linkRetroactiveSpiff() below, which corrects
+    // the earlier $0 reading instead of leaving it flagged as a discrepancy forever.
+    const retroactiveSpiffRows=rows.filter(r=>r.type.includes('spiff')&&r.type.includes('retroactive'));
+    const additionalSpiffRows=rows.filter(r=>r.type.includes('spiff')&&r.type.includes('additional'));
     const residualRows=rows.filter(r=>r.type.includes('residual'));
     const promoRows=rows.filter(r=>r.type.includes('promo'));
     const marketplaceRows=rows.filter(r=>r.type.includes('marketplace'));
@@ -3766,6 +3788,7 @@ async function runFullAudit(file){
     const hColor=allGood?'var(--green)':issues>0?'var(--red)':'var(--gold)';
     const feeTotal=feeRows.reduce((s,r)=>s+r.amount,0);
     const additionalSpiffTotal=additionalSpiffRows.reduce((s,r)=>s+Math.abs(r.amount),0);
+    const retroactiveSpiffTotal=retroactiveSpiffRows.reduce((s,r)=>s+Math.abs(r.amount),0);
     const residualTotal=residualRows.reduce((s,r)=>s+r.amount,0);
     const marketplaceTotal=marketplaceRows.reduce((s,r)=>s+r.amount,0);
     // Reconciliation self-check: does what we parsed out of the itemized rows actually add
@@ -3781,7 +3804,7 @@ async function runFullAudit(file){
     // reconciliation check needs to split them the same way, or it
     // undercounts debits by exactly the refunded amount every time.
     const reconDebits=actRows.reduce((s,r)=>s+r.amount,0)+rtrRows.filter(r=>r.amount>=0).reduce((s,r)=>s+r.amount,0)+feeTotal+marketplaceTotal+Math.max(0,residualTotal);
-    const reconCredits=spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)+promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)+additionalSpiffTotal+Math.max(0,-residualTotal)+rtrRows.filter(r=>r.amount<0).reduce((s,r)=>s+Math.abs(r.amount),0);
+    const reconCredits=spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)+promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)+additionalSpiffTotal+retroactiveSpiffTotal+Math.max(0,-residualTotal)+rtrRows.filter(r=>r.amount<0).reduce((s,r)=>s+Math.abs(r.amount),0);
     const reconMismatch=Math.abs(reconDebits-totalDebits)>0.02||Math.abs(reconCredits-totalCredits)>0.02;
     if(status)status.style.display='none';
     if(results)results.style.display='block';
@@ -3804,7 +3827,13 @@ async function runFullAudit(file){
             :`<div style="padding:6px 10px;background:var(--red-l);border-left:3px solid var(--red);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span style="color:var(--red);font-weight:700;">Order #${r.order} — spiff paid, but NO matching activation on file</span><span style="color:var(--red);font-weight:700;">${fmt(Math.abs(r.amount))}</span></div>`
           ).join('')}
         </div>`:''}
-        ${additionalSpiffRows.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--teal);text-transform:uppercase;margin-bottom:6px;">🔄 Additional / Retroactive Spiff (later months or corrections — informational)</div>
+        ${retroactiveSpiffRows.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--teal);text-transform:uppercase;margin-bottom:6px;">🔗 Retroactive Spiff (delayed payment from an earlier invoice)</div>
+          ${retroactiveSpiffRows.map(r=>{
+            const linked=retroLinkedActivation(r.order);
+            return `<div style="padding:6px 10px;background:${linked?'var(--green-l)':'var(--teal-l,#f0fbff)'};border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span>Order #${r.order}${linked?` · corrects <strong>${linked.phone}</strong> (order #${linked.order_num})`:''}</span><span style="color:${linked?'var(--green)':'var(--teal)'};font-weight:700;">${fmt(Math.abs(r.amount))}${linked?' <span class="badge b-green">✅ linked, corrected</span>':' <span class="badge b-gray">no matching activation found</span>'}</span></div>`;
+          }).join('')}
+        </div>`:''}
+        ${additionalSpiffRows.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--teal);text-transform:uppercase;margin-bottom:6px;">🔄 Additional Spiff (later months — informational)</div>
           ${additionalSpiffRows.map(r=>`<div style="padding:6px 10px;background:var(--teal-l,#f0fbff);border-radius:4px;margin-bottom:3px;font-size:12px;display:flex;justify-content:space-between;"><span>Order #${r.order}${r.product?' · '+r.product.replace(/\(+$/,'').trim():''}</span><span style="color:var(--teal);font-weight:700;">${fmt(Math.abs(r.amount))}</span></div>`).join('')}
         </div>`:''}
         ${promoRows.length?`<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:800;color:var(--purple);text-transform:uppercase;margin-bottom:6px;">📦 Subsidy / Promo Credits (informational — verify against Phones tab)</div>
@@ -3835,7 +3864,7 @@ async function runFullAudit(file){
           <div style="text-align:center;padding:8px;background:var(--blue-l);border-radius:5px;"><div style="font-size:9px;color:var(--muted);font-weight:700;">NET</div><div style="font-size:16px;font-weight:900;color:var(--blue);">${grandTotal<0?'('+fmt(Math.abs(grandTotal))+')':fmt(grandTotal)}</div></div>
         </div>
         <div style="margin-top:12px;display:flex;gap:8px;">
-          <button class="btn" style="background:${reconMismatch?'var(--muted)':'var(--green)'};color:#fff;" ${reconMismatch?'disabled title="Fix the mismatch above first"':''} onclick="saveAuditResult('${invoiceNum}','${period}',{actOrders:${actRows.reduce((s,r)=>s+r.amount,0)},spiff:${spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)+additionalSpiffTotal},subsidy:${promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)},residual:${Math.max(0,-residualTotal)},rtr:${rtrRows.reduce((s,r)=>s+r.amount,0)},fee:${feeTotal+Math.max(0,residualTotal)},marketplace:${marketplaceTotal}},${invoiceDate?"'"+invoiceDate+"'":'null'})">💾 Save to Invoice History</button>
+          <button class="btn" style="background:${reconMismatch?'var(--muted)':'var(--green)'};color:#fff;" ${reconMismatch?'disabled title="Fix the mismatch above first"':''} onclick="saveAuditResult('${invoiceNum}','${period}',{actOrders:${actRows.reduce((s,r)=>s+r.amount,0)},spiff:${spiffRows.reduce((s,r)=>s+Math.abs(r.amount),0)+additionalSpiffTotal+retroactiveSpiffTotal},subsidy:${promoRows.reduce((s,r)=>s+Math.abs(r.amount),0)},residual:${Math.max(0,-residualTotal)},rtr:${rtrRows.reduce((s,r)=>s+r.amount,0)},fee:${feeTotal+Math.max(0,residualTotal)},marketplace:${marketplaceTotal}},${invoiceDate?"'"+invoiceDate+"'":'null'})">💾 Save to Invoice History</button>
           <button class="btn btn-ghost" onclick="document.getElementById('invAuditResults').style.display='none';document.getElementById('invDropZone').style.display='block';">↩ Another</button>
         </div>
       </div>
@@ -3867,6 +3896,22 @@ async function runFullAudit(file){
     if(verifyFailed){
       const el=document.getElementById('invAuditResults');
       if(el)el.innerHTML+='<div style="margin-top:10px;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;font-size:11px;color:#991b1b;">⚠️ Matched activations were found, but marking them "confirmed" failed to save — most likely the <code>verified</code> column (or the newer <code>matched_spiff</code> column) doesn\'t exist on the <code>activations</code> table yet. Run the SQL to add them, then re-drop this invoice.</div>';
+    }
+    // Correct any earlier $0 (or partial) spiff reading using a Retroactive Spiff row found
+    // on THIS invoice — this is what fixes the false-positive discrepancy alert once the
+    // delayed payment actually shows up, instead of leaving the original invoice's $0
+    // reading flagged forever. See retroLinkedActivation() for the matching logic.
+    for(const r of retroactiveSpiffRows){
+      const linked=retroLinkedActivation(r.order);
+      if(!linked)continue;
+      const corrected=(parseFloat(linked.matched_spiff)||0)+Math.abs(r.amount);
+      const{error:rerr}=await sb.from('activations').update({matched_spiff:corrected,verified:true}).eq('id',linked.id);
+      if(rerr){
+        console.error('Failed to apply retroactive spiff correction:',rerr);
+      } else {
+        const i=activations.findIndex(a=>a.id===linked.id);
+        if(i>=0){activations[i].matched_spiff=corrected;activations[i].verified=true;}
+      }
     }
     renderActivations();renderInvoices();renderSpiffDiscrepancies();
   }catch(err){

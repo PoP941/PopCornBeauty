@@ -4092,14 +4092,19 @@ async function saveEpayAuditResult(){
   const acctNum=(document.getElementById('epayAcctNum')?.value||'').trim();
   const invDate=(document.getElementById('epayInvDate')?.value||'').trim();
   if(!invNum){alert('Invoice # is required — check the invoice and enter it before saving.');return;}
-  if(invoices.find(i=>i.invoice_num===String(invNum))){alert('Invoice #'+invNum+' already saved');return;}
+  // If this invoice was already saved, don't insert a duplicate row — but DO still run the
+  // matching loop below against whatever's logged in Refills now. This matters because the
+  // matching used to only happen here, gated behind this exact check, so re-processing an
+  // already-saved invoice (e.g. a refill that got logged in the store AFTER the first save)
+  // silently did nothing. Only the invoice-insert step gets skipped; matching always runs.
+  const alreadySavedInvoice=invoices.find(i=>i.invoice_num===String(invNum));
   ex.invoice_num=invNum;
   ex.account_number=acctNum;
   ex.invoice_date=invDate||null;
   ex.notes='ePay/Boost Mobile'+(acctNum?' · Acct #'+acctNum:'')+' · Retail $'+(ex.retail_total||0).toFixed(2)+' · Cost $'+(ex.cost_total||0).toFixed(2);
 
   let fileUrl=null;
-  if(currentAuditFile){
+  if(!alreadySavedInvoice&&currentAuditFile){
     try{
       const ext=(currentAuditFile.name.split('.').pop()||'pdf').toLowerCase();
       const path=String(ex.invoice_num)+'.'+ext;
@@ -4108,30 +4113,33 @@ async function saveEpayAuditResult(){
     }catch(e){console.warn('Invoice file upload error:',e);}
   }
 
-  const payload={
-    invoice_num:String(ex.invoice_num),
-    invoice_date:ex.invoice_date||null,
-    period:null,
-    act_orders:0,
-    spiff:parseFloat(ex.commission_total)||0,
-    subsidy:0,rtr:0,fee:0,
-    file_url:fileUrl,
-    notes:ex.notes||'',
-    vendor:'ePay',
-  };
-  let{data,error}=await sb.from('invoices').insert(payload).select().single();
-  if(error&&/vendor/i.test(error.message||'')){
-    const fbV={...payload};delete fbV.vendor;
-    ({data,error}=await sb.from('invoices').insert(fbV).select().single());
+  if(!alreadySavedInvoice){
+    const payload={
+      invoice_num:String(ex.invoice_num),
+      invoice_date:ex.invoice_date||null,
+      period:null,
+      act_orders:0,
+      spiff:parseFloat(ex.commission_total)||0,
+      subsidy:0,rtr:0,fee:0,
+      file_url:fileUrl,
+      notes:ex.notes||'',
+      vendor:'ePay',
+    };
+    let{data,error}=await sb.from('invoices').insert(payload).select().single();
+    if(error&&/vendor/i.test(error.message||'')){
+      const fbV={...payload};delete fbV.vendor;
+      ({data,error}=await sb.from('invoices').insert(fbV).select().single());
+    }
+    if(error&&/file_url/i.test(error.message||'')){
+      const fb1={...payload};delete fb1.file_url;
+      ({data,error}=await sb.from('invoices').insert(fb1).select().single());
+    }
+    if(error){alert('Save error: '+error.message);return;}
+    invoices.unshift(data);
   }
-  if(error&&/file_url/i.test(error.message||'')){
-    const fb1={...payload};delete fb1.file_url;
-    ({data,error}=await sb.from('invoices').insert(fb1).select().single());
-  }
-  if(error){alert('Save error: '+error.message);return;}
-  invoices.unshift(data);
 
-  // Match and mark verified — same logic shown in the preview, now persisted.
+  // Match and mark verified — same logic shown in the preview, now persisted. Runs
+  // regardless of whether the invoice row itself was just inserted or already existed.
   let matched=0,unmatched=0;
   for(const line of (ex.detail_lines||[])){
     const digits=(line.control_number||'').replace(/\D/g,'');
@@ -4180,7 +4188,7 @@ async function saveEpayAuditResult(){
     }
   }
   renderIntlRecharges();
-  alert('✅ ePay invoice saved!\n\n'+matched+' Boost sale(s) matched'+(unmatched?', '+unmatched+' still unmatched.':'.')+(intlSaved?'\n'+intlSaved+' international recharge(s) logged automatically.':'')+(intlSkipped?' ('+intlSkipped+' already logged, skipped.)':''));
+  alert((alreadySavedInvoice?'✅ Re-checked invoice #'+invNum+'!':'✅ ePay invoice saved!')+'\n\n'+matched+' Boost sale(s) matched'+(unmatched?', '+unmatched+' still unmatched.':'.')+(intlSaved?'\n'+intlSaved+' international recharge(s) logged automatically.':'')+(intlSkipped?' ('+intlSkipped+' already logged, skipped.)':''));
 }
 
 async function saveAuditResult(num,period,cats,invoiceDate){

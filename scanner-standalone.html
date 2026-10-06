@@ -1106,7 +1106,6 @@ async function openCamera() {
 }
 
 function startQuagga() {
-  // No resolution constraints — let iOS pick its own preferred resolution
   Quagga.init({
     inputStream: {
       name: 'Live',
@@ -1114,40 +1113,72 @@ function startQuagga() {
       target: document.getElementById('cam-video'),
       constraints: {
         facingMode: { ideal: 'environment' }
-        // No width/height — iOS Chrome fails silently when constraints can't be met
+      },
+      area: { // focus scanning on center strip — faster & more accurate
+        top: '20%',
+        right: '5%',
+        left: '5%',
+        bottom: '20%'
       }
     },
     decoder: {
       readers: [
         'code_128_reader',
-        'code_39_reader',
         'ean_reader',
         'ean_8_reader',
         'upc_reader',
         'upc_e_reader',
+        'code_39_reader',
         'codabar_reader',
         'i2of5_reader'
-      ]
+      ],
+      multiple: false
     },
+    locator: {
+      patchSize: 'medium',   // 'small' misses thin barcodes; 'large' is slow
+      halfSample: true       // faster on mobile
+    },
+    numOfWorkers: 0,         // iOS Safari/Chrome: workers cause issues, use 0
     locate: true,
-    frequency: 8
+    frequency: 10
   }, function(err) {
     if (err) {
       console.warn('Quagga init error:', err);
-      // Fall back to raw camera
       startRawCamera();
       return;
     }
     quaggaRunning = true;
     Quagga.start();
-    setStatus('Point camera at a barcode');
+    setStatus('Hold barcode in the red box');
   });
+
+  // Require 2 consecutive matching reads before accepting — cuts false positives
+  let lastRaw = null;
+  let matchCount = 0;
 
   Quagga.onDetected(function(result) {
     if (!cameraActive || !quaggaRunning) return;
     const raw = (result.codeResult.code || '').trim().toUpperCase();
-    if (!raw || raw === lastScannedSku) return;
-    handleBarcode(raw);
+    if (!raw) return;
+
+    // Confidence filter — ignore low-quality reads
+    const errors = result.codeResult.decodedCodes
+      ?.filter(c => c.error !== undefined)
+      ?.map(c => c.error) || [];
+    const avgError = errors.length ? errors.reduce((a,b) => a+b, 0) / errors.length : 1;
+    if (avgError > 0.25) return; // too many errors in this read
+
+    if (raw === lastRaw) {
+      matchCount++;
+    } else {
+      lastRaw = raw;
+      matchCount = 1;
+    }
+
+    if (matchCount >= 2 && raw !== lastScannedSku) {
+      matchCount = 0;
+      handleBarcode(raw);
+    }
   });
 }
 

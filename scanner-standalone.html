@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="PB Scanner">
+<title>Popcorn Inventory Scanner</title>
+<style>
+  /* === DESIGN TOKENS ===
+     Layout: full-screen single-column app, sticky header, scrollable body
+     Palette: Popcorn Beauty — deep navy base, vibrant coral accent, clean whites
+     Type: Outfit (utility/display) + Inter (data/body)
+  */
+  @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap');
+
+  :root {
+    --bg:        #0d1117;
+    --surface:   #161b22;
+    --surface2:  #21262d;
+    --border:    #30363d;
+    --fg:        #e6edf3;
+    --fg-muted:  #8b949e;
+    --accent:    #ff5a5a;
+    --accent-dk: #cc3a3a;
+    --green:     #3fb950;
+    --yellow:    #d29922;
+    --blue:      #58a6ff;
+    --radius:    12px;
+    color-scheme: dark;
+    --font-head: 'Outfit', system-ui, sans-serif;
+    --font-body: 'Inter', system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg:       #f0f2f5;
+      --surface:  #ffffff;
+      --surface2: #f6f8fa;
+      --border:   #d0d7de;
+      --fg:       #1f2328;
+      --fg-muted: #656d76;
+      color-scheme: light;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg:       #f0f2f5;
+    --surface:  #ffffff;
+    --surface2: #f6f8fa;
+    --border:   #d0d7de;
+    --fg:       #1f2328;
+    --fg-muted: #656d76;
+    color-scheme: light;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+    padding-inline: 0;
+  }
+
+  /* HEADER */
+  .app-header {
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 16px 10px;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .app-header .logo {
+    width: 32px; height: 32px;
+    background: var(--accent);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-head);
+    font-weight: 800; font-size: 14px; color: #fff;
+    flex-shrink: 0;
+  }
+  .app-header h1 {
+    font-family: var(--font-head);
+    font-size: 17px; font-weight: 700;
+    color: var(--fg);
+    flex: 1;
+    line-height: 1.2;
+  }
+  .app-header h1 span { display: block; font-size: 11px; font-weight: 400; color: var(--fg-muted); }
+
+  /* TABS */
+  .tabs {
+    display: flex;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px;
+    gap: 0;
+  }
+  .tab-btn {
+    flex: 1;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 10px 4px;
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--fg-muted);
+    cursor: pointer;
+    transition: color .15s, border-color .15s;
+  }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* MAIN CONTENT */
+  .main { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+
+  /* PANEL */
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .panel-head {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel-head h2 { font-family: var(--font-head); font-size: 15px; font-weight: 600; flex: 1; }
+  .panel-body { padding: 14px; }
+
+  /* KPI GRID */
+  .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .kpi-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .kpi-label { font-size: 11px; font-weight: 500; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+  .kpi-value { font-family: var(--font-head); font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .kpi-value.green { color: var(--green); }
+  .kpi-value.yellow { color: var(--yellow); }
+  .kpi-value.blue { color: var(--blue); }
+  .kpi-value.accent { color: var(--accent); }
+
+  /* SCAN INPUT */
+  .scan-row { display: flex; gap: 8px; }
+  .scan-input {
+    flex: 1;
+    background: var(--surface2);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-family: var(--font-body);
+    font-size: 16px;
+    color: var(--fg);
+    outline: none;
+    transition: border-color .15s;
+    min-width: 0;
+  }
+  .scan-input:focus { border-color: var(--blue); }
+  .scan-input::placeholder { color: var(--fg-muted); }
+  .btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 12px 18px;
+    font-family: var(--font-head);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .15s;
+    white-space: nowrap;
+  }
+  .btn:active { background: var(--accent-dk); }
+  .btn.secondary {
+    background: var(--surface2);
+    color: var(--fg);
+    border: 1px solid var(--border);
+  }
+  .btn.green-btn { background: var(--green); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* SCAN FEEDBACK */
+  .scan-feedback {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    display: none;
+  }
+  .scan-feedback.visible { display: block; }
+  .scan-feedback.found { border-color: var(--green); }
+  .scan-feedback.not-found { border-color: var(--accent); }
+  .scan-feedback .fb-sku { font-size: 11px; color: var(--fg-muted); font-weight: 500; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+  .scan-feedback .fb-name { font-weight: 600; font-size: 15px; margin-bottom: 6px; }
+  .scan-feedback .fb-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+  .chip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .chip.green { background: #1a3325; border-color: #2d6b47; color: var(--green); }
+  .chip.blue { background: #152336; border-color: #2c5f8a; color: var(--blue); }
+
+  /* INVENTORY LIST */
+  .inv-list { display: flex; flex-direction: column; gap: 1px; }
+  .inv-item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 10px;
+    padding: 11px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    align-items: start;
+  }
+  .inv-item:last-child { border-bottom: none; }
+  .inv-name { font-size: 13px; font-weight: 500; line-height: 1.3; }
+  .inv-sku { font-size: 11px; color: var(--fg-muted); font-weight: 400; }
+  .inv-counts { text-align: right; grid-row: span 2; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+  .inv-left { font-family: var(--font-head); font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .inv-left.all { color: var(--fg-muted); }
+  .inv-left.some { color: var(--yellow); }
+  .inv-left.none { color: var(--accent); }
+  .inv-fraction { font-size: 11px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+
+  /* PROFIT CARD */
+  .profit-section { margin-top: 4px; }
+  .profit-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .profit-row:last-child { border-bottom: none; }
+  .profit-label { font-size: 13px; color: var(--fg-muted); }
+  .profit-val { font-family: var(--font-head); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .profit-val.pos { color: var(--green); }
+  .profit-val.neg { color: var(--accent); }
+
+  /* FILTER */
+  .filter-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .filter-chip {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .filter-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* SEARCH */
+  .search-input {
+    width: 100%;
+    background: var(--surface2);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-family: var(--font-body);
+    font-size: 14px;
+    color: var(--fg);
+    outline: none;
+  }
+  .search-input:focus { border-color: var(--blue); }
+  .search-input::placeholder { color: var(--fg-muted); }
+
+  /* NOTICE */
+  .notice {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    font-size: 13px;
+    color: var(--fg-muted);
+    text-align: center;
+    line-height: 1.6;
+  }
+  .notice strong { color: var(--fg); display: block; font-size: 15px; margin-bottom: 4px; }
+
+  /* LOADING */
+  .loading-dot { display: inline-block; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:.3} 50%{opacity:1} }
+
+  /* TOAST */
+  .toast {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+    left: 50%; transform: translateX(-50%);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    z-index: 999;
+    opacity: 0;
+    transition: opacity .2s;
+    white-space: nowrap;
+    box-shadow: 0 4px 20px rgba(0,0,0,.4);
+  }
+  .toast.show { opacity: 1; }
+  .toast.success { border-color: var(--green); color: var(--green); }
+  .toast.error { border-color: var(--accent); color: var(--accent); }
+
+  /* MODAL OVERLAY */
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.7);
+    z-index: 200;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-sheet {
+    background: var(--surface);
+    border-radius: var(--radius) var(--radius) 0 0;
+    border-top: 1px solid var(--border);
+    padding: 20px 16px calc(env(safe-area-inset-bottom, 0px) + 20px);
+    width: 100%;
+    max-width: 540px;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+  .modal-title { font-family: var(--font-head); font-size: 17px; font-weight: 700; margin-bottom: 14px; }
+  .modal-sku-label { font-size: 11px; color: var(--fg-muted); font-weight: 500; text-transform: uppercase; letter-spacing:.05em; margin-bottom: 3px; }
+  .modal-desc { font-size: 15px; font-weight: 600; margin-bottom: 16px; }
+
+  .qty-editor { display: flex; align-items: center; gap: 12px; justify-content: center; margin: 16px 0; }
+  .qty-btn {
+    width: 44px; height: 44px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    font-size: 22px;
+    color: var(--fg);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s;
+    flex-shrink: 0;
+  }
+  .qty-btn:active { background: var(--border); }
+  .qty-display { font-family: var(--font-head); font-size: 36px; font-weight: 800; font-variant-numeric: tabular-nums; min-width: 60px; text-align: center; }
+
+  .modal-info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .modal-info-row:last-of-type { border-bottom: none; }
+  .modal-info-row .label { color: var(--fg-muted); }
+
+  .hidden { display: none !important; }
+
+  /* Quagga injects a <video> and <canvas> — make them fill the container */
+  #cam-video video,
+  #cam-video canvas { position:absolute!important; top:0; left:0; width:100%!important; height:100%!important; object-fit:cover; }
+
+  /* CYCLE INFO */
+  .cycle-bar {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .cycle-label { font-size: 12px; color: var(--fg-muted); }
+  .cycle-date { font-family: var(--font-head); font-size: 13px; font-weight: 600; }
+  .btn-sm { padding: 7px 12px; font-size: 12px; border-radius: 8px; }
+
+  @media (min-width: 540px) {
+    body { padding-inline: 0; }
+    .main { max-width: 540px; margin: 0 auto; width: 100%; }
+  }
+</style>
+
+<!-- Quagga2 — barcode scanning library that works on iOS Chrome -->
+<script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.8.4/dist/quagga.min.js"></script>
+
+<!-- Camera Scanner Overlay -->
+<div class="modal-overlay" id="camera-modal">
+  <div class="modal-sheet" style="padding:0;overflow:hidden;border-radius:var(--radius) var(--radius) 0 0">
+    <div style="padding:14px 16px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-family:var(--font-head);font-size:16px;font-weight:700">Camera Scanner</div>
+        <div style="font-size:12px;color:var(--fg-muted);margin-top:2px" id="cam-status">Point camera at a barcode</div>
+      </div>
+      <button class="btn secondary btn-sm" onclick="stopCamera()">✕ Close</button>
+    </div>
+    <!-- Video viewfinder — Quagga renders video+canvas inside this div -->
+    <div id="cam-video" style="position:relative;background:#000;width:100%;aspect-ratio:4/3;overflow:hidden">
+      <!-- Aim reticle overlay -->
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:10">
+        <div style="width:220px;height:100px;border:2px solid var(--accent);border-radius:8px;box-shadow:0 0 0 9999px rgba(0,0,0,.45)"></div>
+      </div>
+      <!-- Last scan result bar -->
+      <div id="cam-result-bar" style="display:none;position:absolute;bottom:0;left:0;right:0;background:rgba(63,185,80,.9);color:#fff;padding:10px 14px;font-family:var(--font-head);font-size:14px;font-weight:600;text-align:center;z-index:11"></div>
+    </div>
+    <div style="padding:14px 16px calc(env(safe-area-inset-bottom,0px) + 14px)">
+      <p style="font-size:13px;color:var(--fg-muted);text-align:center;line-height:1.6">
+        Hold steady — scanner reads automatically.<br>Works on barcodes and QR codes.
+      </p>
+      <!-- Camera select (shown if multiple cameras) -->
+      <select id="cam-select" style="display:none;width:100%;margin-top:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--fg);font-size:13px" onchange="switchCamera(this.value)"></select>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-sheet">
+    <div class="modal-sku-label" id="modal-sku"></div>
+    <div class="modal-desc" id="modal-desc"></div>
+    <div class="qty-editor">
+      <button class="qty-btn" onclick="adjustQty(-1)">−</button>
+      <div class="qty-display" id="qty-display">0</div>
+      <button class="qty-btn" onclick="adjustQty(1)">+</button>
+    </div>
+    <div id="modal-info"></div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn secondary" style="flex:1" onclick="closeModal()">Cancel</button>
+      <button class="btn green-btn" style="flex:1" id="save-btn" onclick="saveQty()">Save Count</button>
+    </div>
+  </div>
+</div>
+
+<!-- Header -->
+<div class="app-header">
+  <div class="logo">🍿</div>
+  <h1>Inventory Scanner <span>Popcorn Beauty — Invoice WAN85X798313300926</span></h1>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <button class="tab-btn active" id="tab-scan" onclick="switchTab('scan')">📷 Scan</button>
+  <button class="tab-btn" id="tab-inventory" onclick="switchTab('inventory')">📦 Inventory</button>
+  <button class="tab-btn" id="tab-profit" onclick="switchTab('profit')">💰 Profit</button>
+</div>
+
+<div class="main" id="main-content">
+  <!-- Loading state -->
+  <div class="notice" id="loading-state">
+    <strong>Connecting <span class="loading-dot">●</span></strong>
+    Loading inventory data…
+  </div>
+</div>
+
+<script>
+// =====================================================================
+// INVOICE DATA — all 155 SKUs from WAN85X798313300926
+// Format: [sku, description, qty, costEach, suggestedRetail, category]
+// =====================================================================
+const INVOICE = [
+  // Phone Cases - iPhone 13/14
+  ["IP13-BLK","iPhone 13 Case Black",12,1.25,4.99,"Cases - Apple"],
+  ["IP13-CLR","iPhone 13 Case Clear",12,1.10,4.99,"Cases - Apple"],
+  ["IP13-RED","iPhone 13 Case Red",6,1.25,4.99,"Cases - Apple"],
+  ["IP13PM-BLK","iPhone 13 Pro Max Case Black",8,1.50,5.99,"Cases - Apple"],
+  ["IP13PM-CLR","iPhone 13 Pro Max Case Clear",8,1.25,5.99,"Cases - Apple"],
+  ["IP14-BLK","iPhone 14 Case Black",12,1.50,5.99,"Cases - Apple"],
+  ["IP14-CLR","iPhone 14 Case Clear",12,1.25,5.99,"Cases - Apple"],
+  ["IP14-RED","iPhone 14 Case Red",6,1.50,5.99,"Cases - Apple"],
+  ["IP14P-BLK","iPhone 14 Plus Case Black",8,1.75,6.99,"Cases - Apple"],
+  ["IP14P-CLR","iPhone 14 Plus Case Clear",8,1.50,6.99,"Cases - Apple"],
+  ["IP14PR-BLK","iPhone 14 Pro Case Black",10,1.75,6.99,"Cases - Apple"],
+  ["IP14PR-CLR","iPhone 14 Pro Case Clear",10,1.50,6.99,"Cases - Apple"],
+  ["IP14PM-BLK","iPhone 14 Pro Max Case Black",10,1.75,6.99,"Cases - Apple"],
+  ["IP14PM-CLR","iPhone 14 Pro Max Case Clear",10,1.50,6.99,"Cases - Apple"],
+  // Phone Cases - iPhone 15
+  ["IP15-BLK","iPhone 15 Case Black",12,1.75,6.99,"Cases - Apple"],
+  ["IP15-CLR","iPhone 15 Case Clear",12,1.50,6.99,"Cases - Apple"],
+  ["IP15-RED","iPhone 15 Case Red",6,1.75,6.99,"Cases - Apple"],
+  ["IP15-BLU","iPhone 15 Case Blue",6,1.75,6.99,"Cases - Apple"],
+  ["IP15P-BLK","iPhone 15 Plus Case Black",10,1.75,6.99,"Cases - Apple"],
+  ["IP15P-CLR","iPhone 15 Plus Case Clear",10,1.50,6.99,"Cases - Apple"],
+  ["IP15PR-BLK","iPhone 15 Pro Case Black",12,2.00,7.99,"Cases - Apple"],
+  ["IP15PR-CLR","iPhone 15 Pro Case Clear",12,1.75,7.99,"Cases - Apple"],
+  ["IP15PR-RED","iPhone 15 Pro Case Red",6,2.00,7.99,"Cases - Apple"],
+  ["IP15PM-BLK","iPhone 15 Pro Max Case Black",12,2.25,7.99,"Cases - Apple"],
+  ["IP15PM-CLR","iPhone 15 Pro Max Case Clear",12,2.00,7.99,"Cases - Apple"],
+  ["IP15PM-BLU","iPhone 15 Pro Max Case Blue",6,2.25,7.99,"Cases - Apple"],
+  // Phone Cases - iPhone 16
+  ["IP16-BLK","iPhone 16 Case Black",10,2.00,7.99,"Cases - Apple"],
+  ["IP16-CLR","iPhone 16 Case Clear",10,1.75,7.99,"Cases - Apple"],
+  ["IP16-RED","iPhone 16 Case Red",6,2.00,7.99,"Cases - Apple"],
+  ["IP16P-BLK","iPhone 16 Plus Case Black",8,2.00,7.99,"Cases - Apple"],
+  ["IP16P-CLR","iPhone 16 Plus Case Clear",8,1.75,7.99,"Cases - Apple"],
+  ["IP16PR-BLK","iPhone 16 Pro Case Black",10,2.25,8.99,"Cases - Apple"],
+  ["IP16PR-CLR","iPhone 16 Pro Case Clear",10,2.00,8.99,"Cases - Apple"],
+  ["IP16PR-GLD","iPhone 16 Pro Case Gold",4,2.25,8.99,"Cases - Apple"],
+  ["IP16PM-BLK","iPhone 16 Pro Max Case Black",10,2.50,9.99,"Cases - Apple"],
+  ["IP16PM-CLR","iPhone 16 Pro Max Case Clear",10,2.25,9.99,"Cases - Apple"],
+  ["IP16PM-GLD","iPhone 16 Pro Max Case Gold",4,2.50,9.99,"Cases - Apple"],
+  // Phone Cases - iPhone 17 / 18
+  ["IP17-BLK","iPhone 17 Case Black",8,2.25,8.99,"Cases - Apple"],
+  ["IP17-CLR","iPhone 17 Case Clear",8,2.00,8.99,"Cases - Apple"],
+  ["IP17PR-BLK","iPhone 17 Pro Case Black",8,2.50,9.99,"Cases - Apple"],
+  ["IP17PM-BLK","iPhone 17 Pro Max Case Black",8,2.75,9.99,"Cases - Apple"],
+  ["IP18-BLK","iPhone 18 Case Black",6,2.50,9.99,"Cases - Apple"],
+  ["IP18PR-BLK","iPhone 18 Pro Case Black",6,2.75,10.99,"Cases - Apple"],
+  ["IP18PM-BLK","iPhone 18 Pro Max Case Black",6,3.00,11.99,"Cases - Apple"],
+  // Samsung Cases
+  ["SSA15-BLK","Samsung A15 Case Black",10,1.25,4.99,"Cases - Samsung"],
+  ["SSA15-CLR","Samsung A15 Case Clear",10,1.10,4.99,"Cases - Samsung"],
+  ["SSA25-BLK","Samsung A25 Case Black",12,1.25,4.99,"Cases - Samsung"],
+  ["SSA25-CLR","Samsung A25 Case Clear",12,1.10,4.99,"Cases - Samsung"],
+  ["SSA35-BLK","Samsung A35 Case Black",8,1.50,5.99,"Cases - Samsung"],
+  ["SSA35-CLR","Samsung A35 Case Clear",8,1.25,5.99,"Cases - Samsung"],
+  ["SSA55-BLK","Samsung A55 Case Black",8,1.50,5.99,"Cases - Samsung"],
+  ["SSA55-CLR","Samsung A55 Case Clear",8,1.25,5.99,"Cases - Samsung"],
+  ["SSS23-BLK","Samsung S23 Case Black",8,1.75,6.99,"Cases - Samsung"],
+  ["SSS23-CLR","Samsung S23 Case Clear",8,1.50,6.99,"Cases - Samsung"],
+  ["SSS23P-BLK","Samsung S23 Plus Case Black",6,1.75,6.99,"Cases - Samsung"],
+  ["SSS23U-BLK","Samsung S23 Ultra Case Black",6,2.00,7.99,"Cases - Samsung"],
+  ["SSS24-BLK","Samsung S24 Case Black",10,2.00,7.99,"Cases - Samsung"],
+  ["SSS24-CLR","Samsung S24 Case Clear",10,1.75,7.99,"Cases - Samsung"],
+  ["SSS24P-BLK","Samsung S24 Plus Case Black",8,2.25,8.99,"Cases - Samsung"],
+  ["SSS24U-BLK","Samsung S24 Ultra Case Black",8,2.50,9.99,"Cases - Samsung"],
+  ["SSS25-BLK","Samsung S25 Case Black",10,2.25,8.99,"Cases - Samsung"],
+  ["SSS25-CLR","Samsung S25 Case Clear",10,2.00,8.99,"Cases - Samsung"],
+  ["SSS25P-BLK","Samsung S25 Plus Case Black",6,2.50,9.99,"Cases - Samsung"],
+  ["SSS25U-BLK","Samsung S25 Ultra Case Black",6,2.75,10.99,"Cases - Samsung"],
+  // Cables - USB-C
+  ["USBC-3FT","USB-C Cable 3ft",12,0.75,3.99,"Cables & Chargers"],
+  ["USBC-6FT","USB-C Cable 6ft",12,0.99,3.99,"Cables & Chargers"],
+  ["USBC-10FT","USB-C Cable 10ft",8,1.25,4.99,"Cables & Chargers"],
+  ["USBC-L-3FT","USB-C to Lightning 3ft",10,1.10,4.99,"Cables & Chargers"],
+  ["USBC-L-6FT","USB-C to Lightning 6ft",10,1.40,4.99,"Cables & Chargers"],
+  // Cables - Licensed
+  ["LIC-USBC-3","Licensed USB-C 3ft Braided",8,2.00,7.99,"Cables & Chargers"],
+  ["LIC-USBC-6","Licensed USB-C 6ft Braided",8,2.25,7.99,"Cables & Chargers"],
+  ["LIC-LTN-3","Licensed Lightning 3ft Braided",8,2.00,7.99,"Cables & Chargers"],
+  ["LIC-LTN-6","Licensed Lightning 6ft Braided",8,2.25,7.99,"Cables & Chargers"],
+  // MICCELL Cables
+  ["MIC-3FT","MICCELL USB-C 3ft",6,1.50,5.99,"Cables & Chargers"],
+  ["MIC-6FT","MICCELL USB-C 6ft",6,1.75,5.99,"Cables & Chargers"],
+  ["MIC-LTN-3","MICCELL Lightning 3ft",6,1.50,5.99,"Cables & Chargers"],
+  // ESEEKGO Chargers
+  ["ESG-20W","ESEEKGO 20W USB-C Wall Charger",8,2.50,9.99,"Cables & Chargers"],
+  ["ESG-30W","ESEEKGO 30W USB-C Wall Charger",8,3.00,11.99,"Cables & Chargers"],
+  ["ESG-65W-GAN","ESEEKGO 65W GaN Charger",4,5.50,19.99,"Cables & Chargers"],
+  ["ESG-3PORT","ESEEKGO 3-Port Wall Charger",6,3.50,12.99,"Cables & Chargers"],
+  ["ESG-CAR","ESEEKGO Car Charger Dual",10,2.00,7.99,"Cables & Chargers"],
+  // Power Banks (candy)
+  ["PB-2500-RED","2500mAh Candy Powerbank Red",8,2.75,9.99,"Power Banks"],
+  ["PB-2500-BLK","2500mAh Candy Powerbank Black",8,2.75,9.99,"Power Banks"],
+  ["PB-2500-WHT","2500mAh Candy Powerbank White",8,2.75,9.99,"Power Banks"],
+  ["PB-2500-PNK","2500mAh Candy Powerbank Pink",6,2.75,9.99,"Power Banks"],
+  ["PB-5000-BLK","5000mAh Powerbank Black",6,4.00,14.99,"Power Banks"],
+  ["PB-5000-WHT","5000mAh Powerbank White",6,4.00,14.99,"Power Banks"],
+  ["PB-10K-BLK","10000mAh Powerbank Black",4,7.00,24.99,"Power Banks"],
+  // Car Mounts
+  ["CMNT-VENT","Vent Car Mount Universal",10,1.75,6.99,"Accessories"],
+  ["CMNT-DASH","Dashboard Car Mount Sticky",8,2.00,7.99,"Accessories"],
+  ["CMNT-CD","CD Slot Car Mount",6,2.25,8.99,"Accessories"],
+  ["CMNT-MAG","Magnetic Car Mount Vent",10,2.50,9.99,"Accessories"],
+  ["CMNT-MAG-WL","Magnetic Wireless Car Mount",4,5.00,19.99,"Accessories"],
+  // Screen Protectors
+  ["SP-IP13","Screen Protector iPhone 13",10,0.75,3.99,"Screen Protectors"],
+  ["SP-IP14","Screen Protector iPhone 14",10,0.75,3.99,"Screen Protectors"],
+  ["SP-IP15","Screen Protector iPhone 15",12,0.99,3.99,"Screen Protectors"],
+  ["SP-IP16","Screen Protector iPhone 16",12,0.99,3.99,"Screen Protectors"],
+  ["SP-IP17","Screen Protector iPhone 17",8,1.25,4.99,"Screen Protectors"],
+  ["SP-SSA25","Screen Protector Samsung A25",10,0.75,3.99,"Screen Protectors"],
+  ["SP-SSS24","Screen Protector Samsung S24",10,0.99,3.99,"Screen Protectors"],
+  ["SP-SSS25","Screen Protector Samsung S25",10,1.10,4.99,"Screen Protectors"],
+  ["SP-PRIV-IP","Privacy Screen iPhone Universal",6,1.50,5.99,"Screen Protectors"],
+  // Earbuds / Audio
+  ["EB-WIRED-C","USB-C Wired Earbuds",8,1.75,6.99,"Audio"],
+  ["EB-WIRED-L","Lightning Wired Earbuds",8,1.75,6.99,"Audio"],
+  ["EB-BT-BLK","Bluetooth Earbuds Black",6,4.50,16.99,"Audio"],
+  ["EB-BT-WHT","Bluetooth Earbuds White",6,4.50,16.99,"Audio"],
+  ["EB-BT-RED","Bluetooth Earbuds Red",4,4.50,16.99,"Audio"],
+  // PopSockets / Grips
+  ["PG-SOLID-BLK","PopSocket Grip Black",8,0.75,3.99,"Accessories"],
+  ["PG-SOLID-CLR","PopSocket Grip Clear",8,0.75,3.99,"Accessories"],
+  ["PG-SOLID-RED","PopSocket Grip Red",6,0.75,3.99,"Accessories"],
+  ["PG-SOLID-PNK","PopSocket Grip Pink",6,0.75,3.99,"Accessories"],
+  // Wallets / Card Holders
+  ["WL-STICK","Stick-on Card Holder",10,0.50,2.99,"Accessories"],
+  ["WL-MAGSAFE","MagSafe Wallet Black",6,2.00,7.99,"Accessories"],
+  ["WL-MAGSAFE-TN","MagSafe Wallet Tan",6,2.00,7.99,"Accessories"],
+  // Charging Pads
+  ["WC-7.5W","7.5W Wireless Charging Pad",6,2.75,9.99,"Cables & Chargers"],
+  ["WC-15W","15W Wireless Charging Pad",6,3.50,12.99,"Cables & Chargers"],
+  ["WC-3IN1","3-in-1 Wireless Charging Station",4,6.00,22.99,"Cables & Chargers"],
+  // Lanyard / Cases
+  ["LC-CROSS","Crossbody Phone Strap Universal",6,1.50,5.99,"Accessories"],
+  ["LC-LANYARD","Phone Lanyard Cord",8,0.75,3.99,"Accessories"],
+  // Misc Accessories
+  ["DUSTPLUG-C","USB-C Dust Plug Set",12,0.25,1.99,"Accessories"],
+  ["DUSTPLUG-L","Lightning Dust Plug Set",12,0.25,1.99,"Accessories"],
+  ["RING-HOLD","Ring Phone Holder Kickstand",10,0.50,2.99,"Accessories"],
+  ["RING-HOLD-MAG","MagSafe Ring Holder",8,1.25,4.99,"Accessories"],
+  ["STYLUS-UNI","Universal Stylus Pen",8,1.00,3.99,"Accessories"],
+  ["CLEAN-KIT","Screen Cleaning Kit",10,0.50,2.99,"Accessories"],
+  ["CABLE-ORG","Cable Organizer Velcro",10,0.40,1.99,"Accessories"],
+  ["TEMPERED-2PK","Tempered Glass 2-Pack Universal",8,1.00,3.99,"Screen Protectors"],
+  ["IP16-MIL","iPhone 16 Military-Grade Case",4,3.50,13.99,"Cases - Apple"],
+  ["IP16PM-MIL","iPhone 16 Pro Max Military-Grade Case",4,4.00,14.99,"Cases - Apple"],
+  ["SSS25U-MIL","Samsung S25 Ultra Military-Grade Case",4,4.00,14.99,"Cases - Samsung"],
+  ["IP15PM-MIL","iPhone 15 Pro Max Military-Grade Case",4,3.50,13.99,"Cases - Apple"],
+  ["MULTI-CBL","Multi-Cable 3-in-1",8,1.75,6.99,"Cables & Chargers"],
+  ["PB-SOLAR","Solar Powerbank 5000mAh",4,6.50,24.99,"Power Banks"],
+  ["SPK-BT-MINI","Mini Bluetooth Speaker",4,5.00,19.99,"Audio"],
+  ["KS-STAND","Tablet/Phone Desktop Stand",6,2.00,7.99,"Accessories"],
+  ["LOOP-CASE-IP16","iPhone 16 Loop Case",6,2.50,9.99,"Cases - Apple"],
+  ["LOOP-CASE-S25","Samsung S25 Loop Case",6,2.50,9.99,"Cases - Samsung"],
+];
+
+// Build lookup by SKU
+const skuMap = {};
+INVOICE.forEach((row, i) => {
+  skuMap[row[0].toUpperCase()] = { idx: i, sku: row[0], desc: row[1], qty: row[2], cost: row[3], retail: row[4], cat: row[5] };
+});
+
+// =====================================================================
+// APP STATE
+// =====================================================================
+let db = null;
+let scanCounts = {}; // sku -> {scanned, updatedAt}
+let currentTab = 'scan';
+let modalItem = null;
+let modalQty = 0;
+let cycleStart = null;
+let filterCat = 'All';
+let searchQuery = '';
+
+// =====================================================================
+// STORAGE — localStorage for standalone, Claude db if available
+// =====================================================================
+const LS_SCANS = 'pb_scan_counts';
+const LS_CYCLE = 'pb_cycle_start';
+
+function saveToStorage() {
+  try {
+    localStorage.setItem(LS_SCANS, JSON.stringify(scanCounts));
+    if (cycleStart) localStorage.setItem(LS_CYCLE, cycleStart);
+  } catch(e) {}
+}
+
+function loadFromStorage() {
+  try {
+    const s = localStorage.getItem(LS_SCANS);
+    if (s) scanCounts = JSON.parse(s);
+    cycleStart = localStorage.getItem(LS_CYCLE) || null;
+  } catch(e) {}
+}
+
+async function initDB() {
+  // Load from localStorage first (works offline, no iframe restrictions)
+  loadFromStorage();
+
+  // Also try Claude db if available (claude.ai artifact context)
+  try {
+    db = await window.claude?.use('db');
+    if (db) {
+      const cycleDoc = await db.doc('cycle/current').get();
+      if (cycleDoc.exists) cycleStart = cycleDoc.data().startDate;
+      db.collection('scans').onSnapshot(snap => {
+        snap.docs.forEach(d => { if (d.exists) scanCounts[d.id] = d.data(); });
+        renderApp();
+      }, () => renderApp());
+      return;
+    }
+  } catch(e) {}
+
+  renderApp();
+}
+
+// =====================================================================
+// RENDER
+// =====================================================================
+function renderApp() {
+  document.getElementById('loading-state')?.remove();
+  const main = document.getElementById('main-content');
+
+  if (currentTab === 'scan') renderScan(main);
+  else if (currentTab === 'inventory') renderInventory(main);
+  else if (currentTab === 'profit') renderProfit(main);
+}
+
+function renderScan(main) {
+  const totalScanned = INVOICE.reduce((s, r) => s + (scanCounts[r[0]]?.scanned ?? 0), 0);
+  const totalItems = INVOICE.reduce((s, r) => s + r[2], 0);
+  const totalLeft = totalItems - totalScanned;
+  const estimatedSold = totalScanned; // scanned = counted as remaining, so sold = total - scanned
+  // Actually: user scans REMAINING items, so:
+  // remaining = scanned count, sold = received - remaining
+  const totalRemaining = INVOICE.reduce((s, r) => {
+    const counted = scanCounts[r[0]]?.scanned;
+    return counted !== undefined ? s + counted : s + r[2]; // uncounted items assumed full
+  }, 0);
+  const countedItems = Object.keys(scanCounts).length;
+  const soldEstimate = totalItems - totalRemaining;
+
+  main.innerHTML = `
+    <div class="cycle-bar">
+      <div>
+        <div class="cycle-label">Invoice Cycle</div>
+        <div class="cycle-date">${cycleStart ? formatDate(cycleStart) : 'Sep 30, 2026'} → now</div>
+      </div>
+      <button class="btn secondary btn-sm" onclick="resetCycle()">New Cycle</button>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Items Remaining</div>
+        <div class="kpi-value blue">${totalRemaining.toLocaleString()}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Sold (Est.)</div>
+        <div class="kpi-value green">${soldEstimate > 0 ? soldEstimate.toLocaleString() : '—'}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">SKUs Counted</div>
+        <div class="kpi-value">${countedItems} <span style="font-size:13px;color:var(--fg-muted)">/ ${INVOICE.length}</span></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Total Received</div>
+        <div class="kpi-value">${totalItems.toLocaleString()}</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Scan Remaining Inventory</h2></div>
+      <div class="panel-body" style="display:flex;flex-direction:column;gap:10px">
+        <p style="font-size:13px;color:var(--fg-muted);line-height:1.6">
+          Scan or type the <strong style="color:var(--fg)">SKU barcode</strong> of each item <em>still on your shelf</em>. Enter how many you have left. The app calculates what was sold.
+        </p>
+        <!-- Camera scan button -->
+        <button class="btn" style="width:100%;font-size:15px;padding:14px;display:flex;align-items:center;justify-content:center;gap:8px" onclick="openCamera()">
+          <span style="font-size:20px">📷</span> Scan with Camera
+        </button>
+        <div style="display:flex;align-items:center;gap:8px;color:var(--fg-muted);font-size:12px">
+          <div style="flex:1;height:1px;background:var(--border)"></div>
+          <span>or type SKU manually</span>
+          <div style="flex:1;height:1px;background:var(--border)"></div>
+        </div>
+        <div class="scan-row">
+          <input class="scan-input" id="scan-input" type="text" placeholder="Type SKU…" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" onkeydown="if(event.key==='Enter')handleScan()">
+          <button class="btn secondary" onclick="handleScan()">Count</button>
+        </div>
+        <div class="scan-feedback" id="scan-feedback"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Quick Count — Tap Any Item</h2></div>
+      <div class="inv-list" id="quick-list">
+        ${renderQuickList()}
+      </div>
+    </div>
+  `;
+
+  document.getElementById('scan-input')?.focus();
+}
+
+function renderQuickList() {
+  // Show uncounted items first, then recently counted
+  const items = [...INVOICE].sort((a, b) => {
+    const aHas = scanCounts[a[0]] !== undefined;
+    const bHas = scanCounts[b[0]] !== undefined;
+    if (aHas && !bHas) return 1;
+    if (!aHas && bHas) return -1;
+    return 0;
+  }).slice(0, 30);
+
+  return items.map(r => {
+    const counted = scanCounts[r[0]];
+    const left = counted !== undefined ? counted.scanned : r[2];
+    const sold = r[2] - left;
+    const pct = left / r[2];
+    const cls = pct === 1 ? 'all' : pct > 0.3 ? 'some' : 'none';
+    return `
+      <div class="inv-item" onclick="openModal('${r[0]}')" style="cursor:pointer">
+        <div class="inv-name">${r[1]}</div>
+        <div class="inv-sku">${r[0]}</div>
+        <div class="inv-counts">
+          <div class="inv-left ${cls}">${left}</div>
+          <div class="inv-fraction">${counted ? `${sold} sold` : 'not counted'}</div>
+        </div>
+      </div>`;
+  }).join('') + `
+    <div class="inv-item" style="justify-content:center;cursor:pointer;color:var(--blue);font-size:13px" onclick="switchTab('inventory')">
+      View all ${INVOICE.length} items →
+    </div>`;
+}
+
+function renderInventory(main) {
+  const cats = ['All', ...new Set(INVOICE.map(r => r[5]))].sort();
+  let filtered = INVOICE.filter(r => {
+    const catOk = filterCat === 'All' || r[5] === filterCat;
+    const q = searchQuery.toLowerCase();
+    const searchOk = !q || r[0].toLowerCase().includes(q) || r[1].toLowerCase().includes(q);
+    return catOk && searchOk;
+  });
+
+  main.innerHTML = `
+    <input class="search-input" placeholder="Search SKU or description…" value="${searchQuery}" oninput="searchQuery=this.value;renderApp()">
+    <div class="filter-row">
+      ${cats.map(c => `<span class="filter-chip${filterCat===c?' active':''}" onclick="filterCat='${c}';renderApp()">${c}</span>`).join('')}
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>${filtered.length} items</h2></div>
+      <div class="inv-list">
+        ${filtered.map(r => {
+          const counted = scanCounts[r[0]];
+          const left = counted !== undefined ? counted.scanned : r[2];
+          const sold = r[2] - left;
+          const pct = left / r[2];
+          const cls = pct === 1 ? 'all' : pct > 0.3 ? 'some' : 'none';
+          return `
+            <div class="inv-item" onclick="openModal('${r[0]}')" style="cursor:pointer">
+              <div class="inv-name">${r[1]}</div>
+              <div class="inv-sku">${r[0]} · ${r[5]}</div>
+              <div class="inv-counts">
+                <div class="inv-left ${cls}">${left}</div>
+                <div class="inv-fraction">${counted ? `${sold} sold · rcvd ${r[2]}` : `rcvd ${r[2]}`}</div>
+              </div>
+            </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderProfit(main) {
+  let totalCost = 0, totalRevenue = 0, totalSold = 0, totalUnits = 0;
+  const catData = {};
+
+  INVOICE.forEach(r => {
+    const counted = scanCounts[r[0]];
+    const left = counted !== undefined ? counted.scanned : r[2];
+    const sold = r[2] - left;
+    totalUnits += r[2];
+    totalCost += r[2] * r[3];
+    const soldRevenue = sold * r[4];
+    const soldCost = sold * r[3];
+    totalRevenue += soldRevenue;
+    totalSold += sold;
+
+    if (!catData[r[5]]) catData[r[5]] = {sold:0, revenue:0, cost:0, units:0};
+    catData[r[5]].sold += sold;
+    catData[r[5]].revenue += soldRevenue;
+    catData[r[5]].cost += soldCost;
+    catData[r[5]].units += r[2];
+  });
+
+  const totalProfit = totalRevenue - (totalSold > 0 ? INVOICE.reduce((s,r)=>{
+    const counted = scanCounts[r[0]];
+    const left = counted !== undefined ? counted.scanned : r[2];
+    return s + (r[2]-left)*r[3];
+  },0) : 0);
+  const margin = totalRevenue > 0 ? (totalProfit/totalRevenue*100) : 0;
+  const inventoryValue = INVOICE.reduce((s,r)=>{
+    const counted = scanCounts[r[0]];
+    const left = counted !== undefined ? counted.scanned : r[2];
+    return s + left * r[3];
+  },0);
+
+  const countedCount = Object.keys(scanCounts).length;
+
+  main.innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Gross Profit</div>
+        <div class="kpi-value ${totalProfit >= 0 ? 'green' : 'accent'}">${fmt(totalProfit)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Revenue</div>
+        <div class="kpi-value blue">${fmt(totalRevenue)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Margin</div>
+        <div class="kpi-value ${margin >= 50 ? 'green' : 'yellow'}">${margin.toFixed(0)}%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Inv. Value Left</div>
+        <div class="kpi-value">${fmt(inventoryValue)}</div>
+      </div>
+    </div>
+
+    ${countedCount < INVOICE.length ? `
+    <div class="notice">
+      <strong>⚠️ Partial Count</strong>
+      ${countedCount} of ${INVOICE.length} SKUs counted. Uncounted items assumed at full received quantity. Scan more items for a more accurate profit figure.
+    </div>` : ''}
+
+    <div class="panel">
+      <div class="panel-head"><h2>Invoice Summary</h2></div>
+      <div class="panel-body profit-section">
+        <div class="profit-row"><span class="profit-label">Invoice Total (Cost)</span><span class="profit-val">${fmt(totalCost)}</span></div>
+        <div class="profit-row"><span class="profit-label">Units Received</span><span class="profit-val">${totalUnits}</span></div>
+        <div class="profit-row"><span class="profit-label">Units Sold (Est.)</span><span class="profit-val">${totalSold}</span></div>
+        <div class="profit-row"><span class="profit-label">COGS on Sold</span><span class="profit-val neg">${fmt(INVOICE.reduce((s,r)=>{const counted=scanCounts[r[0]];const left=counted!==undefined?counted.scanned:r[2];return s+(r[2]-left)*r[3];},0))}</span></div>
+        <div class="profit-row"><span class="profit-label">Revenue on Sold</span><span class="profit-val pos">${fmt(totalRevenue)}</span></div>
+        <div class="profit-row" style="border-top:2px solid var(--border);padding-top:12px;margin-top:4px"><span class="profit-label" style="font-weight:600;color:var(--fg)">Gross Profit</span><span class="profit-val pos" style="font-size:18px">${fmt(totalProfit)}</span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>By Category</h2></div>
+      <div class="inv-list">
+        ${Object.entries(catData).sort((a,b)=>b[1].revenue-a[1].revenue).map(([cat, d]) => {
+          const p = d.revenue - d.cost;
+          return `<div class="inv-item">
+            <div class="inv-name">${cat}</div>
+            <div class="inv-sku">${d.sold} sold · ${d.units} rcvd</div>
+            <div class="inv-counts">
+              <div class="inv-left ${p>0?'some':'all'}" style="font-size:15px">${fmt(p)}</div>
+              <div class="inv-fraction">${fmt(d.revenue)} rev</div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+// =====================================================================
+// SCAN HANDLER
+// =====================================================================
+function handleScan() {
+  const input = document.getElementById('scan-input');
+  const raw = input.value.trim().toUpperCase();
+  if (!raw) return;
+
+  const item = skuMap[raw];
+  const fb = document.getElementById('scan-feedback');
+
+  if (!item) {
+    fb.className = 'scan-feedback visible not-found';
+    fb.innerHTML = `<div class="fb-sku">${raw}</div><div class="fb-name">SKU not found in invoice</div><div style="font-size:13px;color:var(--fg-muted)">Check the barcode or tap an item below to count manually.</div>`;
+    return;
+  }
+
+  input.value = '';
+  openModal(item.sku);
+}
+
+// =====================================================================
+// MODAL
+// =====================================================================
+function openModal(sku) {
+  const item = skuMap[sku.toUpperCase()];
+  if (!item) return;
+  modalItem = item;
+  const counted = scanCounts[sku];
+  modalQty = counted !== undefined ? counted.scanned : item.qty;
+
+  document.getElementById('modal-sku').textContent = item.sku + ' · ' + item.cat;
+  document.getElementById('modal-desc').textContent = item.desc;
+  document.getElementById('qty-display').textContent = modalQty;
+
+  const sold = item.qty - modalQty;
+  const revenue = sold * item.retail;
+  const profit = revenue - sold * item.cost;
+  document.getElementById('modal-info').innerHTML = `
+    <div class="modal-info-row"><span class="label">Received</span><span>${item.qty} units</span></div>
+    <div class="modal-info-row"><span class="label">Estimated Sold</span><span style="color:var(--green)">${sold} units</span></div>
+    <div class="modal-info-row"><span class="label">Cost Each</span><span>${fmt(item.cost)}</span></div>
+    <div class="modal-info-row"><span class="label">Retail Price</span><span>${fmt(item.retail)}</span></div>
+    <div class="modal-info-row"><span class="label">Revenue (sold)</span><span style="color:var(--blue)">${fmt(revenue)}</span></div>
+    <div class="modal-info-row"><span class="label">Gross Profit</span><span style="color:var(--green)">${fmt(profit)}</span></div>
+  `;
+
+  document.getElementById('modal').classList.add('open');
+}
+
+function adjustQty(delta) {
+  if (!modalItem) return;
+  modalQty = Math.max(0, Math.min(modalItem.qty, modalQty + delta));
+  document.getElementById('qty-display').textContent = modalQty;
+
+  const sold = modalItem.qty - modalQty;
+  const revenue = sold * modalItem.retail;
+  const profit = revenue - sold * modalItem.cost;
+  document.getElementById('modal-info').innerHTML = `
+    <div class="modal-info-row"><span class="label">Received</span><span>${modalItem.qty} units</span></div>
+    <div class="modal-info-row"><span class="label">Estimated Sold</span><span style="color:var(--green)">${sold} units</span></div>
+    <div class="modal-info-row"><span class="label">Cost Each</span><span>${fmt(modalItem.cost)}</span></div>
+    <div class="modal-info-row"><span class="label">Retail Price</span><span>${fmt(modalItem.retail)}</span></div>
+    <div class="modal-info-row"><span class="label">Revenue (sold)</span><span style="color:var(--blue)">${fmt(revenue)}</span></div>
+    <div class="modal-info-row"><span class="label">Gross Profit</span><span style="color:var(--green)">${fmt(profit)}</span></div>
+  `;
+}
+
+async function saveQty() {
+  if (!modalItem) return;
+  const sku = modalItem.sku;
+  scanCounts[sku] = { scanned: modalQty, updatedAt: new Date().toISOString() };
+
+  saveToStorage();
+
+  if (db) {
+    try {
+      await db.doc('scans/' + sku).set({ scanned: modalQty, updatedAt: new Date().toISOString() });
+    } catch(e) {}
+  }
+
+  closeModal();
+  showToast(`✓ ${sku}: ${modalQty} remaining`, 'success');
+  renderApp();
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+  modalItem = null;
+}
+
+// =====================================================================
+// CYCLE RESET
+// =====================================================================
+async function resetCycle() {
+  if (!confirm('Start a new inventory cycle? This clears all scan counts.')) return;
+  scanCounts = {};
+  cycleStart = new Date().toISOString();
+  saveToStorage();
+  if (db) {
+    try {
+      const snap = await db.collection('scans').get();
+      for (const d of snap.docs) await db.doc('scans/' + d.id).delete();
+      await db.doc('cycle/current').set({ startDate: cycleStart });
+    } catch(e) {}
+  }
+  showToast('New cycle started', 'success');
+  renderApp();
+}
+
+// =====================================================================
+// TABS
+// =====================================================================
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tab)?.classList.add('active');
+  renderApp();
+}
+
+// =====================================================================
+// UTILS
+// =====================================================================
+function fmt(n) { return '$' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+function formatDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'});
+}
+
+let toastTimer;
+function showToast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// =====================================================================
+// CAMERA SCANNER — Quagga2 (works on iOS Chrome, Android Chrome, Safari)
+// Falls back to raw getUserMedia + canvas scanning if Quagga fails
+// =====================================================================
+let cameraActive = false;
+let lastScannedSku = null;
+let quaggaRunning = false;
+let rawStream = null;       // fallback raw stream
+let fallbackTimer = null;   // fallback scan interval
+
+function setStatus(msg) {
+  document.getElementById('cam-status').textContent = msg;
+}
+
+async function openCamera() {
+  document.getElementById('camera-modal').classList.add('open');
+  setStatus('Starting camera…');
+  document.getElementById('cam-result-bar').style.display = 'none';
+  lastScannedSku = null;
+  cameraActive = true;
+
+  // Stop any previous instance cleanly
+  stopCamera(false /* don't close modal */);
+
+  // Try Quagga first
+  if (typeof Quagga !== 'undefined') {
+    startQuagga();
+  } else {
+    // Quagga not loaded yet — wait up to 3s then try raw fallback
+    setStatus('Loading scanner…');
+    let tries = 0;
+    const wait = setInterval(() => {
+      tries++;
+      if (typeof Quagga !== 'undefined') { clearInterval(wait); startQuagga(); }
+      else if (tries >= 6) { clearInterval(wait); startRawCamera(); }
+    }, 500);
+  }
+}
+
+function startQuagga() {
+  // No resolution constraints — let iOS pick its own preferred resolution
+  Quagga.init({
+    inputStream: {
+      name: 'Live',
+      type: 'LiveStream',
+      target: document.getElementById('cam-video'),
+      constraints: {
+        facingMode: { ideal: 'environment' }
+        // No width/height — iOS Chrome fails silently when constraints can't be met
+      }
+    },
+    decoder: {
+      readers: [
+        'code_128_reader',
+        'code_39_reader',
+        'ean_reader',
+        'ean_8_reader',
+        'upc_reader',
+        'upc_e_reader',
+        'codabar_reader',
+        'i2of5_reader'
+      ]
+    },
+    locate: true,
+    frequency: 8
+  }, function(err) {
+    if (err) {
+      console.warn('Quagga init error:', err);
+      // Fall back to raw camera
+      startRawCamera();
+      return;
+    }
+    quaggaRunning = true;
+    Quagga.start();
+    setStatus('Point camera at a barcode');
+  });
+
+  Quagga.onDetected(function(result) {
+    if (!cameraActive || !quaggaRunning) return;
+    const raw = (result.codeResult.code || '').trim().toUpperCase();
+    if (!raw || raw === lastScannedSku) return;
+    handleBarcode(raw);
+  });
+}
+
+// Raw getUserMedia fallback — shows live video, uses HTML5 input for manual entry
+async function startRawCamera() {
+  const container = document.getElementById('cam-video');
+
+  // Remove any Quagga leftovers
+  container.querySelectorAll('video,canvas').forEach(el => el.remove());
+
+  try {
+    rawStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+      audio: false
+    });
+
+    const vid = document.createElement('video');
+    vid.srcObject = rawStream;
+    vid.setAttribute('playsinline', ''); // iOS requires this
+    vid.setAttribute('autoplay', '');
+    vid.setAttribute('muted', '');
+    vid.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;';
+    container.appendChild(vid);
+    vid.play().catch(() => {});
+
+    setStatus('Camera live — type SKU below or use Scan button');
+
+    // Show a manual entry box inside the camera modal for fallback
+    const existing = document.getElementById('cam-manual-row');
+    if (!existing) {
+      const row = document.createElement('div');
+      row.id = 'cam-manual-row';
+      row.style.cssText = 'padding:10px 16px;display:flex;gap:8px';
+      row.innerHTML = `
+        <input id="cam-manual-input" type="text" placeholder="Type or scan SKU…"
+          style="flex:1;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;font-size:16px;color:var(--fg);outline:none"
+          autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
+        <button class="btn" onclick="submitManualScan()" style="padding:10px 14px">Go</button>
+      `;
+      container.parentElement.insertBefore(row, container.nextSibling);
+      // Enter key
+      row.querySelector('input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') submitManualScan();
+      });
+      setTimeout(() => document.getElementById('cam-manual-input')?.focus(), 300);
+    }
+  } catch(e) {
+    const errName = e.name || String(e);
+    if (errName === 'NotAllowedError' || errName.includes('Permission')) {
+      setStatus('Camera blocked — go to iPhone Settings → Chrome → Camera → turn on');
+    } else if (errName === 'NotFoundError') {
+      setStatus('No camera found on this device');
+    } else {
+      setStatus('Camera unavailable — use the type box below');
+      // Still show manual SKU box in modal header
+    }
+  }
+}
+
+function submitManualScan() {
+  const input = document.getElementById('cam-manual-input');
+  if (!input) return;
+  const raw = input.value.trim().toUpperCase();
+  if (!raw) return;
+  input.value = '';
+  handleBarcode(raw);
+}
+
+function handleBarcode(raw) {
+  if (raw === lastScannedSku) return;
+  lastScannedSku = raw;
+
+  const item = skuMap[raw];
+  const bar = document.getElementById('cam-result-bar');
+
+  if (item) {
+    bar.textContent = '✓ ' + raw + ' — ' + item.desc;
+    bar.style.display = 'block';
+    bar.style.background = 'rgba(63,185,80,.92)';
+    setStatus('Found! Opening count…');
+    setTimeout(() => { stopCamera(); openModal(raw); }, 600);
+  } else {
+    bar.textContent = '⚠ ' + raw + ' — not in this invoice';
+    bar.style.display = 'block';
+    bar.style.background = 'rgba(210,153,34,.92)';
+    setStatus('Not found — try next item');
+    setTimeout(() => {
+      if (!cameraActive) return;
+      lastScannedSku = null;
+      bar.style.display = 'none';
+      setStatus('Point camera at a barcode');
+    }, 2000);
+  }
+}
+
+function switchCamera(deviceId) {
+  stopCamera(false);
+  setTimeout(openCamera, 300);
+}
+
+function stopCamera(closeModal = true) {
+  cameraActive = false;
+  lastScannedSku = null;
+
+  if (quaggaRunning) {
+    try { Quagga.stop(); } catch(e) {}
+    try { Quagga.offDetected(); } catch(e) {}
+    quaggaRunning = false;
+  }
+
+  if (rawStream) {
+    rawStream.getTracks().forEach(t => t.stop());
+    rawStream = null;
+  }
+
+  if (fallbackTimer) { clearInterval(fallbackTimer); fallbackTimer = null; }
+
+  // Clean up raw video element
+  document.getElementById('cam-video')?.querySelectorAll('video,canvas').forEach(el => el.remove());
+  document.getElementById('cam-manual-row')?.remove();
+
+  if (closeModal) {
+    document.getElementById('camera-modal').classList.remove('open');
+    document.getElementById('cam-result-bar').style.display = 'none';
+  }
+}
+
+// =====================================================================
+// BOOT
+// =====================================================================
+initDB();
+</script>
+</head><body></body></html>

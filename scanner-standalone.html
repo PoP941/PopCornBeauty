@@ -404,9 +404,15 @@
       <div id="cam-result-bar" style="display:none;position:absolute;bottom:0;left:0;right:0;background:rgba(63,185,80,.9);color:#fff;padding:10px 14px;font-family:var(--font-head);font-size:14px;font-weight:600;text-align:center;z-index:11"></div>
     </div>
     <div style="padding:14px 16px calc(env(safe-area-inset-bottom,0px) + 14px)">
-      <p style="font-size:13px;color:var(--fg-muted);text-align:center;line-height:1.6">
+      <p id="cam-hint" style="font-size:13px;color:var(--fg-muted);text-align:center;line-height:1.6">
         Hold steady — scanner reads automatically.<br>Works on barcodes and QR codes.
       </p>
+      <!-- Batch done button — only visible in batch mode -->
+      <div id="cam-batch-done" style="display:none;margin-top:8px">
+        <button class="btn green-btn" style="width:100%;padding:12px;font-size:15px" onclick="toggleBatchMode()">
+          ✓ Done — Review <span id="cam-batch-count">0</span> Items
+        </button>
+      </div>
       <!-- Camera select (shown if multiple cameras) -->
       <select id="cam-select" style="display:none;width:100%;margin-top:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--fg);font-size:13px" onchange="switchCamera(this.value)"></select>
     </div>
@@ -636,6 +642,10 @@ let cycleStart = null;
 let filterCat = 'All';
 let searchQuery = '';
 
+// Batch Receive Mode
+let batchMode = false;
+let batchLog = []; // [{sku, desc, qty, time}]
+
 // =====================================================================
 // STORAGE — localStorage for standalone, Claude db if available
 // =====================================================================
@@ -738,10 +748,18 @@ function renderScan(main) {
         <p style="font-size:13px;color:var(--fg-muted);line-height:1.6">
           Scan or type the <strong style="color:var(--fg)">SKU barcode</strong> of each item <em>still on your shelf</em>. Enter how many you have left. The app calculates what was sold.
         </p>
-        <!-- Camera scan button -->
-        <button class="btn" style="width:100%;font-size:15px;padding:14px;display:flex;align-items:center;justify-content:center;gap:8px" onclick="openCamera()">
-          <span style="font-size:20px">📷</span> Scan with Camera
-        </button>
+        <!-- Camera scan buttons -->
+        <div style="display:flex;gap:8px">
+          <button class="btn" style="flex:2;font-size:15px;padding:14px;display:flex;align-items:center;justify-content:center;gap:8px" onclick="openCamera()">
+            <span style="font-size:20px">📷</span> Scan with Camera
+          </button>
+          <button id="batch-toggle-btn" class="btn secondary" style="flex:1;font-size:13px;padding:14px 10px;display:flex;align-items:center;justify-content:center;gap:6px;${batchMode?'background:var(--green);color:#fff':''}" onclick="toggleBatchMode()">
+            ${batchMode ? `✕ Exit Batch<span id="batch-counter" style="margin-left:4px;font-size:11px;opacity:.8">${batchLog.length} scanned</span>` : '📦 Batch<br>Receive'}
+          </button>
+        </div>
+        ${batchMode ? `<div style="background:rgba(63,185,80,.12);border:1px solid var(--green);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--green)">
+          <strong>📦 Batch Mode ON</strong> — Camera stays open. Each scan auto-records full received qty. Tap "Exit Batch" when done to review.
+        </div>` : ''}
         <div style="display:flex;align-items:center;gap:8px;color:var(--fg-muted);font-size:12px">
           <div style="flex:1;height:1px;background:var(--border)"></div>
           <span>or type SKU manually</span>
@@ -1082,10 +1100,11 @@ function setStatus(msg) {
 
 async function openCamera() {
   document.getElementById('camera-modal').classList.add('open');
-  setStatus('Starting camera…');
+  setStatus(batchMode ? '📦 Batch mode — starting camera…' : 'Starting camera…');
   document.getElementById('cam-result-bar').style.display = 'none';
   lastScannedSku = null;
   cameraActive = true;
+  updateBatchCounter();
 
   // Stop any previous instance cleanly
   stopCamera(false /* don't close modal */);
@@ -1114,33 +1133,32 @@ function startQuagga() {
       constraints: {
         facingMode: { ideal: 'environment' }
       },
-      area: { // focus scanning on center strip — faster & more accurate
-        top: '20%',
+      area: {
+        top: '15%',
         right: '5%',
         left: '5%',
-        bottom: '20%'
+        bottom: '15%'
       }
     },
     decoder: {
       readers: [
-        'code_128_reader',
+        'code_128_reader',  // most common for product SKUs
         'ean_reader',
-        'ean_8_reader',
         'upc_reader',
         'upc_e_reader',
+        'ean_8_reader',
         'code_39_reader',
-        'codabar_reader',
-        'i2of5_reader'
+        'codabar_reader'
       ],
       multiple: false
     },
     locator: {
-      patchSize: 'medium',   // 'small' misses thin barcodes; 'large' is slow
-      halfSample: true       // faster on mobile
+      patchSize: 'large',   // better detection, especially in batch mode
+      halfSample: false     // full resolution — more reliable
     },
-    numOfWorkers: 0,         // iOS Safari/Chrome: workers cause issues, use 0
+    numOfWorkers: 0,        // iOS Safari/Chrome: workers break, must be 0
     locate: true,
-    frequency: 10
+    frequency: 8
   }, function(err) {
     if (err) {
       console.warn('Quagga init error:', err);
@@ -1149,24 +1167,23 @@ function startQuagga() {
     }
     quaggaRunning = true;
     Quagga.start();
-    setStatus('Hold barcode in the red box');
+    setStatus(batchMode ? '📦 BATCH MODE — scan away, no tapping needed' : 'Hold barcode in the red box');
   });
 
-  // Require 2 consecutive matching reads before accepting — cuts false positives
   let lastRaw = null;
   let matchCount = 0;
 
   Quagga.onDetected(function(result) {
     if (!cameraActive || !quaggaRunning) return;
     const raw = (result.codeResult.code || '').trim().toUpperCase();
-    if (!raw) return;
+    if (!raw || raw.length < 3) return;
 
-    // Confidence filter — ignore low-quality reads
+    // Confidence filter — relaxed slightly for real-world barcodes
     const errors = result.codeResult.decodedCodes
       ?.filter(c => c.error !== undefined)
       ?.map(c => c.error) || [];
     const avgError = errors.length ? errors.reduce((a,b) => a+b, 0) / errors.length : 1;
-    if (avgError > 0.25) return; // too many errors in this read
+    if (avgError > 0.35) return;
 
     if (raw === lastRaw) {
       matchCount++;
@@ -1175,7 +1192,9 @@ function startQuagga() {
       matchCount = 1;
     }
 
-    if (matchCount >= 2 && raw !== lastScannedSku) {
+    // In batch mode: accept after 1 match (speed); normal mode: require 2 (accuracy)
+    const threshold = batchMode ? 1 : 2;
+    if (matchCount >= threshold && raw !== lastScannedSku) {
       matchCount = 0;
       handleBarcode(raw);
     }
@@ -1255,11 +1274,39 @@ function handleBarcode(raw) {
   const bar = document.getElementById('cam-result-bar');
 
   if (item) {
-    bar.textContent = '✓ ' + raw + ' — ' + item.desc;
-    bar.style.display = 'block';
-    bar.style.background = 'rgba(63,185,80,.92)';
-    setStatus('Found! Opening count…');
-    setTimeout(() => { stopCamera(); openModal(raw); }, 600);
+    if (batchMode) {
+      // BATCH MODE: auto-record at full received quantity, stay in camera
+      const existingQty = scanCounts[raw]?.scanned ?? item.qty;
+      scanCounts[raw] = { scanned: existingQty, updatedAt: new Date().toISOString() };
+      saveToStorage();
+
+      // Add to batch log (avoid duplicate entries for same SKU)
+      const existing = batchLog.findIndex(e => e.sku === raw);
+      if (existing === -1) {
+        batchLog.push({ sku: raw, desc: item.desc, qty: existingQty, time: new Date() });
+      }
+
+      // Flash the result bar green
+      bar.textContent = '✓ ' + raw + ' — ' + item.desc + ' (' + existingQty + ' units)';
+      bar.style.display = 'block';
+      bar.style.background = 'rgba(63,185,80,.92)';
+      updateBatchCounter();
+
+      // Auto-clear bar after 1.5s so next scan is clean
+      setTimeout(() => {
+        if (!cameraActive) return;
+        lastScannedSku = null;
+        bar.style.display = 'none';
+        setStatus('📦 BATCH MODE — scan next item');
+      }, 1500);
+    } else {
+      // NORMAL MODE: open count modal
+      bar.textContent = '✓ ' + raw + ' — ' + item.desc;
+      bar.style.display = 'block';
+      bar.style.background = 'rgba(63,185,80,.92)';
+      setStatus('Found! Opening count…');
+      setTimeout(() => { stopCamera(); openModal(raw); }, 600);
+    }
   } else {
     bar.textContent = '⚠ ' + raw + ' — not in this invoice';
     bar.style.display = 'block';
@@ -1269,9 +1316,138 @@ function handleBarcode(raw) {
       if (!cameraActive) return;
       lastScannedSku = null;
       bar.style.display = 'none';
-      setStatus('Point camera at a barcode');
+      setStatus(batchMode ? '📦 BATCH MODE — scan next item' : 'Point camera at a barcode');
     }, 2000);
   }
+}
+
+function updateBatchCounter() {
+  const counter = document.getElementById('batch-counter');
+  if (counter) counter.textContent = batchLog.length + ' scanned';
+
+  // Update the in-camera done button
+  const doneBtn = document.getElementById('cam-batch-done');
+  const doneCount = document.getElementById('cam-batch-count');
+  if (doneBtn) {
+    doneBtn.style.display = batchMode && batchLog.length > 0 ? 'block' : 'none';
+  }
+  if (doneCount) doneCount.textContent = batchLog.length;
+
+  // Update hint text
+  const hint = document.getElementById('cam-hint');
+  if (hint) {
+    hint.innerHTML = batchMode
+      ? '<strong style="color:var(--green)">📦 Batch Mode</strong> — each scan auto-records. Scan away!'
+      : 'Hold steady — scanner reads automatically.<br>Works on barcodes and QR codes.';
+  }
+}
+
+function toggleBatchMode() {
+  batchMode = !batchMode;
+  const btn = document.getElementById('batch-toggle-btn');
+  if (btn) {
+    btn.textContent = batchMode ? '✕ Exit Batch Mode' : '📦 Batch Receive Mode';
+    btn.style.background = batchMode ? 'var(--green)' : '';
+    btn.style.color = batchMode ? '#fff' : '';
+  }
+  if (batchMode) {
+    batchLog = [];
+    showToast('Batch mode ON — scan items rapidly, no tapping needed', 'success');
+    openCamera();
+  } else {
+    showBatchSummary();
+  }
+}
+
+function showBatchSummary() {
+  if (batchLog.length === 0) {
+    stopCamera();
+    showToast('No items scanned in batch', '');
+    return;
+  }
+  stopCamera();
+
+  // Build summary modal content
+  const modal = document.getElementById('modal');
+  const sheet = modal.querySelector('.modal-sheet');
+  sheet.innerHTML = `
+    <div class="modal-sku-label" style="font-size:16px">📦 Batch Receive Summary</div>
+    <div class="modal-desc" style="margin-bottom:12px">${batchLog.length} SKU${batchLog.length>1?'s':''} received</div>
+    <div style="max-height:260px;overflow-y:auto;margin-bottom:12px">
+      ${batchLog.map(e => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+          <div>
+            <div style="font-weight:600;font-size:13px;color:var(--fg)">${e.sku}</div>
+            <div style="font-size:12px;color:var(--fg-muted)">${e.desc}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:13px;color:var(--green);font-weight:600">${e.qty} units</div>
+            <button onclick="openModalFromBatch('${e.sku}')" style="font-size:11px;color:var(--blue);background:none;border:none;cursor:pointer;padding:0">edit</button>
+          </div>
+        </div>`).join('')}
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn secondary" style="flex:1" onclick="closeBatchSummary()">Done</button>
+      <button class="btn" style="flex:1;background:var(--accent)" onclick="restartBatch()">Scan More</button>
+    </div>
+  `;
+  modal.classList.add('open');
+  renderApp();
+}
+
+function openModalFromBatch(sku) {
+  document.getElementById('modal').classList.remove('open');
+  setTimeout(() => openModal(sku), 100);
+}
+
+function closeBatchSummary() {
+  // Restore modal to original state
+  const sheet = document.querySelector('.modal-sheet');
+  sheet.innerHTML = `
+    <div class="modal-sku-label" id="modal-sku"></div>
+    <div class="modal-desc" id="modal-desc"></div>
+    <div class="qty-editor">
+      <button class="qty-btn" onclick="adjustQty(-1)">−</button>
+      <div class="qty-display" id="qty-display">0</div>
+      <button class="qty-btn" onclick="adjustQty(1)">+</button>
+    </div>
+    <div id="modal-info"></div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn secondary" style="flex:1" onclick="closeModal()">Cancel</button>
+      <button class="btn green-btn" style="flex:1" id="save-btn" onclick="saveQty()">Save Count</button>
+    </div>
+  `;
+  document.getElementById('modal').classList.remove('open');
+  batchLog = [];
+  batchMode = false;
+  const btn = document.getElementById('batch-toggle-btn');
+  if (btn) {
+    btn.textContent = '📦 Batch Receive Mode';
+    btn.style.background = '';
+    btn.style.color = '';
+  }
+}
+
+function restartBatch() {
+  const sheet = document.querySelector('.modal-sheet');
+  sheet.innerHTML = `
+    <div class="modal-sku-label" id="modal-sku"></div>
+    <div class="modal-desc" id="modal-desc"></div>
+    <div class="qty-editor">
+      <button class="qty-btn" onclick="adjustQty(-1)">−</button>
+      <div class="qty-display" id="qty-display">0</div>
+      <button class="qty-btn" onclick="adjustQty(1)">+</button>
+    </div>
+    <div id="modal-info"></div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn secondary" style="flex:1" onclick="closeModal()">Cancel</button>
+      <button class="btn green-btn" style="flex:1" id="save-btn" onclick="saveQty()">Save Count</button>
+    </div>
+  `;
+  document.getElementById('modal').classList.remove('open');
+  batchLog = [];
+  batchMode = true;
+  openCamera();
 }
 
 function switchCamera(deviceId) {

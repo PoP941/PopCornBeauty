@@ -7,6 +7,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="PB Scanner">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <title>Popcorn Inventory Scanner</title>
 <style>
   /* === DESIGN TOKENS ===
@@ -463,6 +465,13 @@
   <button class="tab-btn" id="tab-invoices" onclick="switchTab('invoices')">📄 Invoices</button>
 </div>
 
+<!-- Store switcher: counts are saved per store -->
+<div id="loc-bar" style="display:flex;gap:6px;padding:10px 16px 2px;width:100%;max-width:540px;margin:0 auto;box-sizing:border-box;border-radius:12px">
+  <button class="loc-btn" data-loc="pop1" onclick="setLoc('pop1')" style="flex:1;border:1.5px solid var(--border);border-radius:10px;padding:7px 4px;background:transparent;color:var(--fg);font-family:var(--font-head);font-size:14px;font-weight:700;line-height:1.15;cursor:pointer">Pop 1<br><span style="font-size:11px;font-weight:500;opacity:.85">Central Islip</span></button>
+  <button class="loc-btn" data-loc="pop2" onclick="setLoc('pop2')" style="flex:1;border:1.5px solid var(--border);border-radius:10px;padding:7px 4px;background:transparent;color:var(--fg);font-family:var(--font-head);font-size:14px;font-weight:700;line-height:1.15;cursor:pointer">Pop 2<br><span style="font-size:11px;font-weight:500;opacity:.85">Carmans Rd</span></button>
+  <button class="loc-btn" data-loc="all" onclick="setLoc('all')" style="flex:1;border:1.5px solid var(--border);border-radius:10px;padding:7px 4px;background:transparent;color:var(--fg);font-family:var(--font-head);font-size:14px;font-weight:700;line-height:1.15;cursor:pointer">Both<br><span style="font-size:11px;font-weight:500;opacity:.85">view only</span></button>
+</div>
+
 <div class="main" id="main-content">
   <div class="notice" id="loading-state">
     <strong>Loading <span class="loading-dot">●</span></strong>
@@ -787,6 +796,10 @@ const LS_ITEMS    = 'pb_items';
 const LS_INVOICES = 'pb_invoice_log';
 const LS_BARCODES = 'pb_barcode_map';
 const LS_VERSION  = 'pb_data_version';
+const LS_LOC_COUNTS = 'pb_loc_counts';
+const LS_POP1_RECV  = 'pb_pop1_recv';
+const LS_TRANSFERS  = 'pb_transfers';
+const LS_CUR_LOC    = 'pb_current_loc';
 
 const DEFAULT_LOG = [
   { name: 'WAN85X798313300926 · Highest Rated Wireless', skus: 152, units: 303, cost: 1121.23, at: INVOICE_DATE },
@@ -827,7 +840,16 @@ function lookupCode(raw) {
 // APP STATE
 // =====================================================================
 let db = null;
-let scanCounts = {}; // sku -> {scanned (= remaining on shelf), updatedAt}
+// ---- Two stores share one item list; each keeps its own counts ----
+const LOCS = {
+  pop1: { name: 'Pop 1', place: 'Central Islip', addr: '16 Wheeler Rd', color: '#2f81f7' },
+  pop2: { name: 'Pop 2', place: 'Carmans Rd',    addr: '941 Carmans Rd', color: '#ff5a5a' },
+};
+let currentLoc = 'pop2';                 // 'pop1' | 'pop2' | 'all'
+let locCounts = { pop1: {}, pop2: {} };  // store -> sku -> {scanned (= on shelf), updatedAt}
+let pop1Recv = {};                       // sku -> units that went to Pop 1 (Pop 2 has the rest)
+let transferLog = [];                    // [{sku, n, from, to, at}]
+let scanCounts = locCounts.pop2;         // counts of the store being counted right now
 let currentTab = 'scan';
 let modalItem = null;
 let modalQty = 0;
@@ -847,7 +869,10 @@ function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch (e
 function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
 
 function saveToStorage() {
-  lsSet(LS_SCANS, JSON.stringify(scanCounts));
+  lsSet(LS_LOC_COUNTS, JSON.stringify(locCounts));
+  lsSet(LS_POP1_RECV, JSON.stringify(pop1Recv));
+  lsSet(LS_TRANSFERS, JSON.stringify(transferLog.slice(-300)));
+  lsSet(LS_CUR_LOC, currentLoc);
   if (cycleStart) lsSet(LS_CYCLE, cycleStart);
 }
 function saveItems() {
@@ -859,11 +884,19 @@ function saveBarcodes() { lsSet(LS_BARCODES, JSON.stringify(barcodeMap)); }
 function loadFromStorage() {
   // One-time wipe: counts/lists saved against an older built-in list are discarded
   if (lsGet(LS_VERSION) !== DATA_VERSION) {
-    [LS_SCANS, LS_CYCLE, LS_ITEMS, LS_INVOICES, LS_BARCODES].forEach(lsDel);
+    [LS_SCANS, LS_CYCLE, LS_ITEMS, LS_INVOICES, LS_BARCODES, LS_LOC_COUNTS, LS_POP1_RECV, LS_TRANSFERS].forEach(lsDel);
     lsSet(LS_CYCLE, INVOICE_DATE);
     lsSet(LS_VERSION, DATA_VERSION);
   }
-  try { const s = lsGet(LS_SCANS); if (s) scanCounts = JSON.parse(s) || {}; } catch (e) {}
+  try {
+    const lc = JSON.parse(lsGet(LS_LOC_COUNTS) || 'null');
+    if (lc && typeof lc === 'object') locCounts = { pop1: lc.pop1 || {}, pop2: lc.pop2 || {} };
+    else { const s = JSON.parse(lsGet(LS_SCANS) || 'null'); if (s) locCounts.pop2 = s; } // single-store data → Carmans Rd
+  } catch (e) {}
+  try { pop1Recv = JSON.parse(lsGet(LS_POP1_RECV) || '{}') || {}; } catch (e) {}
+  try { transferLog = JSON.parse(lsGet(LS_TRANSFERS) || '[]') || []; } catch (e) {}
+  const cl = lsGet(LS_CUR_LOC); if (cl === 'pop1' || cl === 'pop2' || cl === 'all') currentLoc = cl;
+  setLoc(currentLoc, true);
   cycleStart = lsGet(LS_CYCLE) || null;
   try { const it = JSON.parse(lsGet(LS_ITEMS) || 'null'); if (Array.isArray(it)) INVOICE = it; } catch (e) {}
   try { const lg = JSON.parse(lsGet(LS_INVOICES) || 'null'); if (Array.isArray(lg)) invoiceLog = lg; } catch (e) {}
@@ -873,19 +906,6 @@ function loadFromStorage() {
 
 async function initDB() {
   loadFromStorage();
-  // Also use Claude db if available (claude.ai artifact context)
-  try {
-    db = await window.claude?.use('db');
-    if (db) {
-      const cycleDoc = await db.doc('cycle/current').get();
-      if (cycleDoc.exists) cycleStart = cycleDoc.data().startDate;
-      db.collection('scans').onSnapshot(snap => {
-        snap.docs.forEach(d => { if (d.exists) scanCounts[d.id] = d.data(); });
-        renderApp();
-      }, () => renderApp());
-      return;
-    }
-  } catch (e) {}
   renderApp();
 }
 
@@ -894,14 +914,25 @@ async function initDB() {
 // received = invoice qty, remaining = what's counted on the shelf,
 // sold = received − remaining. Uncounted items are assumed unsold.
 // =====================================================================
-function isCounted(r) { return scanCounts[r[0]] !== undefined; }
-function remainingOf(r) { return isCounted(r) ? scanCounts[r[0]].scanned : r[2]; }
-function soldOf(r) { return Math.max(0, r[2] - remainingOf(r)); }
-function isLow(r) { return isCounted(r) && remainingOf(r) <= Math.max(1, Math.floor(r[2] * 0.25)); }
+// Per store: received = what that store got; Pop 1 gets what was sent there, Pop 2 the rest
+function recvAt(r, loc) {
+  const p1 = Math.min(r[2], Math.max(0, pop1Recv[r[0]] || 0));
+  return loc === 'pop1' ? p1 : r[2] - p1;
+}
+function countedAt(r, loc) { return locCounts[loc][r[0]] !== undefined; }
+function remainingAt(r, loc) { return countedAt(r, loc) ? locCounts[loc][r[0]].scanned : recvAt(r, loc); }
+function soldAt(r, loc) { return Math.max(0, recvAt(r, loc) - remainingAt(r, loc)); }
+// In the current view (one store, or both added together)
+function viewLocs() { return currentLoc === 'all' ? ['pop1', 'pop2'] : [currentLoc]; }
+function receivedOf(r) { return viewLocs().reduce((s, l) => s + recvAt(r, l), 0); }
+function isCounted(r) { return viewLocs().every(l => countedAt(r, l)); }
+function remainingOf(r) { return viewLocs().reduce((s, l) => s + remainingAt(r, l), 0); }
+function soldOf(r) { return viewLocs().reduce((s, l) => s + soldAt(r, l), 0); }
+function isLow(r) { return isCounted(r) && remainingOf(r) <= Math.max(1, Math.floor(receivedOf(r) * 0.25)); }
 function stockClass(r) {
-  const left = remainingOf(r);
-  if (!r[2]) return isCounted(r) ? 'all' : '';
-  const pct = left / r[2];
+  const left = remainingOf(r), rcv = receivedOf(r);
+  if (!rcv) return isCounted(r) ? 'all' : '';
+  const pct = left / rcv;
   return pct >= 1 ? 'all' : pct > 0.3 ? 'some' : 'none';
 }
 
@@ -912,10 +943,35 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+function setLoc(loc, quiet) {
+  currentLoc = loc;
+  scanCounts = loc === 'all' ? {} : locCounts[loc];
+  lsSet(LS_CUR_LOC, loc);
+  document.querySelectorAll('.loc-btn').forEach(b => {
+    const on = b.dataset.loc === loc;
+    const c = LOCS[b.dataset.loc]?.color || 'var(--fg-muted)';
+    b.style.background = on ? c : 'transparent';
+    b.style.color = on ? '#fff' : 'var(--fg)';
+    b.style.borderColor = on ? c : 'var(--border)';
+  });
+  if (!quiet) renderApp();
+}
+
+function needStore() {
+  if (currentLoc !== 'all') return false;
+  showToast('Pick Pop 1 or Pop 2 first — counts are saved per store', 'error');
+  const bar = document.getElementById('loc-bar');
+  if (bar) { bar.style.outline = '2px solid var(--yellow)'; setTimeout(() => bar.style.outline = '', 1500); }
+  return true;
+}
+
+function storeLabel(loc) { return loc === 'all' ? 'Both stores' : `${LOCS[loc].name} · ${LOCS[loc].place}`; }
+
 function renderApp() {
   document.getElementById('loading-state')?.remove();
   const sub = document.getElementById('hdr-sub');
   if (sub) sub.textContent = `Popcorn Beauty — ${INVOICE.length} SKUs · ${invoiceLog.length} invoice${invoiceLog.length === 1 ? '' : 's'}`;
+  setLoc(currentLoc, true);
   const main = document.getElementById('main-content');
   if (currentTab === 'scan') renderScan(main);
   else if (currentTab === 'inventory') renderInventory(main);
@@ -924,7 +980,6 @@ function renderApp() {
 }
 
 function renderScan(main) {
-  const totalItems = INVOICE.reduce((s, r) => s + r[2], 0);
   const totalRemaining = INVOICE.reduce((s, r) => s + remainingOf(r), 0);
   const soldEstimate = INVOICE.reduce((s, r) => s + soldOf(r), 0);
   const countedItems = INVOICE.filter(isCounted).length;
@@ -933,7 +988,7 @@ function renderScan(main) {
   main.innerHTML = `
     <div class="cycle-bar">
       <div>
-        <div class="cycle-label">Count Cycle</div>
+        <div class="cycle-label">Count Cycle · ${storeLabel(currentLoc)}</div>
         <div class="cycle-date">${formatDate(cycleStart || INVOICE_DATE)} → now</div>
       </div>
       <button class="btn secondary btn-sm" onclick="resetCycle()">New Cycle</button>
@@ -950,10 +1005,12 @@ function renderScan(main) {
     <div class="notice"><strong>No items yet</strong>Upload an invoice spreadsheet in the <a href="#" onclick="switchTab('invoices');return false" style="color:var(--blue)">📄 Invoices</a> tab to load your SKU list.</div>` : ''}
 
     <div class="panel">
-      <div class="panel-head"><h2>Count What's On The Shelf</h2></div>
+      <div class="panel-head"><h2>${currentLoc === 'all' ? 'Both Stores — View Only' : `Count ${LOCS[currentLoc].name} Shelf`}</h2></div>
       <div class="panel-body" style="display:flex;flex-direction:column;gap:10px">
         <p style="font-size:13px;color:var(--fg-muted);line-height:1.6">
-          Scan each item <em>still on your shelf</em> and enter how many are left. Received minus remaining = sold.
+          ${currentLoc === 'all'
+            ? 'This view adds both stores together. Pick <strong style="color:var(--fg)">Pop 1</strong> or <strong style="color:var(--fg)">Pop 2</strong> above to count.'
+            : `Scan each item <em>on the ${esc(LOCS[currentLoc].place)} shelf</em> and enter how many are there. Received minus remaining = sold.`}
         </p>
         <div style="display:flex;gap:8px">
           <button class="btn" style="flex:2;font-size:15px;padding:14px;display:flex;align-items:center;justify-content:center;gap:8px" onclick="openCamera()">
@@ -963,6 +1020,12 @@ function renderScan(main) {
             ${batchMode ? `✕ Exit Batch<span id="batch-counter" style="margin-left:4px;font-size:11px;opacity:.8">${batchLog.length} scanned</span>` : '📦 Batch<br>Receive'}
           </button>
         </div>
+        <button class="btn secondary" style="width:100%;${transferMode ? 'background:var(--blue);color:#fff;border-color:var(--blue)' : ''}" onclick="toggleTransferMode()">
+          ${transferMode ? '✕ Exit Transfer Mode' : '🚚 Transfer stock between stores'}
+        </button>
+        ${transferMode ? `<div style="background:rgba(47,129,247,.12);border:1px solid var(--blue);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--blue)">
+          <strong>🚚 Transfer Mode ON</strong> — scan or tap an item, then enter how many you're moving and where.
+        </div>` : ''}
         <button class="btn secondary btn-sm" style="width:100%" onclick="takePhoto()">📸 Camera not working? Scan from a photo</button>
         ${batchMode ? `<div style="background:rgba(63,185,80,.12);border:1px solid var(--green);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--green)">
           <strong>📦 Batch Mode ON</strong> — Camera stays open. Each scan auto-records full received qty. Tap "Exit Batch" when done to review.
@@ -994,14 +1057,14 @@ function itemRow(r, sub) {
       <div class="inv-sku">${esc(sub)}</div>
       <div class="inv-counts">
         <div class="inv-left ${stockClass(r)}">${left}</div>
-        <div class="inv-fraction">${!r[2] ? (counted ? 'older stock on hand' : 'older item · not counted') : counted ? `${soldOf(r)} sold · rcvd ${r[2]}` : `rcvd ${r[2]} · not counted`}</div>
+        <div class="inv-fraction">${!receivedOf(r) ? (counted ? 'older stock on hand' : 'older item · not counted') : counted ? `${soldOf(r)} sold · rcvd ${receivedOf(r)}` : `rcvd ${receivedOf(r)} · not counted`}${currentLoc === 'all' && (remainingAt(r, 'pop1') || remainingAt(r, 'pop2')) ? `<br>P1 ${remainingAt(r, 'pop1')} · P2 ${remainingAt(r, 'pop2')}` : ''}</div>
       </div>
     </div>`;
 }
 
 function renderQuickList() {
   if (!INVOICE.length) return '';
-  const rank = r => (isCounted(r) ? 2 : 0) + (r[2] > 0 ? 0 : 1);
+  const rank = r => (isCounted(r) ? 2 : 0) + (receivedOf(r) > 0 ? 0 : 1);
   const items = [...INVOICE].sort((a, b) => rank(a) - rank(b)).slice(0, 30);
   return items.map(r => itemRow(r, r[0])).join('') + `
     <div class="inv-item" style="justify-content:center;cursor:pointer;color:var(--blue);font-size:13px" onclick="switchTab('inventory')">
@@ -1013,8 +1076,8 @@ const SPECIAL_FILTERS = {
   '⚠ Low stock': isLow,
   'Sold out': r => isCounted(r) && remainingOf(r) === 0,
   'Not counted': r => !isCounted(r),
-  'This shipment': r => r[2] > 0,
-  'Older items': r => r[2] === 0,
+  'Has stock': r => receivedOf(r) > 0,
+  'Older items': r => receivedOf(r) === 0,
 };
 
 function renderInventory(main) {
@@ -1067,8 +1130,9 @@ function renderProfit(main) {
   const catData = {};
   INVOICE.forEach(r => {
     const sold = soldOf(r);
-    totalUnits += r[2];
-    totalCost += r[2] * r[3];
+    const rcv = receivedOf(r);
+    totalUnits += rcv;
+    totalCost += rcv * r[3];
     totalRevenue += sold * r[4];
     cogsSold += sold * r[3];
     totalSold += sold;
@@ -1077,7 +1141,7 @@ function renderProfit(main) {
     catData[r[5]].sold += sold;
     catData[r[5]].revenue += sold * r[4];
     catData[r[5]].cost += sold * r[3];
-    catData[r[5]].units += r[2];
+    catData[r[5]].units += rcv;
   });
   const totalProfit = totalRevenue - cogsSold;
   const margin = totalRevenue > 0 ? (totalProfit / totalRevenue * 100) : 0;
@@ -1100,7 +1164,8 @@ function renderProfit(main) {
     <div class="panel">
       <div class="panel-head"><h2>Summary</h2></div>
       <div class="panel-body profit-section">
-        <div class="profit-row"><span class="profit-label">Invoice Total (Cost)</span><span class="profit-val">${fmt(totalCost)}</span></div>
+        <div class="profit-row"><span class="profit-label">Store</span><span class="profit-val">${storeLabel(currentLoc)}</span></div>
+        <div class="profit-row"><span class="profit-label">Stock Received (Cost)</span><span class="profit-val">${fmt(totalCost)}</span></div>
         <div class="profit-row"><span class="profit-label">Units Received</span><span class="profit-val">${totalUnits}</span></div>
         <div class="profit-row"><span class="profit-label">Units Sold (Est.)</span><span class="profit-val">${totalSold}</span></div>
         <div class="profit-row"><span class="profit-label">COGS on Sold</span><span class="profit-val neg">${fmt(cogsSold)}</span></div>
@@ -1152,7 +1217,7 @@ function renderInvoices(main) {
           📄 Choose Invoice Files
           <input type="file" multiple accept=".csv,.tsv,.txt,.xlsx,.xls,.xlsm,.ods,text/csv" style="display:none" onchange="handleInvoiceFiles(this.files);this.value=''">
         </label>
-        <p style="font-size:12px;color:var(--fg-muted);line-height:1.5">PDF invoices can't be read here. Convert them to Excel or CSV first.</p>
+        <p style="font-size:12px;color:var(--fg-muted);line-height:1.5">PDF invoices can't be read here. Convert them to Excel or CSV first. "Add to stock" puts new units at Pop 2 (Carmans Rd).</p>
       </div>
     </div>
 
@@ -1182,10 +1247,31 @@ function renderInvoices(main) {
     </div>
 
     <div class="panel">
+      <div class="panel-head"><h2>Stock by Store</h2></div>
+      <div class="panel-body profit-section">
+        ${['pop1', 'pop2'].map(l => `<div class="profit-row"><span class="profit-label" style="color:${LOCS[l].color};font-weight:600">${LOCS[l].name} · ${LOCS[l].addr}</span><span class="profit-val">${INVOICE.reduce((s, r) => s + recvAt(r, l), 0)} rcvd · ${INVOICE.reduce((s, r) => s + remainingAt(r, l), 0)} on shelf</span></div>`).join('')}
+        <div style="font-size:12px;color:var(--fg-muted);margin-top:6px;line-height:1.5">New invoices are received at Pop 2 (Carmans Rd). Use 🚚 Transfer on the Scan tab when you bring stock to Pop 1.</div>
+      </div>
+    </div>
+
+    ${transferLog.length ? `
+    <div class="panel">
+      <div class="panel-head"><h2>Recent Transfers</h2></div>
+      <div class="inv-list">
+        ${transferLog.slice(-15).reverse().map(t => `
+          <div class="inv-item">
+            <div class="inv-name">${esc(t.sku)}</div>
+            <div class="inv-sku">${LOCS[t.from].name} → ${LOCS[t.to].name} · ${formatDate(t.at)}</div>
+            <div class="inv-counts"><div class="inv-left all" style="font-size:15px">${t.n}</div></div>
+          </div>`).join('')}
+      </div>
+    </div>` : ''}
+
+    <div class="panel">
       <div class="panel-head"><h2>Tools</h2></div>
       <div class="panel-body" style="display:flex;flex-direction:column;gap:8px">
         <button class="btn secondary" onclick="exportCounts()">⬇ Export counts (CSV)</button>
-        <button class="btn secondary" onclick="carryForward()">↪ Carry remaining stock into a new cycle</button>
+        <button class="btn secondary" onclick="carryForward()">↪ Carry both stores' counts into a new cycle</button>
         <button class="btn secondary" onclick="clearBarcodeLinks()">Clear barcode links</button>
         <button class="btn secondary" onclick="resetItemList()">Reset to built-in invoice</button>
         <button class="btn secondary" style="color:var(--accent)" onclick="clearItemList()">Clear item list</button>
@@ -1459,12 +1545,17 @@ function commitImports() {
 }
 
 function exportCounts() {
-  const head = ['SKU', 'UPC', 'Description', 'Category', 'Received', 'Remaining', 'Sold', 'Counted', 'Unit Cost', 'Retail', 'Revenue', 'Gross Profit'];
+  const head = ['SKU', 'UPC', 'Description', 'Category', 'Unit Cost', 'Retail',
+    'Pop1 Received', 'Pop1 On Shelf', 'Pop1 Sold', 'Pop1 Counted',
+    'Pop2 Received', 'Pop2 On Shelf', 'Pop2 Sold', 'Pop2 Counted',
+    'Total On Shelf', 'Total Sold', 'Revenue', 'Gross Profit'];
   const lines = [head];
   INVOICE.forEach(r => {
-    const sold = soldOf(r);
-    lines.push([r[0], r[6] || '', r[1], r[5], r[2], remainingOf(r), sold, isCounted(r) ? 'yes' : 'no',
-      r[3], r[4], (sold * r[4]).toFixed(2), (sold * (r[4] - r[3])).toFixed(2)]);
+    const sold = soldAt(r, 'pop1') + soldAt(r, 'pop2');
+    lines.push([r[0], r[6] || '', r[1], r[5], r[3], r[4],
+      recvAt(r, 'pop1'), remainingAt(r, 'pop1'), soldAt(r, 'pop1'), countedAt(r, 'pop1') ? 'yes' : 'no',
+      recvAt(r, 'pop2'), remainingAt(r, 'pop2'), soldAt(r, 'pop2'), countedAt(r, 'pop2') ? 'yes' : 'no',
+      remainingAt(r, 'pop1') + remainingAt(r, 'pop2'), sold, (sold * r[4]).toFixed(2), (sold * (r[4] - r[3])).toFixed(2)]);
   });
   const csv = lines.map(l => l.map(v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
@@ -1476,14 +1567,19 @@ function exportCounts() {
 }
 
 function carryForward() {
-  const counted = INVOICE.filter(isCounted).length;
-  if (!confirm(`Close this cycle?\nEach item's remaining count (${counted} of ${INVOICE.length} counted; uncounted keep their current qty) becomes its new starting stock, and counts are cleared. Then add your next invoice on top.`)) return;
-  INVOICE.forEach(r => { r[2] = remainingOf(r); });
-  invoiceLog = [{ name: 'Carried-forward stock', skus: INVOICE.length, units: INVOICE.reduce((s, r) => s + r[2], 0), cost: INVOICE.reduce((s, r) => s + r[2] * r[3], 0), at: new Date().toISOString() }];
-  scanCounts = {};
+  const c1 = INVOICE.filter(r => countedAt(r, 'pop1')).length, c2 = INVOICE.filter(r => countedAt(r, 'pop2')).length;
+  if (!confirm(`Close this cycle for BOTH stores?\n\nCounted so far: Pop 1 ${c1} items, Pop 2 ${c2} items (of ${INVOICE.length}).\nEach store's shelf count becomes its new starting stock and counts are cleared. Uncounted items keep their current quantity.`)) return;
+  INVOICE.forEach(r => {
+    const a = remainingAt(r, 'pop1'), b = remainingAt(r, 'pop2');
+    r[2] = a + b;
+    if (a) pop1Recv[r[0]] = a; else delete pop1Recv[r[0]];
+  });
+  invoiceLog = [{ name: 'Opening stock (carried forward)', skus: INVOICE.filter(r => r[2] > 0).length, units: INVOICE.reduce((s, r) => s + r[2], 0), cost: INVOICE.reduce((s, r) => s + r[2] * r[3], 0), at: new Date().toISOString() }];
+  locCounts = { pop1: {}, pop2: {} };
+  setLoc(currentLoc, true);
   cycleStart = new Date().toISOString();
   saveItems(); saveToStorage(); rebuildIndex();
-  showToast('New cycle started from remaining stock', 'success');
+  showToast('New cycle started from each store\'s count', 'success');
   renderApp();
 }
 function clearBarcodeLinks() {
@@ -1506,6 +1602,7 @@ function clearItemList() {
 // SCAN HANDLER (typed)
 // =====================================================================
 function handleScan() {
+  if (needStore() && !transferMode) return;
   const input = document.getElementById('scan-input');
   const raw = normCode(input.value);
   if (!raw) return;
@@ -1547,11 +1644,13 @@ function restoreModalSheet() {
 function openModal(sku) {
   const item = lookupCode(sku);
   if (!item) return;
+  if (transferMode) { openTransfer(item); return; }
+  if (currentLoc === 'all') { openBothView(item); return; }
   restoreModalSheet();
   modalItem = item;
   const counted = scanCounts[item.sku];
-  modalQty = counted !== undefined ? counted.scanned : item.qty;
-  document.getElementById('modal-sku').textContent = item.sku + ' · ' + item.cat;
+  modalQty = counted !== undefined ? counted.scanned : recvAt(INVOICE[item.idx], currentLoc);
+  document.getElementById('modal-sku').innerHTML = `<span style="color:${LOCS[currentLoc].color};font-weight:700">${LOCS[currentLoc].name}</span> · ${esc(item.sku)} · ${esc(item.cat)}`;
   document.getElementById('modal-desc').textContent = item.desc;
   refreshModalInfo();
   document.getElementById('modal').classList.add('open');
@@ -1559,15 +1658,16 @@ function openModal(sku) {
 
 function refreshModalInfo() {
   const it = modalItem;
+  const rcv = recvAt(INVOICE[it.idx], currentLoc);
   document.getElementById('qty-display').textContent = modalQty;
-  const sold = Math.max(0, it.qty - modalQty);
+  const sold = Math.max(0, rcv - modalQty);
   const revenue = sold * it.retail;
   const profit = revenue - sold * it.cost;
   document.getElementById('modal-info').innerHTML = `
-    <div class="modal-info-row"><span class="label">Received</span><span>${it.qty} units</span></div>
+    <div class="modal-info-row"><span class="label">Received at ${LOCS[currentLoc].name}</span><span>${rcv} units</span></div>
     <div class="modal-info-row"><span class="label">Remaining (your count)</span><span>${modalQty} units</span></div>
     <div class="modal-info-row"><span class="label">Sold</span><span style="color:var(--green)">${sold} units</span></div>
-    ${modalQty > it.qty ? `<div class="modal-info-row"><span class="label">Extra on hand</span><span style="color:var(--yellow)">+${modalQty - it.qty} (older stock?)</span></div>` : ''}
+    ${modalQty > rcv ? `<div class="modal-info-row"><span class="label">Extra on hand</span><span style="color:var(--yellow)">+${modalQty - rcv} (older stock?)</span></div>` : ''}
     <div class="modal-info-row"><span class="label">Cost / Retail</span><span>${fmt(it.cost)} / <a href="#" onclick="editRetail();return false" style="color:var(--blue)">${fmt(it.retail)} ✎</a></span></div>
     <div class="modal-info-row"><span class="label">Revenue (sold)</span><span style="color:var(--blue)">${fmt(revenue)}</span></div>
     <div class="modal-info-row"><span class="label">Gross Profit</span><span style="color:var(--green)">${fmt(profit)}</span></div>`;
@@ -1584,6 +1684,89 @@ function editRetail() {
   modalItem.retail = row[4];
   saveItems();
   refreshModalInfo();
+}
+
+// ---------- Both-stores read-only view ----------
+function openBothView(item) {
+  const r = INVOICE[item.idx];
+  const sheet = document.querySelector('#modal .modal-sheet');
+  const row = (l) => `
+    <div class="modal-info-row"><span class="label" style="color:${LOCS[l].color};font-weight:600">${LOCS[l].name} · ${LOCS[l].place}</span>
+      <span>${remainingAt(r, l)} on shelf${countedAt(r, l) ? '' : ' (not counted)'} · ${soldAt(r, l)} sold</span></div>`;
+  sheet.innerHTML = `
+    <div class="modal-sku-label">${esc(item.sku)} · ${esc(item.cat)}</div>
+    <div class="modal-desc">${esc(item.desc)}</div>
+    <div style="margin:12px 0">${row('pop1')}${row('pop2')}
+      <div class="modal-info-row"><span class="label">Total</span><span>${remainingAt(r, 'pop1') + remainingAt(r, 'pop2')} on shelf · ${soldAt(r, 'pop1') + soldAt(r, 'pop2')} sold</span></div></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn" style="flex:1;background:${LOCS.pop1.color}" onclick="setLoc('pop1');openModal('${esc(item.sku)}')">Count Pop 1</button>
+      <button class="btn" style="flex:1;background:${LOCS.pop2.color}" onclick="setLoc('pop2');openModal('${esc(item.sku)}')">Count Pop 2</button>
+    </div>
+    <button class="btn secondary" style="width:100%;margin-top:8px" onclick="closeModal()">Close</button>`;
+  modalItem = null;
+  document.getElementById('modal').classList.add('open');
+}
+
+// ---------- Transfers between stores ----------
+let transferMode = false;
+let tfItem = null, tfQty = 1, tfFrom = 'pop2';
+
+function toggleTransferMode() {
+  transferMode = !transferMode;
+  if (transferMode) { batchMode = false; showToast('Transfer mode — scan or tap items you are moving', 'success'); }
+  renderApp();
+}
+
+function openTransfer(item) {
+  tfItem = item;
+  tfQty = 1;
+  tfFrom = currentLoc === 'pop1' ? 'pop1' : 'pop2'; // usually Carmans Rd → Central Islip
+  renderTransfer();
+  document.getElementById('modal').classList.add('open');
+}
+
+function renderTransfer() {
+  const r = INVOICE[tfItem.idx];
+  const to = tfFrom === 'pop1' ? 'pop2' : 'pop1';
+  const avail = remainingAt(r, tfFrom);
+  document.querySelector('#modal .modal-sheet').innerHTML = `
+    <div class="modal-sku-label">🚚 Transfer · ${esc(tfItem.sku)}</div>
+    <div class="modal-desc">${esc(tfItem.desc)}</div>
+    <button class="btn secondary" style="width:100%;margin-top:10px;font-size:15px" onclick="tfFrom=tfFrom==='pop1'?'pop2':'pop1';renderTransfer()">
+      <span style="color:${LOCS[tfFrom].color};font-weight:700">${LOCS[tfFrom].name}</span> → <span style="color:${LOCS[to].color};font-weight:700">${LOCS[to].name}</span> &nbsp;⇄
+    </button>
+    <div class="qty-editor">
+      <button class="qty-btn" onclick="tfQty=Math.max(1,tfQty-1);renderTransfer()">−</button>
+      <div class="qty-display" onclick="const v=parseInt(prompt('How many are you moving?', tfQty),10);if(v>0){tfQty=v;renderTransfer()}" style="cursor:pointer">${tfQty}</div>
+      <button class="qty-btn" onclick="tfQty++;renderTransfer()">+</button>
+    </div>
+    <div class="modal-info-row"><span class="label">${LOCS[tfFrom].name} has</span><span>${avail}${countedAt(r, tfFrom) ? '' : ' (not counted)'}</span></div>
+    <div class="modal-info-row"><span class="label">${LOCS[to].name} has</span><span>${remainingAt(r, to)}${countedAt(r, to) ? '' : ' (not counted)'}</span></div>
+    ${tfQty > avail ? `<div style="font-size:12px;color:var(--yellow);margin-top:6px">That's more than ${LOCS[tfFrom].name} shows — the extra is treated as older stock.</div>` : ''}
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn secondary" style="flex:1" onclick="closeModal()">Cancel</button>
+      <button class="btn" style="flex:2;background:var(--blue)" onclick="doTransfer()">Move ${tfQty} to ${LOCS[to].name}</button>
+    </div>`;
+}
+
+// Moves stock AND any existing shelf counts, so neither store's "sold" changes
+function doTransfer() {
+  const r = INVOICE[tfItem.idx], sku = r[0], n = tfQty;
+  const from = tfFrom, to = from === 'pop1' ? 'pop2' : 'pop1';
+  const fromRecv = recvAt(r, from);
+  const moveRecv = Math.min(n, fromRecv);
+  if (n > fromRecv) r[2] += n - fromRecv;              // unknown older stock joins the books
+  const p1 = Math.min(r[2], pop1Recv[sku] || 0);
+  pop1Recv[sku] = to === 'pop1' ? p1 + n : Math.max(0, p1 - moveRecv);
+  if (!pop1Recv[sku]) delete pop1Recv[sku];
+  const now = new Date().toISOString();
+  if (countedAt(r, from)) locCounts[from][sku] = { scanned: Math.max(0, locCounts[from][sku].scanned - n), updatedAt: now };
+  if (countedAt(r, to)) locCounts[to][sku] = { scanned: locCounts[to][sku].scanned + n, updatedAt: now };
+  transferLog.push({ sku, n, from, to, at: now });
+  saveItems(); saveToStorage();
+  closeModal();
+  showToast(`🚚 Moved ${n} × ${sku} to ${LOCS[to].name}`, 'success');
+  renderApp();
 }
 
 function adjustQty(delta) {
@@ -1607,10 +1790,9 @@ async function saveQty() {
   const sku = modalItem.sku;
   scanCounts[sku] = { scanned: modalQty, updatedAt: new Date().toISOString() };
   saveToStorage();
-  if (db) { try { await db.doc('scans/' + sku).set(scanCounts[sku]); } catch (e) {} }
   const left = modalQty;
   closeModal();
-  showToast(`✓ ${sku}: ${left} remaining`, 'success');
+  showToast(`✓ ${LOCS[currentLoc].name} · ${sku}: ${left} on shelf`, 'success');
   renderApp();
 }
 
@@ -1664,18 +1846,12 @@ function closeLinkPicker() {
 // =====================================================================
 // CYCLE RESET
 // =====================================================================
-async function resetCycle() {
-  if (!confirm('Start a new count cycle? This clears all counts (the item list stays).')) return;
-  scanCounts = {};
+function resetCycle() {
+  if (!confirm('Start a new count cycle? This clears the counts at BOTH stores (the item list and store stock stay).\n\nTo keep what you counted as the new starting stock, use Invoices → Carry remaining stock instead.')) return;
+  locCounts = { pop1: {}, pop2: {} };
+  setLoc(currentLoc, true);
   cycleStart = new Date().toISOString();
   saveToStorage();
-  if (db) {
-    try {
-      const snap = await db.collection('scans').get();
-      for (const d of snap.docs) await db.doc('scans/' + d.id).delete();
-      await db.doc('cycle/current').set({ startDate: cycleStart });
-    } catch (e) {}
-  }
   showToast('New cycle started', 'success');
   renderApp();
 }
@@ -1808,13 +1984,14 @@ function handleCamError(e) {
 }
 
 async function openCamera() {
+  if (needStore()) return;
   _stopCameraInternal();
   const session = ++camSession;
   document.getElementById('camera-modal').classList.add('open');
   document.getElementById('cam-result-bar').style.display = 'none';
   document.getElementById('cam-tap').style.display = 'none';
   hideCamHelp();
-  setStatus(batchMode ? '📦 Batch — starting camera…' : 'Starting camera…');
+  setStatus((transferMode ? '🚚 Transfer · ' : `${LOCS[currentLoc].name} · `) + (batchMode ? '📦 Batch — starting camera…' : 'starting camera…'));
   lastScannedSku = null;
   updateBatchCounter();
 
@@ -1960,7 +2137,7 @@ function _stopCameraInternal() {
 }
 
 function recordBatch(item) {
-  const q = scanCounts[item.sku]?.scanned ?? item.qty;
+  const q = scanCounts[item.sku]?.scanned ?? recvAt(INVOICE[item.idx], currentLoc);
   scanCounts[item.sku] = { scanned: q, updatedAt: new Date().toISOString() };
   saveToStorage();
   if (!batchLog.some(e => e.sku === item.sku)) batchLog.push({ sku: item.sku, desc: item.desc, qty: q, time: new Date() });
@@ -2081,6 +2258,8 @@ function updateBatchCounter() {
 }
 
 function toggleBatchMode() {
+  if (!batchMode && needStore()) return;
+  if (!batchMode && transferMode) transferMode = false;
   batchMode = !batchMode;
   if (batchMode) {
     batchLog = [];

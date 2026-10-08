@@ -356,7 +356,7 @@
 
   .hidden { display: none !important; }
 
-  /* Quagga injects a <video> and <canvas> — make them fill the container */
+  /* ZXing video fills container */
   #cam-video video,
   #cam-video canvas { position:absolute!important; top:0; left:0; width:100%!important; height:100%!important; object-fit:cover; }
 
@@ -381,8 +381,8 @@
   }
 </style>
 
-<!-- Quagga2 — barcode scanning library that works on iOS Chrome -->
-<script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.8.4/dist/quagga.min.js"></script>
+<!-- ZXing — Google's barcode library, solid iOS Chrome support -->
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 
 <!-- Camera Scanner Overlay -->
 <div class="modal-overlay" id="camera-modal">
@@ -394,8 +394,10 @@
       </div>
       <button class="btn secondary btn-sm" onclick="stopCamera()">✕ Close</button>
     </div>
-    <!-- Video viewfinder — Quagga renders video+canvas inside this div -->
+    <!-- Video viewfinder -->
     <div id="cam-video" style="position:relative;background:#000;width:100%;aspect-ratio:4/3;overflow:hidden">
+      <!-- ZXing writes directly to this <video> element -->
+      <video id="zxing-video" autoplay muted playsinline style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover"></video>
       <!-- Aim reticle overlay -->
       <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:10">
         <div style="width:220px;height:100px;border:2px solid var(--accent);border-radius:8px;box-shadow:0 0 0 9999px rgba(0,0,0,.45)"></div>
@@ -1085,177 +1087,151 @@ function showToast(msg, type='') {
 }
 
 // =====================================================================
-// CAMERA SCANNER — Quagga2 (works on iOS Chrome, Android Chrome, Safari)
-// Falls back to raw getUserMedia + canvas scanning if Quagga fails
+// CAMERA SCANNER — ZXing (Google barcode library, solid iOS Chrome/Safari)
+// Direct getUserMedia → video element → canvas frame capture loop
+// No web workers, no Quagga — clean and reliable on iOS
 // =====================================================================
 let cameraActive = false;
 let lastScannedSku = null;
-let quaggaRunning = false;
-let rawStream = null;       // fallback raw stream
-let fallbackTimer = null;   // fallback scan interval
+let scanLoopId = null;
+let camStream = null;
+let zxingReader = null;
 
 function setStatus(msg) {
   document.getElementById('cam-status').textContent = msg;
 }
 
 async function openCamera() {
+  // Stop any previous instance first
+  _stopCameraInternal();
+
   document.getElementById('camera-modal').classList.add('open');
-  setStatus(batchMode ? '📦 Batch mode — starting camera…' : 'Starting camera…');
+  setStatus(batchMode ? '📦 Batch — starting camera…' : 'Starting camera…');
   document.getElementById('cam-result-bar').style.display = 'none';
   lastScannedSku = null;
   cameraActive = true;
   updateBatchCounter();
 
-  // Stop any previous instance cleanly
-  stopCamera(false /* don't close modal */);
-
-  // Try Quagga first
-  if (typeof Quagga !== 'undefined') {
-    startQuagga();
-  } else {
-    // Quagga not loaded yet — wait up to 3s then try raw fallback
-    setStatus('Loading scanner…');
-    let tries = 0;
-    const wait = setInterval(() => {
-      tries++;
-      if (typeof Quagga !== 'undefined') { clearInterval(wait); startQuagga(); }
-      else if (tries >= 6) { clearInterval(wait); startRawCamera(); }
-    }, 500);
-  }
-}
-
-function startQuagga() {
-  Quagga.init({
-    inputStream: {
-      name: 'Live',
-      type: 'LiveStream',
-      target: document.getElementById('cam-video'),
-      constraints: {
-        facingMode: { ideal: 'environment' }
-      },
-      area: {
-        top: '15%',
-        right: '5%',
-        left: '5%',
-        bottom: '15%'
-      }
-    },
-    decoder: {
-      readers: [
-        'code_128_reader',  // most common for product SKUs
-        'ean_reader',
-        'upc_reader',
-        'upc_e_reader',
-        'ean_8_reader',
-        'code_39_reader',
-        'codabar_reader'
-      ],
-      multiple: false
-    },
-    locator: {
-      patchSize: 'large',   // better detection, especially in batch mode
-      halfSample: false     // full resolution — more reliable
-    },
-    numOfWorkers: 0,        // iOS Safari/Chrome: workers break, must be 0
-    locate: true,
-    frequency: 8
-  }, function(err) {
-    if (err) {
-      console.warn('Quagga init error:', err);
-      startRawCamera();
-      return;
-    }
-    quaggaRunning = true;
-    Quagga.start();
-    setStatus(batchMode ? '📦 BATCH MODE — scan away, no tapping needed' : 'Hold barcode in the red box');
-  });
-
-  let lastRaw = null;
-  let matchCount = 0;
-
-  Quagga.onDetected(function(result) {
-    if (!cameraActive || !quaggaRunning) return;
-    const raw = (result.codeResult.code || '').trim().toUpperCase();
-    if (!raw || raw.length < 3) return;
-
-    // Confidence filter — relaxed slightly for real-world barcodes
-    const errors = result.codeResult.decodedCodes
-      ?.filter(c => c.error !== undefined)
-      ?.map(c => c.error) || [];
-    const avgError = errors.length ? errors.reduce((a,b) => a+b, 0) / errors.length : 1;
-    if (avgError > 0.35) return;
-
-    if (raw === lastRaw) {
-      matchCount++;
-    } else {
-      lastRaw = raw;
-      matchCount = 1;
-    }
-
-    // In batch mode: accept after 1 match (speed); normal mode: require 2 (accuracy)
-    const threshold = batchMode ? 1 : 2;
-    if (matchCount >= threshold && raw !== lastScannedSku) {
-      matchCount = 0;
-      handleBarcode(raw);
-    }
-  });
-}
-
-// Raw getUserMedia fallback — shows live video, uses HTML5 input for manual entry
-async function startRawCamera() {
-  const container = document.getElementById('cam-video');
-
-  // Remove any Quagga leftovers
-  container.querySelectorAll('video,canvas').forEach(el => el.remove());
-
+  const video = document.getElementById('zxing-video');
   try {
-    rawStream = await navigator.mediaDevices.getUserMedia({
+    camStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: 'environment' } },
       audio: false
     });
-
-    const vid = document.createElement('video');
-    vid.srcObject = rawStream;
-    vid.setAttribute('playsinline', ''); // iOS requires this
-    vid.setAttribute('autoplay', '');
-    vid.setAttribute('muted', '');
-    vid.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;';
-    container.appendChild(vid);
-    vid.play().catch(() => {});
-
-    setStatus('Camera live — type SKU below or use Scan button');
-
-    // Show a manual entry box inside the camera modal for fallback
-    const existing = document.getElementById('cam-manual-row');
-    if (!existing) {
-      const row = document.createElement('div');
-      row.id = 'cam-manual-row';
-      row.style.cssText = 'padding:10px 16px;display:flex;gap:8px';
-      row.innerHTML = `
-        <input id="cam-manual-input" type="text" placeholder="Type or scan SKU…"
-          style="flex:1;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;font-size:16px;color:var(--fg);outline:none"
-          autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
-        <button class="btn" onclick="submitManualScan()" style="padding:10px 14px">Go</button>
-      `;
-      container.parentElement.insertBefore(row, container.nextSibling);
-      // Enter key
-      row.querySelector('input').addEventListener('keydown', e => {
-        if (e.key === 'Enter') submitManualScan();
-      });
-      setTimeout(() => document.getElementById('cam-manual-input')?.focus(), 300);
-    }
+    video.srcObject = camStream;
+    await video.play();
+    setStatus(batchMode ? '📦 BATCH — point at barcode' : 'Hold barcode in the red box');
+    startZXingScan(video);
   } catch(e) {
-    const errName = e.name || String(e);
-    if (errName === 'NotAllowedError' || errName.includes('Permission')) {
-      setStatus('Camera blocked — go to iPhone Settings → Chrome → Camera → turn on');
-    } else if (errName === 'NotFoundError') {
-      setStatus('No camera found on this device');
+    const n = e?.name || '';
+    if (n === 'NotAllowedError' || n === 'PermissionDeniedError') {
+      setStatus('Camera blocked — iPhone Settings → Chrome → Camera → ON');
     } else {
-      setStatus('Camera unavailable — use the type box below');
-      // Still show manual SKU box in modal header
+      setStatus('Camera error — type SKU manually below');
     }
+    showManualEntry();
   }
 }
+
+function startZXingScan(video) {
+  if (typeof ZXing === 'undefined') {
+    setStatus('Scanner loading… try again in a moment');
+    setTimeout(() => startZXingScan(video), 1000);
+    return;
+  }
+
+  const hints = new Map();
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+    ZXing.BarcodeFormat.CODE_128,
+    ZXing.BarcodeFormat.CODE_39,
+    ZXing.BarcodeFormat.EAN_13,
+    ZXing.BarcodeFormat.EAN_8,
+    ZXing.BarcodeFormat.UPC_A,
+    ZXing.BarcodeFormat.UPC_E,
+    ZXing.BarcodeFormat.CODABAR,
+    ZXing.BarcodeFormat.ITF,
+    ZXing.BarcodeFormat.QR_CODE,
+  ]);
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+  zxingReader = new ZXing.MultiFormatReader();
+  zxingReader.setHints(hints);
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  let lastCode = null;
+  let matchCount = 0;
+  let frame = 0;
+
+  function tick() {
+    if (!cameraActive) return;
+    frame++;
+    if (frame % 3 !== 0) { scanLoopId = requestAnimationFrame(tick); return; }
+    if (video.readyState < video.HAVE_ENOUGH_DATA) { scanLoopId = requestAnimationFrame(tick); return; }
+
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    try {
+      const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+      const bin = new ZXing.HybridBinarizer(lum);
+      const bmp = new ZXing.BinaryBitmap(bin);
+      const result = zxingReader.decode(bmp);
+      if (result) {
+        const raw = (result.getText() || '').trim().toUpperCase();
+        if (raw && raw.length >= 3) {
+          if (raw === lastCode) { matchCount++; } else { lastCode = raw; matchCount = 1; }
+          const threshold = batchMode ? 1 : 2;
+          if (matchCount >= threshold && raw !== lastScannedSku) {
+            matchCount = 0;
+            handleBarcode(raw);
+          }
+        }
+      }
+    } catch(e) { /* NotFoundException is normal — no barcode in frame */ }
+
+    scanLoopId = requestAnimationFrame(tick);
+  }
+  scanLoopId = requestAnimationFrame(tick);
+}
+
+function showManualEntry() {
+  if (document.getElementById('cam-manual-row')) return;
+  const camVideo = document.getElementById('cam-video');
+  const row = document.createElement('div');
+  row.id = 'cam-manual-row';
+  row.style.cssText = 'padding:10px 16px;display:flex;gap:8px';
+  row.innerHTML = `
+    <input id="cam-manual-input" type="text" placeholder="Type or scan SKU…"
+      style="flex:1;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;font-size:16px;color:var(--fg);outline:none"
+      autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
+    <button class="btn" onclick="submitManualScan()" style="padding:10px 14px">Go</button>
+  `;
+  camVideo.parentElement.insertBefore(row, camVideo.nextSibling);
+  row.querySelector('input').addEventListener('keydown', e => { if(e.key==='Enter') submitManualScan(); });
+  setTimeout(() => document.getElementById('cam-manual-input')?.focus(), 300);
+}
+
+function submitManualScan() {
+  const input = document.getElementById('cam-manual-input');
+  if (!input) return;
+  const raw = input.value.trim().toUpperCase();
+  if (!raw) return;
+  input.value = '';
+  handleBarcode(raw);
+}
+
+function _stopCameraInternal() {
+  cameraActive = false;
+  if (scanLoopId) { cancelAnimationFrame(scanLoopId); scanLoopId = null; }
+  if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+  const video = document.getElementById('zxing-video');
+  if (video) video.srcObject = null;
+  zxingReader = null;
+  lastScannedSku = null;
+}
+
+
 
 function submitManualScan() {
   const input = document.getElementById('cam-manual-input');
@@ -1450,30 +1426,13 @@ function restartBatch() {
   openCamera();
 }
 
-function switchCamera(deviceId) {
-  stopCamera(false);
-  setTimeout(openCamera, 300);
+function switchCamera() {
+  _stopCameraInternal();
+  setTimeout(openCamera, 200);
 }
 
 function stopCamera(closeModal = true) {
-  cameraActive = false;
-  lastScannedSku = null;
-
-  if (quaggaRunning) {
-    try { Quagga.stop(); } catch(e) {}
-    try { Quagga.offDetected(); } catch(e) {}
-    quaggaRunning = false;
-  }
-
-  if (rawStream) {
-    rawStream.getTracks().forEach(t => t.stop());
-    rawStream = null;
-  }
-
-  if (fallbackTimer) { clearInterval(fallbackTimer); fallbackTimer = null; }
-
-  // Clean up raw video element
-  document.getElementById('cam-video')?.querySelectorAll('video,canvas').forEach(el => el.remove());
+  _stopCameraInternal();
   document.getElementById('cam-manual-row')?.remove();
 
   if (closeModal) {

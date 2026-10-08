@@ -379,10 +379,17 @@
     body { padding-inline: 0; }
     .main { max-width: 540px; margin: 0 auto; width: 100%; }
   }
+  /* Toast never blocks taps on the buttons underneath it */
+  .toast { pointer-events: none; }
 </style>
+</head>
+<body>
 
-<!-- ZXing — Google's barcode library, solid iOS Chrome support -->
+<!-- ZXing — barcode decoding library (live camera + photo decode) -->
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+
+<!-- Hidden photo picker: fallback when the live camera is unavailable -->
+<input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none" onchange="decodePhoto(this.files[0]); this.value=''">
 
 <!-- Camera Scanner Overlay -->
 <div class="modal-overlay" id="camera-modal">
@@ -396,16 +403,19 @@
     </div>
     <!-- Video viewfinder -->
     <div id="cam-video" style="position:relative;background:#000;width:100%;aspect-ratio:4/3;overflow:hidden">
-      <!-- ZXing writes directly to this <video> element -->
       <video id="zxing-video" autoplay muted playsinline style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover"></video>
       <!-- Aim reticle overlay -->
       <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:10">
         <div style="width:220px;height:100px;border:2px solid var(--accent);border-radius:8px;box-shadow:0 0 0 9999px rgba(0,0,0,.45)"></div>
       </div>
+      <!-- Shown when iOS refuses to autoplay the video (e.g. Low Power Mode) -->
+      <button id="cam-tap" onclick="tapToStartVideo()" style="display:none;position:absolute;inset:0;z-index:12;background:rgba(0,0,0,.65);color:#fff;border:0;font-size:17px;font-weight:600;cursor:pointer">▶ Tap to start camera</button>
       <!-- Last scan result bar -->
       <div id="cam-result-bar" style="display:none;position:absolute;bottom:0;left:0;right:0;background:rgba(63,185,80,.9);color:#fff;padding:10px 14px;font-family:var(--font-head);font-size:14px;font-weight:600;text-align:center;z-index:11"></div>
     </div>
     <div style="padding:14px 16px calc(env(safe-area-inset-bottom,0px) + 14px)">
+      <!-- Camera troubleshooting (filled in when the camera can't start) -->
+      <div id="cam-help" style="display:none;background:rgba(210,153,34,.12);border:1px solid var(--yellow);border-radius:10px;padding:12px;font-size:13px;line-height:1.55;color:var(--fg-muted);margin-bottom:10px"></div>
       <p id="cam-hint" style="font-size:13px;color:var(--fg-muted);text-align:center;line-height:1.6">
         Hold steady — scanner reads automatically.<br>Works on barcodes and QR codes.
       </p>
@@ -415,8 +425,6 @@
           ✓ Done — Review <span id="cam-batch-count">0</span> Items
         </button>
       </div>
-      <!-- Camera select (shown if multiple cameras) -->
-      <select id="cam-select" style="display:none;width:100%;margin-top:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--fg);font-size:13px" onchange="switchCamera(this.value)"></select>
     </div>
   </div>
 </div>
@@ -424,256 +432,448 @@
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
-<!-- Modal -->
+<!-- Count Modal -->
 <div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-sheet"></div>
+</div>
+
+<!-- Link-barcode Modal -->
+<div class="modal-overlay" id="link-modal" onclick="if(event.target===this)closeLinkPicker()">
   <div class="modal-sheet">
-    <div class="modal-sku-label" id="modal-sku"></div>
-    <div class="modal-desc" id="modal-desc"></div>
-    <div class="qty-editor">
-      <button class="qty-btn" onclick="adjustQty(-1)">−</button>
-      <div class="qty-display" id="qty-display">0</div>
-      <button class="qty-btn" onclick="adjustQty(1)">+</button>
-    </div>
-    <div id="modal-info"></div>
-    <div style="display:flex;gap:8px;margin-top:16px">
-      <button class="btn secondary" style="flex:1" onclick="closeModal()">Cancel</button>
-      <button class="btn green-btn" style="flex:1" id="save-btn" onclick="saveQty()">Save Count</button>
-    </div>
+    <div class="modal-sku-label">Link barcode to an item</div>
+    <div class="modal-desc" id="link-code" style="font-family:monospace"></div>
+    <p style="font-size:13px;color:var(--fg-muted);margin:6px 0 10px;line-height:1.5">This barcode isn't on your invoices yet. Pick the item it belongs to — next time it scans instantly.</p>
+    <input class="search-input" id="link-search" placeholder="Search item or SKU…" oninput="renderLinkList()" autocomplete="off" autocorrect="off" spellcheck="false">
+    <div class="inv-list" id="link-list" style="max-height:42vh;overflow-y:auto"></div>
+    <button class="btn secondary" style="width:100%;margin-top:10px" onclick="closeLinkPicker()">Cancel</button>
   </div>
 </div>
 
 <!-- Header -->
 <div class="app-header">
   <div class="logo">🍿</div>
-  <h1>Inventory Scanner <span>Popcorn Beauty — Invoice WAN85X798313300926</span></h1>
+  <h1>Inventory Scanner <span id="hdr-sub">Popcorn Beauty</span></h1>
 </div>
 
 <!-- Tabs -->
 <div class="tabs">
   <button class="tab-btn active" id="tab-scan" onclick="switchTab('scan')">📷 Scan</button>
-  <button class="tab-btn" id="tab-inventory" onclick="switchTab('inventory')">📦 Inventory</button>
+  <button class="tab-btn" id="tab-inventory" onclick="switchTab('inventory')">📦 Stock</button>
   <button class="tab-btn" id="tab-profit" onclick="switchTab('profit')">💰 Profit</button>
+  <button class="tab-btn" id="tab-invoices" onclick="switchTab('invoices')">📄 Invoices</button>
 </div>
 
 <div class="main" id="main-content">
-  <!-- Loading state -->
   <div class="notice" id="loading-state">
-    <strong>Connecting <span class="loading-dot">●</span></strong>
+    <strong>Loading <span class="loading-dot">●</span></strong>
     Loading inventory data…
   </div>
 </div>
 
 <script>
 // =====================================================================
-// INVOICE DATA — all 155 SKUs from WAN85X798313300926
-// Format: [sku, description, qty, costEach, suggestedRetail, category]
+// BUILT-IN ITEM LIST (Highest Rated Wireless invoices)
+//  • WAN85X798313300926 · 09/30/2026 — received stock: 152 SKUs / 303 units
+//    (155 lines / $1,121.23; 3 lines shipped at qty 0 aren't counted as received)
+//  • KBXLHI798332170626 · 06/17/2026 and AMOC5V798339131125 · 11/13/2025 —
+//    CATALOG ONLY (qty 0): lets older stock still on the shelf scan as a known
+//    item with a cost. A full shelf count + "carry forward" sets opening stock.
+// Retail = cost × 3 (unlocked phones × 1.5), rounded to .99 — placeholder,
+// editable per item in the app.
+// Format: [sku, description, qty, costEach, retail, category, upc]
 // =====================================================================
-const INVOICE = [
-  // Phone Cases - iPhone 13/14
-  ["IP13-BLK","iPhone 13 Case Black",12,1.25,4.99,"Cases - Apple"],
-  ["IP13-CLR","iPhone 13 Case Clear",12,1.10,4.99,"Cases - Apple"],
-  ["IP13-RED","iPhone 13 Case Red",6,1.25,4.99,"Cases - Apple"],
-  ["IP13PM-BLK","iPhone 13 Pro Max Case Black",8,1.50,5.99,"Cases - Apple"],
-  ["IP13PM-CLR","iPhone 13 Pro Max Case Clear",8,1.25,5.99,"Cases - Apple"],
-  ["IP14-BLK","iPhone 14 Case Black",12,1.50,5.99,"Cases - Apple"],
-  ["IP14-CLR","iPhone 14 Case Clear",12,1.25,5.99,"Cases - Apple"],
-  ["IP14-RED","iPhone 14 Case Red",6,1.50,5.99,"Cases - Apple"],
-  ["IP14P-BLK","iPhone 14 Plus Case Black",8,1.75,6.99,"Cases - Apple"],
-  ["IP14P-CLR","iPhone 14 Plus Case Clear",8,1.50,6.99,"Cases - Apple"],
-  ["IP14PR-BLK","iPhone 14 Pro Case Black",10,1.75,6.99,"Cases - Apple"],
-  ["IP14PR-CLR","iPhone 14 Pro Case Clear",10,1.50,6.99,"Cases - Apple"],
-  ["IP14PM-BLK","iPhone 14 Pro Max Case Black",10,1.75,6.99,"Cases - Apple"],
-  ["IP14PM-CLR","iPhone 14 Pro Max Case Clear",10,1.50,6.99,"Cases - Apple"],
-  // Phone Cases - iPhone 15
-  ["IP15-BLK","iPhone 15 Case Black",12,1.75,6.99,"Cases - Apple"],
-  ["IP15-CLR","iPhone 15 Case Clear",12,1.50,6.99,"Cases - Apple"],
-  ["IP15-RED","iPhone 15 Case Red",6,1.75,6.99,"Cases - Apple"],
-  ["IP15-BLU","iPhone 15 Case Blue",6,1.75,6.99,"Cases - Apple"],
-  ["IP15P-BLK","iPhone 15 Plus Case Black",10,1.75,6.99,"Cases - Apple"],
-  ["IP15P-CLR","iPhone 15 Plus Case Clear",10,1.50,6.99,"Cases - Apple"],
-  ["IP15PR-BLK","iPhone 15 Pro Case Black",12,2.00,7.99,"Cases - Apple"],
-  ["IP15PR-CLR","iPhone 15 Pro Case Clear",12,1.75,7.99,"Cases - Apple"],
-  ["IP15PR-RED","iPhone 15 Pro Case Red",6,2.00,7.99,"Cases - Apple"],
-  ["IP15PM-BLK","iPhone 15 Pro Max Case Black",12,2.25,7.99,"Cases - Apple"],
-  ["IP15PM-CLR","iPhone 15 Pro Max Case Clear",12,2.00,7.99,"Cases - Apple"],
-  ["IP15PM-BLU","iPhone 15 Pro Max Case Blue",6,2.25,7.99,"Cases - Apple"],
-  // Phone Cases - iPhone 16
-  ["IP16-BLK","iPhone 16 Case Black",10,2.00,7.99,"Cases - Apple"],
-  ["IP16-CLR","iPhone 16 Case Clear",10,1.75,7.99,"Cases - Apple"],
-  ["IP16-RED","iPhone 16 Case Red",6,2.00,7.99,"Cases - Apple"],
-  ["IP16P-BLK","iPhone 16 Plus Case Black",8,2.00,7.99,"Cases - Apple"],
-  ["IP16P-CLR","iPhone 16 Plus Case Clear",8,1.75,7.99,"Cases - Apple"],
-  ["IP16PR-BLK","iPhone 16 Pro Case Black",10,2.25,8.99,"Cases - Apple"],
-  ["IP16PR-CLR","iPhone 16 Pro Case Clear",10,2.00,8.99,"Cases - Apple"],
-  ["IP16PR-GLD","iPhone 16 Pro Case Gold",4,2.25,8.99,"Cases - Apple"],
-  ["IP16PM-BLK","iPhone 16 Pro Max Case Black",10,2.50,9.99,"Cases - Apple"],
-  ["IP16PM-CLR","iPhone 16 Pro Max Case Clear",10,2.25,9.99,"Cases - Apple"],
-  ["IP16PM-GLD","iPhone 16 Pro Max Case Gold",4,2.50,9.99,"Cases - Apple"],
-  // Phone Cases - iPhone 17 / 18
-  ["IP17-BLK","iPhone 17 Case Black",8,2.25,8.99,"Cases - Apple"],
-  ["IP17-CLR","iPhone 17 Case Clear",8,2.00,8.99,"Cases - Apple"],
-  ["IP17PR-BLK","iPhone 17 Pro Case Black",8,2.50,9.99,"Cases - Apple"],
-  ["IP17PM-BLK","iPhone 17 Pro Max Case Black",8,2.75,9.99,"Cases - Apple"],
-  ["IP18-BLK","iPhone 18 Case Black",6,2.50,9.99,"Cases - Apple"],
-  ["IP18PR-BLK","iPhone 18 Pro Case Black",6,2.75,10.99,"Cases - Apple"],
-  ["IP18PM-BLK","iPhone 18 Pro Max Case Black",6,3.00,11.99,"Cases - Apple"],
-  // Samsung Cases
-  ["SSA15-BLK","Samsung A15 Case Black",10,1.25,4.99,"Cases - Samsung"],
-  ["SSA15-CLR","Samsung A15 Case Clear",10,1.10,4.99,"Cases - Samsung"],
-  ["SSA25-BLK","Samsung A25 Case Black",12,1.25,4.99,"Cases - Samsung"],
-  ["SSA25-CLR","Samsung A25 Case Clear",12,1.10,4.99,"Cases - Samsung"],
-  ["SSA35-BLK","Samsung A35 Case Black",8,1.50,5.99,"Cases - Samsung"],
-  ["SSA35-CLR","Samsung A35 Case Clear",8,1.25,5.99,"Cases - Samsung"],
-  ["SSA55-BLK","Samsung A55 Case Black",8,1.50,5.99,"Cases - Samsung"],
-  ["SSA55-CLR","Samsung A55 Case Clear",8,1.25,5.99,"Cases - Samsung"],
-  ["SSS23-BLK","Samsung S23 Case Black",8,1.75,6.99,"Cases - Samsung"],
-  ["SSS23-CLR","Samsung S23 Case Clear",8,1.50,6.99,"Cases - Samsung"],
-  ["SSS23P-BLK","Samsung S23 Plus Case Black",6,1.75,6.99,"Cases - Samsung"],
-  ["SSS23U-BLK","Samsung S23 Ultra Case Black",6,2.00,7.99,"Cases - Samsung"],
-  ["SSS24-BLK","Samsung S24 Case Black",10,2.00,7.99,"Cases - Samsung"],
-  ["SSS24-CLR","Samsung S24 Case Clear",10,1.75,7.99,"Cases - Samsung"],
-  ["SSS24P-BLK","Samsung S24 Plus Case Black",8,2.25,8.99,"Cases - Samsung"],
-  ["SSS24U-BLK","Samsung S24 Ultra Case Black",8,2.50,9.99,"Cases - Samsung"],
-  ["SSS25-BLK","Samsung S25 Case Black",10,2.25,8.99,"Cases - Samsung"],
-  ["SSS25-CLR","Samsung S25 Case Clear",10,2.00,8.99,"Cases - Samsung"],
-  ["SSS25P-BLK","Samsung S25 Plus Case Black",6,2.50,9.99,"Cases - Samsung"],
-  ["SSS25U-BLK","Samsung S25 Ultra Case Black",6,2.75,10.99,"Cases - Samsung"],
-  // Cables - USB-C
-  ["USBC-3FT","USB-C Cable 3ft",12,0.75,3.99,"Cables & Chargers"],
-  ["USBC-6FT","USB-C Cable 6ft",12,0.99,3.99,"Cables & Chargers"],
-  ["USBC-10FT","USB-C Cable 10ft",8,1.25,4.99,"Cables & Chargers"],
-  ["USBC-L-3FT","USB-C to Lightning 3ft",10,1.10,4.99,"Cables & Chargers"],
-  ["USBC-L-6FT","USB-C to Lightning 6ft",10,1.40,4.99,"Cables & Chargers"],
-  // Cables - Licensed
-  ["LIC-USBC-3","Licensed USB-C 3ft Braided",8,2.00,7.99,"Cables & Chargers"],
-  ["LIC-USBC-6","Licensed USB-C 6ft Braided",8,2.25,7.99,"Cables & Chargers"],
-  ["LIC-LTN-3","Licensed Lightning 3ft Braided",8,2.00,7.99,"Cables & Chargers"],
-  ["LIC-LTN-6","Licensed Lightning 6ft Braided",8,2.25,7.99,"Cables & Chargers"],
-  // MICCELL Cables
-  ["MIC-3FT","MICCELL USB-C 3ft",6,1.50,5.99,"Cables & Chargers"],
-  ["MIC-6FT","MICCELL USB-C 6ft",6,1.75,5.99,"Cables & Chargers"],
-  ["MIC-LTN-3","MICCELL Lightning 3ft",6,1.50,5.99,"Cables & Chargers"],
-  // ESEEKGO Chargers
-  ["ESG-20W","ESEEKGO 20W USB-C Wall Charger",8,2.50,9.99,"Cables & Chargers"],
-  ["ESG-30W","ESEEKGO 30W USB-C Wall Charger",8,3.00,11.99,"Cables & Chargers"],
-  ["ESG-65W-GAN","ESEEKGO 65W GaN Charger",4,5.50,19.99,"Cables & Chargers"],
-  ["ESG-3PORT","ESEEKGO 3-Port Wall Charger",6,3.50,12.99,"Cables & Chargers"],
-  ["ESG-CAR","ESEEKGO Car Charger Dual",10,2.00,7.99,"Cables & Chargers"],
-  // Power Banks (candy)
-  ["PB-2500-RED","2500mAh Candy Powerbank Red",8,2.75,9.99,"Power Banks"],
-  ["PB-2500-BLK","2500mAh Candy Powerbank Black",8,2.75,9.99,"Power Banks"],
-  ["PB-2500-WHT","2500mAh Candy Powerbank White",8,2.75,9.99,"Power Banks"],
-  ["PB-2500-PNK","2500mAh Candy Powerbank Pink",6,2.75,9.99,"Power Banks"],
-  ["PB-5000-BLK","5000mAh Powerbank Black",6,4.00,14.99,"Power Banks"],
-  ["PB-5000-WHT","5000mAh Powerbank White",6,4.00,14.99,"Power Banks"],
-  ["PB-10K-BLK","10000mAh Powerbank Black",4,7.00,24.99,"Power Banks"],
-  // Car Mounts
-  ["CMNT-VENT","Vent Car Mount Universal",10,1.75,6.99,"Accessories"],
-  ["CMNT-DASH","Dashboard Car Mount Sticky",8,2.00,7.99,"Accessories"],
-  ["CMNT-CD","CD Slot Car Mount",6,2.25,8.99,"Accessories"],
-  ["CMNT-MAG","Magnetic Car Mount Vent",10,2.50,9.99,"Accessories"],
-  ["CMNT-MAG-WL","Magnetic Wireless Car Mount",4,5.00,19.99,"Accessories"],
-  // Screen Protectors
-  ["SP-IP13","Screen Protector iPhone 13",10,0.75,3.99,"Screen Protectors"],
-  ["SP-IP14","Screen Protector iPhone 14",10,0.75,3.99,"Screen Protectors"],
-  ["SP-IP15","Screen Protector iPhone 15",12,0.99,3.99,"Screen Protectors"],
-  ["SP-IP16","Screen Protector iPhone 16",12,0.99,3.99,"Screen Protectors"],
-  ["SP-IP17","Screen Protector iPhone 17",8,1.25,4.99,"Screen Protectors"],
-  ["SP-SSA25","Screen Protector Samsung A25",10,0.75,3.99,"Screen Protectors"],
-  ["SP-SSS24","Screen Protector Samsung S24",10,0.99,3.99,"Screen Protectors"],
-  ["SP-SSS25","Screen Protector Samsung S25",10,1.10,4.99,"Screen Protectors"],
-  ["SP-PRIV-IP","Privacy Screen iPhone Universal",6,1.50,5.99,"Screen Protectors"],
-  // Earbuds / Audio
-  ["EB-WIRED-C","USB-C Wired Earbuds",8,1.75,6.99,"Audio"],
-  ["EB-WIRED-L","Lightning Wired Earbuds",8,1.75,6.99,"Audio"],
-  ["EB-BT-BLK","Bluetooth Earbuds Black",6,4.50,16.99,"Audio"],
-  ["EB-BT-WHT","Bluetooth Earbuds White",6,4.50,16.99,"Audio"],
-  ["EB-BT-RED","Bluetooth Earbuds Red",4,4.50,16.99,"Audio"],
-  // PopSockets / Grips
-  ["PG-SOLID-BLK","PopSocket Grip Black",8,0.75,3.99,"Accessories"],
-  ["PG-SOLID-CLR","PopSocket Grip Clear",8,0.75,3.99,"Accessories"],
-  ["PG-SOLID-RED","PopSocket Grip Red",6,0.75,3.99,"Accessories"],
-  ["PG-SOLID-PNK","PopSocket Grip Pink",6,0.75,3.99,"Accessories"],
-  // Wallets / Card Holders
-  ["WL-STICK","Stick-on Card Holder",10,0.50,2.99,"Accessories"],
-  ["WL-MAGSAFE","MagSafe Wallet Black",6,2.00,7.99,"Accessories"],
-  ["WL-MAGSAFE-TN","MagSafe Wallet Tan",6,2.00,7.99,"Accessories"],
-  // Charging Pads
-  ["WC-7.5W","7.5W Wireless Charging Pad",6,2.75,9.99,"Cables & Chargers"],
-  ["WC-15W","15W Wireless Charging Pad",6,3.50,12.99,"Cables & Chargers"],
-  ["WC-3IN1","3-in-1 Wireless Charging Station",4,6.00,22.99,"Cables & Chargers"],
-  // Lanyard / Cases
-  ["LC-CROSS","Crossbody Phone Strap Universal",6,1.50,5.99,"Accessories"],
-  ["LC-LANYARD","Phone Lanyard Cord",8,0.75,3.99,"Accessories"],
-  // Misc Accessories
-  ["DUSTPLUG-C","USB-C Dust Plug Set",12,0.25,1.99,"Accessories"],
-  ["DUSTPLUG-L","Lightning Dust Plug Set",12,0.25,1.99,"Accessories"],
-  ["RING-HOLD","Ring Phone Holder Kickstand",10,0.50,2.99,"Accessories"],
-  ["RING-HOLD-MAG","MagSafe Ring Holder",8,1.25,4.99,"Accessories"],
-  ["STYLUS-UNI","Universal Stylus Pen",8,1.00,3.99,"Accessories"],
-  ["CLEAN-KIT","Screen Cleaning Kit",10,0.50,2.99,"Accessories"],
-  ["CABLE-ORG","Cable Organizer Velcro",10,0.40,1.99,"Accessories"],
-  ["TEMPERED-2PK","Tempered Glass 2-Pack Universal",8,1.00,3.99,"Screen Protectors"],
-  ["IP16-MIL","iPhone 16 Military-Grade Case",4,3.50,13.99,"Cases - Apple"],
-  ["IP16PM-MIL","iPhone 16 Pro Max Military-Grade Case",4,4.00,14.99,"Cases - Apple"],
-  ["SSS25U-MIL","Samsung S25 Ultra Military-Grade Case",4,4.00,14.99,"Cases - Samsung"],
-  ["IP15PM-MIL","iPhone 15 Pro Max Military-Grade Case",4,3.50,13.99,"Cases - Apple"],
-  ["MULTI-CBL","Multi-Cable 3-in-1",8,1.75,6.99,"Cables & Chargers"],
-  ["PB-SOLAR","Solar Powerbank 5000mAh",4,6.50,24.99,"Power Banks"],
-  ["SPK-BT-MINI","Mini Bluetooth Speaker",4,5.00,19.99,"Audio"],
-  ["KS-STAND","Tablet/Phone Desktop Stand",6,2.00,7.99,"Accessories"],
-  ["LOOP-CASE-IP16","iPhone 16 Loop Case",6,2.50,9.99,"Cases - Apple"],
-  ["LOOP-CASE-S25","Samsung S25 Loop Case",6,2.50,9.99,"Cases - Samsung"],
+const DEFAULT_INVOICE = [
+  ["MGBB21-IP14-BK","For iPhone 13/14 Magnetic Honeycomb Kickstand Hybrid Case - Black",2,3.10,9.99,"iPhone 13/14",""],
+  ["MGBB21-IP14-BLUE","For iPhone 13/14 Magnetic Honeycomb Kickstand Hybrid Case - Blue",2,3.10,9.99,"iPhone 13/14",""],
+  ["MGCDMND-IP14-PRP","For iPhone 13/14 Diamond [Magnetic Circle] with CD Pattern Hybrid - Purple",2,3.25,9.99,"iPhone 13/14",""],
+  ["QB3C-IP14-PRP","For iPhone 13/14 Cute Butterfly Ornaments Diamonds Shimmer Matching Metallic HQ Hybrid - Dark Purple",2,2.75,8.99,"iPhone 13/14",""],
+  ["QB6F-IP14-PRP","For iPhone 13/14 Beautiful Diamond Metallic Design Metal Chrome Edged Hybrid - Purple",2,2.75,8.99,"iPhone 13/14",""],
+  ["QBMNHRTS-IP14-SLV","For iPhone 13/14 Angel Hearts Bling Shimmer Colorful Glitter Chrome Edged Hybrid Case - Silver",1,2.75,8.99,"iPhone 13/14",""],
+  ["QBSMWMS-IP14-RGOLD","For iPhone 13/14 Classic Leather Wallet Folio Case with wrist strap - Rose Gold",2,2.75,8.99,"iPhone 13/14",""],
+  ["QBSTRD-IP14-CLR","For iPhone 13/14 Sturdy Ultra Thick 3mm Transparent Hybrid Case Cover - Clear",2,2.75,8.99,"iPhone 13/14",""],
+  ["MGN13-PR14-HPNK","For iPhone 14 PRO 6.1\" Matte Magnetic Hybrid with Metal Kickstand Case - Hot Pink",2,3.25,9.99,"iPhone 14 Pro",""],
+  ["MGN13-PR14-RBL","For iPhone 14 PRO 6.1\" Matte Magnetic Hybrid with Metal Kickstand Case - Royal blue",2,3.25,9.99,"iPhone 14 Pro",""],
+  ["QBCHIEF-PR14-BK","For Apple iPhone 14 PRO 6.1\" CHIEF Oil Painted Magnetic Ring Stand Hybrid Case Cover - Black",2,2.75,8.99,"iPhone 14 Pro",""],
+  ["QBCHIEF-PR14-BLUE","For Apple iPhone 14 PRO 6.1\" CHIEF Oil Painted Magnetic Ring Stand Hybrid Case Cover - Dark Blue",2,2.75,8.99,"iPhone 14 Pro",""],
+  ["MGBB21-14PRMX-BLUE","For iPhone 14 PRO MAX 6.7\" Magnetic Honeycomb Kickstand Hybrid Case - Blue",2,3.10,9.99,"iPhone 14 Pro Max",""],
+  ["MGHYC3-14PRMX-LPNK","For iPhone 14 PRO MAX 6.7\" CHROME HQ Rotational Magnetic Ring Hybrid - Light Pink",2,3.50,10.99,"iPhone 14 Pro Max",""],
+  ["MGJ10-14PRMX-BK","For iPhone 14 PRO MAX 6.7\" Car Mount with 2-Ring Stand Hybrid Case - Black",2,3.00,8.99,"iPhone 14 Pro Max",""],
+  ["MGLOOP-14PRMX-RED","For iPhone 14 PRO MAX 6.7\" Loop Hybrid with [Magnetic Ring Circle] 360 degrees Rotational Kickstand Case Cover - Red",2,2.95,8.99,"iPhone 14 Pro Max",""],
+  ["MGN13-14PRMX-HPNK","For iPhone 14 PRO MAX 6.7\" Matte Magnetic Hybrid with Metal Kickstand Case - Hot Pink",2,3.25,9.99,"iPhone 14 Pro Max",""],
+  ["QB2B-14PRMX-RGOLD","For iPhone 14 PRO MAX 6.7\" Butterfly Moveable Grip Stand With Small Diamonds Meta Buttons HQ Hybrid - Rose Gold",2,2.95,8.99,"iPhone 14 Pro Max",""],
+  ["QBFRDM-14PRMX-BK","For iPhone 14 PRO MAX 6.7\" Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Black",2,2.75,8.99,"iPhone 14 Pro Max",""],
+  ["QBFRDM-14PRMX-PRP","For iPhone 14 PRO MAX 6.7\" Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Purple",2,2.75,8.99,"iPhone 14 Pro Max",""],
+  ["QBFRDM-14PRMX-RGOLD","For iPhone 14 PRO MAX 6.7\" Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Rose Gold",2,2.75,8.99,"iPhone 14 Pro Max",""],
+  ["QBMNHRTS-14PRMX-PRP","For iPhone 14 PRO MAX 6.7\" Angel Hearts Bling Shimmer Colorful Glitter Chrome Edged Hybrid Case - Purple",2,2.75,8.99,"iPhone 14 Pro Max",""],
+  ["QBTRNS-14PRMX-CLR","For Apple iPhone 14 PRO MAX 6.7\" PURE CRYSTAL Transparent Thick 2.0mm ShockProof Chromed Buttons Case Cover - Clear",2,2.25,6.99,"iPhone 14 Pro Max",""],
+  ["QB3C-IP15-RGOLD","For iPhone 15 Cute Butterfly Ornaments Diamonds Shimmer Matching Metallic HQ Hybrid - Rose Gold",2,2.75,8.99,"iPhone 15",""],
+  ["QB3C-IP15-TEAL","For iPhone 15 Cute Butterfly Ornaments Diamonds Shimmer Matching Metallic HQ Hybrid - Teal",2,2.75,8.99,"iPhone 15",""],
+  ["QB6F-IP15-BK","For iPhone 15 Beautiful Diamond Metallic Design Metal Chrome Edged Hybrid - Black",2,2.75,8.99,"iPhone 15",""],
+  ["QB6F-IP15-RED","For iPhone 15 Beautiful Diamond Metallic Design Metal Chrome Edged Hybrid - Red",2,2.75,8.99,"iPhone 15",""],
+  ["QBCARD-IP15-LPRP","For iPhone 15 Card Holder with Mirror Inside PU Leather Hybrid Case - Light Purple",2,3.25,9.99,"iPhone 15",""],
+  ["QBCARD-IP15-RED","For iPhone 15 Card Holder with Mirror Inside PU Leather Hybrid Case - Red",2,3.25,9.99,"iPhone 15",""],
+  ["QBCLR-IP15-BK","For iPhone 15 Transparent Clear Hybrid with Matching Metal Buttons and Camera Protection - Black",2,2.25,6.99,"iPhone 15",""],
+  ["QBMNGEM-IP15-RGOLD","For iPhone 15 Gem Glitter Diamond Transparent Hard Colorful TPU Hybrid Case - Rose Gold",1,2.45,7.99,"iPhone 15",""],
+  ["QBMNGEM-IP15-SILV","For iPhone 15 Gem Glitter Diamond Transparent Hard Colorful TPU Hybrid Case - Silver",2,2.45,7.99,"iPhone 15",""],
+  ["QBOPTI-IP15-BK","For iPhone 15 OPTIMUM Magnetic Ring Stand Hybrid Case Cover - Black",2,2.75,8.99,"iPhone 15",""],
+  ["QBOPTI-IP15-RED","For iPhone 15 OPTIMUM Magnetic Ring Stand Hybrid Case Cover - Red",2,2.75,8.99,"iPhone 15",""],
+  ["QBFRDM-PLUS15-BK","For iPhone 15 Plus/iPhone 14 Plus Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Black",2,2.75,8.99,"iPhone 15 Plus",""],
+  ["QBFRDM-PLUS15-PRP","For iPhone 15 Plus/iPhone 14 Plus Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Purple",2,2.75,8.99,"iPhone 15 Plus",""],
+  ["QBRBST-PLUS15-BK","For iPhone 15 Plus Robust Magnetic Kickstand Hybrid Case Cover - Black",2,2.75,8.99,"iPhone 15 Plus",""],
+  ["QBRBST-PLUS15-RED","For iPhone 15 Plus Robust Magnetic Kickstand Hybrid Case Cover - Red",2,2.75,8.99,"iPhone 15 Plus",""],
+  ["QBCLTPU-15PRO-CLRCLR","For iPhone 15 Pro Colored Shockproof Transparent Hard PC TPU Hybrid Case Cover - Clear/Clear",2,2.25,6.99,"iPhone 15 Pro",""],
+  ["QBMN14C-15PRO-PRP","For iPhone 15 Pro Luxury Crystal Heart Rhinestones Diamond Bling Hybrid Case - Purple",2,3.75,11.99,"iPhone 15 Pro",""],
+  ["QBROB-15PRO-BK","For iPhone 15 Pro Robotic Hybrid with Magnetic Ring Stand Case Cover - Black",2,2.75,8.99,"iPhone 15 Pro",""],
+  ["QBROB-15PRO-RED","For iPhone 15 Pro Robotic Hybrid with Magnetic Ring Stand Case Cover - Red",2,2.75,8.99,"iPhone 15 Pro",""],
+  ["QBSTGT-15PRO-CLR","For iPhone 15 Pro Glitter Ultra Thick 3mm Transparent Hybrid Case Cover - Clear",2,2.75,8.99,"iPhone 15 Pro",""],
+  ["MGBB21-15PRMX-BK","For iP15 Pro Max Magnetic Honeycomb Kickstand Hybrid Case - Black",2,3.10,9.99,"iPhone 15 Pro Max",""],
+  ["MGBB21-15PRMX-BLUE","For iP15 Pro Max Magnetic Honeycomb Kickstand Hybrid Case - Blue",2,3.10,9.99,"iPhone 15 Pro Max",""],
+  ["QBCARD-15PRMX-BK","For iP15 Pro Max Card Holder with Mirror Inside PU Leather Hybrid Case - Black",2,3.25,9.99,"iPhone 15 Pro Max",""],
+  ["QBFRDM-15PRMX-BK","For iP15 Pro Max Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Black",2,2.75,8.99,"iPhone 15 Pro Max",""],
+  ["QBFRDM-15PRMX-PRP","For iP15 Pro Max Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Purple",2,2.75,8.99,"iPhone 15 Pro Max",""],
+  ["QBMN12A-15PRMX-BK","For iP15 Pro Max Luxury Diamond Edged Magnetic Glitter Circle Hybrid with Camera Stand - Black",2,3.45,10.99,"iPhone 15 Pro Max",""],
+  ["QBMNHRTS-15PRMX-SLV","For iP15 Pro Max Angel Hearts Bling Shimmer Colorful Glitter Chrome Edged Hybrid Case - Silver",2,2.75,8.99,"iPhone 15 Pro Max",""],
+  ["QBTRNS-15PRMX-CLR","For iP15 Pro Max PURE CRYSTAL Transparent Thick 2.0mm ShockProof Chromed Buttons Case Cover - Clear",2,2.25,6.99,"iPhone 15 Pro Max",""],
+  ["MGINVS-IP16-RPNK","For iPhone 16 6.1 inch PU Leather with inner [Magnetic Circle] Colored Metal Buttons - Rose Pink",2,2.45,7.99,"iPhone 16",""],
+  ["QB2B-IP16-BK","For iPhone 16 6.1 inch Butterfly Moveable Grip Stand With Small Diamonds Meta Buttons HQ Hybrid - Black",2,2.95,8.99,"iPhone 16",""],
+  ["QB2B-IP16-RGOLD","For iPhone 16 6.1 inch Butterfly Moveable Grip Stand With Small Diamonds Meta Buttons HQ Hybrid - Rose Gold",2,2.95,8.99,"iPhone 16",""],
+  ["QBCARD-IP16-BK","For iPhone 16 6.1 inch Card Holder with Mirror Inside PU Leather Hybrid Case - Black",2,3.25,9.99,"iPhone 16",""],
+  ["QBCLASS-IP16-BLUE","For iPhone 16 6.1 inch Classy Slick Chromed Around Hybrid Case Cover - Dark Blue",2,2.45,7.99,"iPhone 16",""],
+  ["QBCLTPU-IP16-CLRCLR","For iPhone 16 6.1 inch Colored Shockproof Transparent Hard PC TPU Hybrid Case Cover - Clear/Clear",2,2.25,6.99,"iPhone 16",""],
+  ["QBFRDM-IP16-BK","For iPhone 16 6.1 inch Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Black",2,2.75,8.99,"iPhone 16",""],
+  ["QBFRDM-IP16-RGOLD","For iPhone 16 6.1 inch Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Rose Gold",2,2.75,8.99,"iPhone 16",""],
+  ["QBMBLNG-IP16-K","For iPhone 16 6.1 inch Bling Hybrid Case Cover - K",2,2.45,7.99,"iPhone 16",""],
+  ["QBMBLNG-IP16-L","For iPhone 16 6.1 inch Bling Hybrid Case Cover - L",2,2.45,7.99,"iPhone 16",""],
+  ["QBRBST-IP16-BK","For iPhone 16 6.1 inch Robust Magnetic Kickstand Hybrid Case Cover - Black",2,2.75,8.99,"iPhone 16",""],
+  ["QBRBST-IP16-RED","For iPhone 16 6.1 inch Robust Magnetic Kickstand Hybrid Case Cover - Red",2,2.75,8.99,"iPhone 16",""],
+  ["QBSPLNDX-IP16-DEBK","For iPhone 16 6.1 inch SPLENDID Diamond Glitter Ornaments Engraving Case Cover - Enchanted Butterfly Dark Cherry",2,2.75,8.99,"iPhone 16",""],
+  ["QBSPLNDX-IP16-REBK","For iPhone 16 6.1 inch SPLENDID Diamond Glitter Ornaments Engraving Case Cover - Enchanted Butterfly Red",2,2.75,8.99,"iPhone 16",""],
+  ["QBWLT-IP16-PRP","For iPhone 16 6.1 inch Luxury Wallet Card ID Zipper Money Holder Case Cover - Dark Purple",2,3.50,10.99,"iPhone 16",""],
+  ["QBFRDM-PLUS16-RGOLD","For iPhone 16 Plus 6.7 inch Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Rose Gold",2,2.75,8.99,"iPhone 16 Plus",""],
+  ["QBTRNS-PLUS16-CLR","For iPhone 16 Plus 6.7 inch PURE CRYSTAL Transparent Thick 2.0mm ShockProof Chromed Buttons Case Cover - Clear",2,2.25,6.99,"iPhone 16 Plus",""],
+  ["QBUTR-PLUS16-BK","For iPhone 16 Plus 6.7 inch Utter Tough Metal Ring Movable Camera Window Hybrid Case Cover - Black",2,2.75,8.99,"iPhone 16 Plus",""],
+  ["QBUTR-PLUS16-DPRP","For iPhone 16 Plus 6.7 inch Utter Tough Metal Ring Movable Camera Window Hybrid Case Cover - Dark Purple",2,2.75,8.99,"iPhone 16 Plus",""],
+  ["QBFRDM-IP16PRO-BK","For iPhone 16 Pro 6.3 inch Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Black",2,2.75,8.99,"iPhone 16 Pro",""],
+  ["QBFRDM-IP16PRO-PRP","For iPhone 16 Pro 6.3 inch Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Purple",2,2.75,8.99,"iPhone 16 Pro",""],
+  ["QBFRDM-IP16PRO-RGOLD","For iPhone 16 Pro 6.3 inch Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Rose Gold",2,2.75,8.99,"iPhone 16 Pro",""],
+  ["QBSPLNDX-IP16PRO-GGRD","For iPhone 16 Pro 6.3 inch SPLENDID Diamond Glitter Ornaments Engraving Case Cover - Garden Butterflies Gold",2,2.75,8.99,"iPhone 16 Pro",""],
+  ["QBSPLNDX-IP16PRO-PGRD","For iPhone 16 Pro 6.3 inch SPLENDID Diamond Glitter Ornaments Engraving Case Cover - Garden Butterflies Purple",2,2.75,8.99,"iPhone 16 Pro",""],
+  ["QBUTR-IP16PRO-DPRP","For iPhone 16 Pro 6.3 inch Utter Tough Metal Ring Movable Camera Window Hybrid Case Cover - Dark Purple",2,2.75,8.99,"iPhone 16 Pro",""],
+  ["MGHYD4-MAX16-CLR","For iPhone 16 Pro Max 6.9 Transparent Glitter Rotaional Magnetic Ring Stand HQ Hybrid - Clear",2,3.50,10.99,"iPhone 16 Pro Max",""],
+  ["QB3C-MAX16-PRP","For iPhone 16 Pro Max 6.9 Cute Butterfly Ornaments Diamonds Shimmer Matching Metallic HQ Hybrid - Dark Purple",2,2.75,8.99,"iPhone 16 Pro Max",""],
+  ["QB3C-MAX16-RGOLD","For iPhone 16 Pro Max 6.9 Cute Butterfly Ornaments Diamonds Shimmer Matching Metallic HQ Hybrid - Rose Gold",2,2.75,8.99,"iPhone 16 Pro Max",""],
+  ["QBCLTPU-MAX16-CLRCLR","For iPhone 16 Pro Max 6.9 inch Colored Shockproof Transparent Hard PC TPU Hybrid Case Cover - Clear/Clear",2,2.25,6.99,"iPhone 16 Pro Max",""],
+  ["QBFRDM-MAX16-RGOLD","For iPhone 16 Pro Max 6.9 Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Rose Gold",2,2.75,8.99,"iPhone 16 Pro Max",""],
+  ["QBRBST-MAX16-BK","For iPhone 16 Pro Max 6.9 inch Robust Magnetic Kickstand Hybrid Case Cover - Black",2,2.75,8.99,"iPhone 16 Pro Max",""],
+  ["QBRBST-MAX16-RED","For iPhone 16 Pro Max 6.9 inch Robust Magnetic Kickstand Hybrid Case Cover - Red",2,2.75,8.99,"iPhone 16 Pro Max",""],
+  ["QBSPLNDX-MAX16-GEBK","For iPhone 16 Pro Max 6.9 inch SPLENDID Diamond Glitter Ornaments Engraving Case Cover - Enchanted Butterfly Gold",2,2.75,8.99,"iPhone 16 Pro Max",""],
+  ["QBSPLNDX-MAX16-PEBK","For iPhone 16 Pro Max 6.9 inch SPLENDID Diamond Glitter Ornaments Engraving Case Cover - Enchanted Butterfly Purple",2,2.75,8.99,"iPhone 16 Pro Max",""],
+  ["MGCDMND-IP17-BLUE","For iPhone 17 Diamond [Magnetic Circle] with CD Pattern Hybrid - Blue",2,3.25,9.99,"iPhone 17",""],
+  ["MGCDMND-IP17-PRP","For iPhone 17 Diamond [Magnetic Circle] with CD Pattern Hybrid - Purple",2,3.25,9.99,"iPhone 17",""],
+  ["QBCLTPU-IP17-CLRCLR","For iPhone 17 Colored Shockproof Transparent Hard PC TPU Hybrid Case Cover - Clear/Clear",2,2.25,6.99,"iPhone 17",""],
+  ["QBFRDM-IP17-BK","For iPhone 17 Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Black",2,2.75,8.99,"iPhone 17",""],
+  ["QBFRDM-IP17-PRP","For iPhone 17 Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Purple",2,2.75,8.99,"iPhone 17",""],
+  ["QBRBST-IP17-BK","For iPhone 17 Robust Magnetic Kickstand Hybrid Case Cover - Black",2,2.75,8.99,"iPhone 17",""],
+  ["QBRBST-IP17-BLUE","For iPhone 17 Robust Magnetic Kickstand Hybrid Case Cover - Blue",2,2.75,8.99,"iPhone 17",""],
+  ["QBSTRD-17PRO-CLR","For iPhone 17 Pro Sturdy Ultra Thick 3mm Transparent Hybrid Case Cover - Clear",2,2.75,8.99,"iPhone 17 Pro",""],
+  ["QBSTRD-17MAX-CLR","For iPhone 17 Pro Max Sturdy Ultra Thick 3mm Transparent Hybrid Case Cover - Clear",2,2.75,8.99,"iPhone 17 Pro Max",""],
+  ["QB6F-PRO18-DCH","For Apple iPhone 18 Pro Beautiful Diamond Metallic Design Metal Chrome Edged Hybrid - Dark Cherry",2,2.75,8.99,"iPhone 18 Pro",""],
+  ["QB6F-PRO18-LBL","For Apple iPhone 18 Pro Beautiful Diamond Metallic Design Metal Chrome Edged Hybrid - Light Blue",2,2.75,8.99,"iPhone 18 Pro",""],
+  ["QB6F-PRO18-PRP","For Apple iPhone 18 Pro Beautiful Diamond Metallic Design Metal Chrome Edged Hybrid - Purple",2,2.75,8.99,"iPhone 18 Pro",""],
+  ["QBCLTPU-PRO18-DCH","For Apple iPhone 18 Pro Colored Shockproof Transparent Hard PC TPU Hybrid Case Cover - Dark Cherry",2,2.25,6.99,"iPhone 18 Pro",""],
+  ["QBCLTPU-PRO18-LBL","For Apple iPhone 18 Pro Colored Shockproof Transparent Hard PC TPU Hybrid Case Cover - Light Blue",2,2.25,6.99,"iPhone 18 Pro",""],
+  ["QBPEAK-PRO18-BKBK","For Apple iPhone 18 Pro PEAK 3in1 Toughest Hybrid with Stand Cover Case - Black/Black",2,2.95,8.99,"iPhone 18 Pro",""],
+  ["QBPEAK-PRO18-BKBLUE","For Apple iPhone 18 Pro PEAK 3in1 Toughest Hybrid with Stand Cover Case - Black/Blue",2,2.95,8.99,"iPhone 18 Pro",""],
+  ["QBRNGHY-PRO18-BK","For Apple iPhone 18 Pro Ring Magnetic Kickstand Hybrid Case Cover - Black",2,2.75,8.99,"iPhone 18 Pro",""],
+  ["QBRNGHY-PRO18-DCH","For Apple iPhone 18 Pro Ring Magnetic Kickstand Hybrid Case Cover - Dark Cherry",2,2.75,8.99,"iPhone 18 Pro",""],
+  ["QBRNGHY-PRO18-LBL","For Apple iPhone 18 Pro Ring Magnetic Kickstand Hybrid Case Cover - Light Blue",2,2.75,8.99,"iPhone 18 Pro",""],
+  ["QBSPLNDX-PRO18-DGRD","For Apple iPhone 18 Pro SPLENDID Diamond Glitter Ornaments Engraving Case Cover - Garden Butterflies Dark Cherry",2,2.75,8.99,"iPhone 18 Pro",""],
+  ["QBSPLNDX-PRO18-LBGRD","For Apple iPhone 18 Pro SPLENDID Diamond Glitter Ornaments Engraving Case Cover - Garden Butterflies Light Blue",2,2.75,8.99,"iPhone 18 Pro",""],
+  ["QBSPLNDX-PRO18-PGRD","For Apple iPhone 18 Pro SPLENDID Diamond Glitter Ornaments Engraving Case Cover - Garden Butterflies Purple",2,2.75,8.99,"iPhone 18 Pro",""],
+  ["QBTRNS-PRO18-CLR","For Apple iPhone 18 Pro PURE CRYSTAL Transparent Thick 2.0mm ShockProof Chromed Buttons Case Cover - Clear",2,2.25,6.99,"iPhone 18 Pro",""],
+  ["MGBRKT-MAX18-DCH","For Apple iPhone 18 Pro Max Sturdy Bracket Kickstand Magnetic Hybrid - Dark Cherry",2,2.95,8.99,"iPhone 18 Pro Max",""],
+  ["MGCDMND-MAX18-BK","For Apple iPhone 18 Pro Max Diamond [Magnetic Circle] with CD Pattern Hybrid - Black",2,3.25,9.99,"iPhone 18 Pro Max",""],
+  ["MGCDMND-MAX18-PRP","For Apple iPhone 18 Pro Max Diamond [Magnetic Circle] with CD Pattern Hybrid - Purple",2,3.25,9.99,"iPhone 18 Pro Max",""],
+  ["MGCDMND-MAX18-WHIT","For Apple iPhone 18 Pro Max Diamond [Magnetic Circle] with CD Pattern Hybrid - White",2,3.25,9.99,"iPhone 18 Pro Max",""],
+  ["MGHYC3-MAX18-LPNK","For Apple iPhone 18 Pro Max CHROME HQ Rotational Magnetic Ring Hybrid - Light Pink",2,3.50,10.99,"iPhone 18 Pro Max",""],
+  ["MGHYC3-MAX18-LPRP","For Apple iPhone 18 Pro Max CHROME HQ Rotational Magnetic Ring Hybrid - Light Purple",2,3.50,10.99,"iPhone 18 Pro Max",""],
+  ["MGHYE5-MAX18-LBL","For Apple iPhone 18 Pro Max CD Texture Design Magnetic Car Mount Friendly HQ Hybrid - Light Blue",2,2.95,8.99,"iPhone 18 Pro Max",""],
+  ["QB10K-MAX18-BK","For Apple iPhone 18 Pro Max Splendid Glitter Butterfly Design Stand with Metallic Edges Hybrid Case - Black",2,2.95,8.99,"iPhone 18 Pro Max",""],
+  ["QB10K-MAX18-HPNK","For Apple iPhone 18 Pro Max Splendid Glitter Butterfly Design Stand with Metallic Edges Hybrid Case - Hot Pink",2,2.95,8.99,"iPhone 18 Pro Max",""],
+  ["QB10K-MAX18-LPNK","For Apple iPhone 18 Pro Max Splendid Glitter Butterfly Design Stand with Metallic Edges Hybrid Case - Light Pink",2,2.95,8.99,"iPhone 18 Pro Max",""],
+  ["QB3C-MAX18-PNK","For Apple iPhone 18 Pro Max Cute Butterfly Ornaments Diamonds Shimmer Matching Metallic HQ Hybrid - Pink",2,2.75,8.99,"iPhone 18 Pro Max",""],
+  ["QB3C-MAX18-PRP","For Apple iPhone 18 Pro Max Cute Butterfly Ornaments Diamonds Shimmer Matching Metallic HQ Hybrid - Dark Purple",2,2.75,8.99,"iPhone 18 Pro Max",""],
+  ["QB3C-MAX18-TEAL","For Apple iPhone 18 Pro Max Cute Butterfly Ornaments Diamonds Shimmer Matching Metallic HQ Hybrid - Teal",2,2.75,8.99,"iPhone 18 Pro Max",""],
+  ["QB6F-MAX18-LBL","For Apple iPhone 18 Pro Max Beautiful Diamond Metallic Design Metal Chrome Edged Hybrid - Light Blue",2,2.75,8.99,"iPhone 18 Pro Max",""],
+  ["QB6F-MAX18-PRP","For Apple iPhone 18 Pro Max Beautiful Diamond Metallic Design Metal Chrome Edged Hybrid - Purple",2,2.75,8.99,"iPhone 18 Pro Max",""],
+  ["QB6F-MAX18-RGOLD","For Apple iPhone 18 Pro Max Beautiful Diamond Metallic Design Metal Chrome Edged Hybrid - Rose Gold",2,2.75,8.99,"iPhone 18 Pro Max",""],
+  ["QB9J-MAX18-RED","For Apple iPhone 18 Pro Max Crystal Glass Diamond with Metallic Buttons and Edges Hybrid Case - Red",2,2.75,8.99,"iPhone 18 Pro Max",""],
+  ["QBCDTPU-MAX18-CLR","For Apple iPhone 18 Pro Max Shockproof Transparent Thick TPU Case Cover - Clear",2,1.95,5.99,"iPhone 18 Pro Max",""],
+  ["QBFRDM-MAX18-BK","For Apple iPhone 18 Pro Max Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Black",2,2.75,8.99,"iPhone 18 Pro Max",""],
+  ["QBFRDM-MAX18-PRP","For Apple iPhone 18 Pro Max Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Purple",2,2.75,8.99,"iPhone 18 Pro Max",""],
+  ["QBFRDM-MAX18-RGOLD","For Apple iPhone 18 Pro Max Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Rose Gold",2,2.75,8.99,"iPhone 18 Pro Max",""],
+  ["QBRBST-MAX18-BK","For Apple iPhone 18 Pro Max Robust Magnetic Kickstand Hybrid Case Cover - Black",2,2.75,8.99,"iPhone 18 Pro Max",""],
+  ["QBSPLNDX-MAX18-DEBK","For Apple iPhone 18 Pro Max SPLENDID Diamond Glitter Ornaments Engraving Case Cover - Enchanted Butterfly Dark Cherry",2,2.75,8.99,"iPhone 18 Pro Max",""],
+  ["QBSPLNDX-MAX18-GEBK","For Apple iPhone 18 Pro Max SPLENDID Diamond Glitter Ornaments Engraving Case Cover - Enchanted Butterfly Gold",2,2.75,8.99,"iPhone 18 Pro Max",""],
+  ["QBSPLNDX-MAX18-LBGLF","For Apple iPhone 18 Pro Max SPLENDID Diamond Glitter Ornaments Engraving Case Cover - Good Luck Floral Light Blue",2,2.75,8.99,"iPhone 18 Pro Max",""],
+  ["QBSPLNDX-MAX18-REBK","For Apple iPhone 18 Pro Max SPLENDID Diamond Glitter Ornaments Engraving Case Cover - Enchanted Butterfly Red",2,2.75,8.99,"iPhone 18 Pro Max",""],
+  ["AMP-AUX","AMPXKER [AUX CABLE] (3.5MM to 3.5MM 3.3FT BLACK) - AUDIO BRAIDED - (LANE C BOXES ITEM 1)",2,1.25,3.99,"Cables & Chargers",""],
+  ["CANDYPOWERBANK-CHEETOS-18","CANDY POWERBANK 5000 MAH - EPBCH-12-ST - Cheetos (D17 CANDY 18)",2,9.99,29.99,"Cables & Chargers",""],
+  ["CANDYPOWERBANK-COCOAPUFFS-26","CANDY POWERBANK 5000 MAH - EPBCP-12-ST - Cocoa Puffs (D17 CANDY 26)",2,9.99,29.99,"Cables & Chargers",""],
+  ["CANDYPOWERBANK-LUCKYCHARMS-25","CANDY POWERBANK 5000 MAH - EPBLC-12-ST - Lucky Charms (D17 CANDY 25)",2,9.99,29.99,"Cables & Chargers",""],
+  ["CANDYPOWERBANK-PRINGLES-19","CANDY POWERBANK 5000 MAH - EPBPR-12-ST - Pringles (D17 CANDY 19)",2,9.99,29.99,"Cables & Chargers",""],
+  ["CANDYPOWERBANK-REESES-21","CANDY POWERBANK 5000 MAH - EPBRS-12-ST - Reeses (D17 CANDY 21)",2,9.99,29.99,"Cables & Chargers",""],
+  ["CANDYPOWERBANK-TRIX-23","CANDY POWERBANK 5000 MAH - EPBTR-12-ST - Trix (D17 CANDY 23)",2,9.99,29.99,"Cables & Chargers",""],
+  ["ESEEKT30US-WHITE-54","ESEEKGO [PD FAST WALL CHARGER] (30W) - GAN - [12 Pcs Box] - (LANE B2 ITEM 54)",4,39.00,116.99,"Cables & Chargers",""],
+  ["LICENSEDCABLES-NOODLES","LICENSED 6FT C TO C CHARGING CABLE - CUP NOODLES (D17)",2,4.50,13.99,"Cables & Chargers",""],
+  ["LICENSEDCABLES-PEANUTS","LICENSED 6FT C TO C CHARGING CABLE - PEANUTS (D17 PEANUTS 6)",2,4.50,13.99,"Cables & Chargers",""],
+  ["SHPD10FTRIV-WHT","$1.00 Each Pack of 10 LOOSE Cable in CounterDisplay Box - 10FT Fast Charging Cable [Type C - Type C PD] - White w Golden Shell (24)",2,10.00,29.99,"Cables & Chargers",""],
+  ["SHPD3FTRIV-BRAD",".50 cents Each Pack of 20 LOOSE Cable in CounterDisplay Box - 3FT Fast Charging Cable [Type C - Type C PD] Nylon Braided - Black w Black Shell (34)",2,10.00,29.99,"Cables & Chargers",""],
+  ["VQD3460W-BLK-3","MICCELL [CABLE] (60W TypeC-TypeC 4FT BLACK) - BRAIDED FAST CHARGE - (LANE B19 ITEM 3)",2,1.75,5.99,"Cables & Chargers",""],
+  ["VQD3460W-CSMORN-4","MICCELL [CABLE] (60W TypeC-TypeC 4FT BLACK) - BRAIDED FAST CHARGE (B19 ITEM 4)",2,1.75,5.99,"Cables & Chargers",""],
+  ["A2CC-I01S02-1","A2C (CAR MOUNT) (MAGNETIC) - (LANE B7-B8 - A2C - 1)",2,4.50,13.99,"Car Mounts",""],
+  ["A2CC-I01S3-3","A2C (DASH-WINDSHIELD MOUNT) (MAGNETIC) - (LANE B7-B8 - A2C - 3)",2,4.50,13.99,"Car Mounts",""],
+  ["ESEEKCH04-BK-17","ESEEKGO CH-04 (CAR MOUNT) (MAGNETIC) - (LANE B5 ESEEK - 17)",2,4.50,13.99,"Car Mounts",""],
+  ["QB10K-S26FE-PRP","For Samsung Galaxy s26 FE Splendid Glitter Butterfly Design Stand with Metallic Edges Hybrid Case - Dark Purple",1,2.95,8.99,"Samsung S26 FE",""],
+  ["MICRO64GB-ADATA-7","ADATA MICROSD CARD WITH ADAPTER - 64GB (E/F ADATA 7)",0,9.99,29.99,"Memory & Storage",""],
+  ["USBFLASH128GB-BLACK-4","ADATA 128 GB USB Retractable Capless Flash Drive Black - (Rack Inside - Memory 4)",0,9.99,29.99,"Memory & Storage",""],
+  ["APCDHY-PRO3AP-BKBK","For AirPods Pro 3 2025 (3rd Version) Premium Rugged ShockProof Hybrid With Metal Hook Case Cover- Black+Black",0,2.75,8.99,"AirPods Cases",""],
+  ["APTRNS-PRO3AP-BK","For AirPods Pro 3 2025 (3rd Version) 3mm Thick Transparent TPU with Colored Edge Case Cover - Black",0,2.45,7.99,"AirPods Cases",""],
+  ["PVTEM-14PRMX","For Apple iPhone 14 PRO MAX 6.7\" Privacy Tempered",0,1.10,3.99,"iPhone 14 Pro Max",""],
+  ["MGCDMND-15PRMX-PRP","For iP15 Pro Max Diamond [Magnetic Circle] with CD Pattern Hybrid - Purple",0,3.25,9.99,"iPhone 15 Pro Max",""],
+  ["MGDAZLE-15PRMX-DPRP","For iP15 Pro Max Dazzle Magnetic Ring Stand Alloy Chrome Transparent Hybrid Case Cover - Dark Purple",0,3.45,10.99,"iPhone 15 Pro Max",""],
+  ["MGDAZLE-15PRMX-NBLUE","For iP15 Pro Max Dazzle Magnetic Ring Stand Alloy Chrome Transparent Hybrid Case Cover - Navy Blue",0,3.45,10.99,"iPhone 15 Pro Max",""],
+  ["MGHYD4-15PRMX-LPRP","For iP15 Pro Max Transparent Glitter Rotaional Magnetic Ring Stand HQ Hybrid - Light Purple",0,3.50,10.99,"iPhone 15 Pro Max",""],
+  ["MGJ10-15PRMX-BK","For iP15 Pro Max Car Mount with 2-Ring Stand Hybrid Case - Black",0,3.00,8.99,"iPhone 15 Pro Max",""],
+  ["MGMCLR-15PRMX-LGRN","For iP15 Pro Max Matching Clear Transparent Circle Design Case Cover - Light Green",0,2.95,8.99,"iPhone 15 Pro Max",""],
+  ["MGSAFE-15PRMX-DPRP","For iP15 Pro Max [Magnetic Circle] Smooth Safe Matte Feel Hybrid Case - Dark Purple",0,2.95,8.99,"iPhone 15 Pro Max",""],
+  ["MGSAFE-15PRMX-HPNK","For iP15 Pro Max [Magnetic Circle] Smooth Safe Matte Feel Hybrid Case - Hot Pink",0,2.95,8.99,"iPhone 15 Pro Max",""],
+  ["MGSAFE-15PRMX-LPNK","For iP15 Pro Max [Magnetic Circle] Smooth Safe Matte Feel Hybrid Case - Light Pink",0,2.95,8.99,"iPhone 15 Pro Max",""],
+  ["MGSAFE-15PRMX-LPRP","For iP15 Pro Max [Magnetic Circle] Smooth Safe Matte Feel Hybrid Case - Light Purple",0,2.95,8.99,"iPhone 15 Pro Max",""],
+  ["NCTEM-15PRMX","For iP15 Pro Max Clear Tempered Glass",0,0.60,1.99,"iPhone 15 Pro Max",""],
+  ["PVTEM-IP16PRO","For iPhone 16 Pro 6.3 inch Privacy Tempered",0,1.10,3.99,"iPhone 16 Pro",""],
+  ["MGCOMP-MAX16-BLUE","For iPhone 16 Pro Max 6.9 inch Complete Protection HQ Hybrid with Metal Tempered Camera Glass - Blue",0,3.45,10.99,"iPhone 16 Pro Max",""],
+  ["MGCOMP-MAX16-CLR","For iPhone 16 Pro Max 6.9 inch Complete Protection HQ Hybrid with Metal Tempered Camera Glass - Clear",0,3.45,10.99,"iPhone 16 Pro Max",""],
+  ["MGCOMP-MAX16-PRP","For iPhone 16 Pro Max 6.9 inch Complete Protection HQ Hybrid with Metal Tempered Camera Glass - Purple",0,3.45,10.99,"iPhone 16 Pro Max",""],
+  ["MGHY1A-MAX16-LPRP","For iPhone 16 Pro Max 6.9 Magnetic Matching Ring Stand Full Rotation Matte Hybrid - Light Purple",0,2.95,8.99,"iPhone 16 Pro Max",""],
+  ["MGHYB2-MAX16-PNK","For iPhone 16 Pro Max 6.9 Transparent Matching Color Magnetic Ring Hybrid - Pink",0,2.95,8.99,"iPhone 16 Pro Max",""],
+  ["MGMAYGLTR-MAX16-PRP","For iPhone 16 Pro Max 6.9 inch Magnetic Ring Glitter 3in1 Hybrid Case Cover - Purple",0,2.75,8.99,"iPhone 16 Pro Max",""],
+  ["PVTEM-MAX16","For iPhone 16 Pro Max 6.9 inch Privacy Tempered",0,1.10,3.99,"iPhone 16 Pro Max",""],
+  ["QBFRDM-MAX16-PRP","For iPhone 16 Pro Max 6.9 Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Purple",0,2.75,8.99,"iPhone 16 Pro Max",""],
+  ["QBMNSPKTK-MAX16-BK","For iPhone 16 Pro Max 6.9 Spectacular Full Bling Stones Glitter HQ Hybrid Floral Series - Black",0,3.75,11.99,"iPhone 16 Pro Max",""],
+  ["QBMNSPKTK-MAX16-BLUE","For iPhone 16 Pro Max 6.9 Spectacular Full Bling Stones Glitter HQ Hybrid Floral Series - Blue",0,3.75,11.99,"iPhone 16 Pro Max",""],
+  ["QBRINGDS-MAX16-7","For iPhone 16 Pro Max 6.9 inch Metal Diamond CD Pattern Design Matte Finished Hybrid with Rotational Ring [Car Mount Friendly] Case - 7",0,2.75,8.99,"iPhone 16 Pro Max",""],
+  ["MGACRLC-17MAX-BK","For iPhone 17 Pro Max Magnetic Circle Ring Transparent Premium Acrylic with Metal Buttons & Camera Raised Lip - Black",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGACRLC-17MAX-CLR","For iPhone 17 Pro Max Magnetic Circle Ring Transparent Premium Acrylic with Metal Buttons & Camera Raised Lip - Clear",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGACRLC-17MAX-LBL","For iPhone 17 Pro Max Magnetic Circle Ring Transparent Premium Acrylic with Metal Buttons & Camera Raised Lip - Light Blue",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGACRLC-17MAX-LPRP","For iPhone 17 Pro Max Magnetic Circle Ring Transparent Premium Acrylic with Metal Buttons & Camera Raised Lip - Light Purple",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGACRLC-17MAX-RGOLD","For iPhone 17 Pro Max Magnetic Circle Ring Transparent Premium Acrylic with Metal Buttons & Camera Raised Lip - Rose Gold",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGGLITZ-17MAX-BK","For iPhone 17 Pro Max Glitz HQ Shimmer Glitter [Magnetic Ring Circle] with 360 degree Rotational Ring Kickstand Tough Hybrid Case - Black",0,3.75,11.99,"iPhone 17 Pro Max",""],
+  ["MGGLITZ-17MAX-CSMORN","For iPhone 17 Pro Max Glitz HQ Shimmer Glitter [Magnetic Ring Circle] with 360 degree Rotational Ring Kickstand Tough Hybrid Case - Cosmic Orange",0,3.75,11.99,"iPhone 17 Pro Max",""],
+  ["MGGLITZ-17MAX-GOLD","For iPhone 17 Pro Max Glitz HQ Shimmer Glitter [Magnetic Ring Circle] with 360 degree Rotational Ring Kickstand Tough Hybrid Case - Gold",0,3.75,11.99,"iPhone 17 Pro Max",""],
+  ["MGGLITZ-17MAX-PRP","For iPhone 17 Pro Max Glitz HQ Shimmer Glitter [Magnetic Ring Circle] with 360 degree Rotational Ring Kickstand Tough Hybrid Case - Purple",0,3.75,11.99,"iPhone 17 Pro Max",""],
+  ["MGHY1A-17MAX-BLUE","For iPhone 17 Pro Max Magnetic Matching Ring Stand Full Rotation Matte Hybrid - Blue",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGHY1A-17MAX-LPRP","For iPhone 17 Pro Max Magnetic Matching Ring Stand Full Rotation Matte Hybrid - Light Purple",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGHY1A-17MAX-PRP","For iPhone 17 Pro Max Magnetic Matching Ring Stand Full Rotation Matte Hybrid - Dark Purple",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGHYF6-17MAX-BK","For iPhone 17 Pro Max Magnetic Ring HQ Transparent Thick 2.0mm Hybrid Case - Black",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGJ10-17MAX-BK","For iPhone 17 Pro Max Car Mount with 2-Ring Stand Hybrid Case - Black",0,3.00,8.99,"iPhone 17 Pro Max",""],
+  ["MGMCLR-17MAX-PRP","For iPhone 17 Pro Max Matching Clear Transparent Circle Design Case Cover - Purple",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGSAFE-17MAX-CSMORN","For iPhone 17 Pro Max [Magnetic Circle] Smooth Safe Matte Feel Hybrid Case - Cosmic Orange",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGSAFE-17MAX-DPRP","For iPhone 17 Pro Max [Magnetic Circle] Smooth Safe Matte Feel Hybrid Case - Dark Purple",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGSAFE-17MAX-HPNK","For iPhone 17 Pro Max [Magnetic Circle] Smooth Safe Matte Feel Hybrid Case - Hot Pink",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGSAFE-17MAX-LPNK","For iPhone 17 Pro Max [Magnetic Circle] Smooth Safe Matte Feel Hybrid Case - Light Pink",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGSAFE-17MAX-LPRP","For iPhone 17 Pro Max [Magnetic Circle] Smooth Safe Matte Feel Hybrid Case - Light Purple",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGSAFE-17MAX-NBL","For iPhone 17 Pro Max [Magnetic Circle] Smooth Safe Matte Feel Hybrid Case - Navy Blue",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGSTGT-17MAX-CLR","For iPhone 17 Pro Max Glitter Ultra [Magnetic Circle] Thick 3mm Transparent Hybrid - Clear",0,2.75,8.99,"iPhone 17 Pro Max",""],
+  ["MGU17-17MAX-PRP","For iPhone 17 Pro Max Thick Carbon Design Magnetic Hybrid with Metallic Buttons Case - Purple",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["MGY19-17MAX-WHIT","For iPhone 17 Pro Max Thick Transparent Colored Edged Magnetic Hybrid Case - White",0,2.95,8.99,"iPhone 17 Pro Max",""],
+  ["PVTEM-17MAX","For iPhone 17 Pro Max Privacy Tempered",0,1.10,3.99,"iPhone 17 Pro Max",""],
+  ["QBCTMG-17MAX-C","For iPhone 17 Pro Max Double Layer Design IMD TPU Case - C",0,2.75,8.99,"iPhone 17 Pro Max",""],
+  ["QBCTMG-17MAX-S","For iPhone 17 Pro Max Double Layer Design IMD TPU Case - S",0,2.75,8.99,"iPhone 17 Pro Max",""],
+  ["QBCTMG-17MAX-T","For iPhone 17 Pro Max Double Layer Design IMD TPU Case - T",0,2.75,8.99,"iPhone 17 Pro Max",""],
+  ["QBCTMG-17MAX-WVPZBS","For iPhone 17 Pro Max [Magnetic] Double Layer Design IMD Case -Wave Pink Zebra Stripes",0,2.75,8.99,"iPhone 17 Pro Max",""],
+  ["QBFNST-17MAX-BGDY","For iPhone 17 Pro Max Finest Transparent Thick Acrylic Hybrid Metal Buttons Cover Case - Burgundy",0,2.75,8.99,"iPhone 17 Pro Max",""],
+  ["QBFNST-17MAX-BLUE","For iPhone 17 Pro Max Finest Transparent Thick Acrylic Hybrid Metal Buttons Cover Case - Blue",0,2.75,8.99,"iPhone 17 Pro Max",""],
+  ["QBMN12A-17MAX-PRP","For iPhone 17 Pro Max Luxury Diamond Edged Magnetic Glitter Circle Hybrid with Camera Stand - Dark Purple",0,3.45,10.99,"iPhone 17 Pro Max",""],
+  ["QBMN12A-17MAX-RGOLD","For iPhone 17 Pro Max Luxury Diamond Edged Magnetic Glitter Circle Hybrid with Camera Stand - Rose Gold",0,3.45,10.99,"iPhone 17 Pro Max",""],
+  ["QBRINGDS-17MAX-3","For iPhone 17 Pro Max Metal Diamond CD Pattern Design Matte Finished Hybrid with Rotational Ring [Car Mount Friendly] Case - 3",0,2.75,8.99,"iPhone 17 Pro Max",""],
+  ["QBRINGDS-17MAX-7","For iPhone 17 Pro Max Metal Diamond CD Pattern Design Matte Finished Hybrid with Rotational Ring [Car Mount Friendly] Case - 7",0,2.75,8.99,"iPhone 17 Pro Max",""],
+  ["GGVIBE-BLACK-1","GG PLATINUM VIBE Wireless Over Ear Bluetooth Headphones with Microphone Noise Reduction Bluetooth Wired Micro SD - Black (E3 GG-1)",0,9.99,29.99,"Audio",""],
+  ["GGVIBE-SILVER-7","GG PLATINUM VIBE Wireless Over Ear Bluetooth Headphones with Microphone Noise Reduction Bluetooth Wired Micro SD - SILVER (E3 GG-7)",0,9.99,29.99,"Audio",""],
+  ["360FLUID-CCBLACK-6","360 Fluid C TO C Braided Charging Cable 5ft - BLACK (E2 360-6)",0,2.50,7.99,"Cables & Chargers",""],
+  ["BLING20WGG-BK-1","BLING [CHARGER] (20W BLACK) - (LANE D7 ITEM 1)",0,2.95,8.99,"Cables & Chargers",""],
+  ["BROOKBK165P221WS-WHITE-10","BROOKSTONE [5-IN-1 SURGE PROTECTOR] (20W 2 AC - 2 USB-A - 1 USB-C WHITE) - FAST CHARGE - (LANE D12 ITEM 10)",0,7.99,23.99,"Cables & Chargers",""],
+  ["ESEEKA01-BK-45","ESEEKGO [CAR CHARGER] (BLACK) - (LANE B2 ITEM 45)",0,1.50,4.99,"Cables & Chargers",""],
+  ["ESEEKA01-WHITE-46","ESEEKGO [CAR CHARGER] (WHITE) - (LANE B2 ITEM 46)",0,1.50,4.99,"Cables & Chargers",""],
+  ["ESEEKES15C-GRAY-41","ESEEKGO [ADAPTER] (USB-TypeC to 3.5MM - PD-TypeC 60W GRAY) - CHARGE LISTEN 2-IN-1 - (LANE B3 ITEM 41)",0,3.99,11.99,"Cables & Chargers",""],
+  ["ESEEKGOES36-14","ESEEKGO [AUDIO ADAPTER] (TypeC) - (LANE B7 ITEM 14)",0,1.99,5.99,"Cables & Chargers",""],
+  ["ESEEKGOP10B-10","ESEEKGO [4 PORT POWER BANK] (10000MAH 2 USB-A - 2 USB-C BLACK) - DIGITAL DISPLAY - (LANE B8 ITEM 10)",0,9.99,29.99,"Cables & Chargers",""],
+  ["ESEEKGOT30U-WHITE-29","ESEEKGO [WALL CHARGER] (30W PD WHITE) - GAN - (LANE B4 ITEM 29)",0,3.99,11.99,"Cables & Chargers",""],
+  ["ESEEKHB04-BK-31","ESEEKGO [5-IN-1 USB HUB] (USB-C - USB-A - HDMI - PD BLACK) - 4K MULTIFUNCTION - (LANE B5 ITEM 31)",0,7.99,23.99,"Cables & Chargers",""],
+  ["ESEEKT45UB-WHITE-42","ESEEKGO [WALL CHARGER] (45W DUAL PORT PD) - QC3.0 GAN - (LANE B10 ITEM 42)",0,4.99,14.99,"Cables & Chargers",""],
+  ["GGCCPT6-BEIGE-R","GG [CABLE] (60W PD-TypeC 6FT BEIGE) - FAST CHARGE TANGLE-FREE - (LANE D13 ITEM R)",0,2.99,8.99,"Cables & Chargers",""],
+  ["GGCCPT6-BLUE-O","GG [CABLE] (60W PD-TypeC 6FT BLUE) - FAST CHARGE TANGLE-FREE - (LANE D13 ITEM O)",0,2.99,8.99,"Cables & Chargers",""],
+  ["GGCCPT6-LAV-P","GG [CABLE] (60W PD-TypeC 6FT) - FAST CHARGE TANGLE-FREE - (LANE D13 ITEM P)",0,2.99,8.99,"Cables & Chargers",""],
+  ["GGGLITTER5000-SILVER-C","GG GLITTER [POWER BANK] (20W 5000MAH TypeC SILVER) - IPHONE - (LANE D14 ITEM C)",0,7.99,23.99,"Cables & Chargers",""],
+  ["PHOTIVEWALL-WHITE","PHOTIVE [MULTI-OUTLET WALL PLUG] (2 AC - 2 USB 12W WHITE) - FAST CHARGING (LANE A1)",0,3.50,10.99,"Cables & Chargers",""],
+  ["VQAUX002C-GRAY-22","MICCELL [CABLE] (TypeC 3.3FT 1M GRAY) - BRAIDED - (LANE B18 ITEM 22)",0,2.25,6.99,"Cables & Chargers",""],
+  ["VQD34100W-BLK-1","MICCELL [CABLE] (100W TypeC-TypeC 4FT BLACK) - BRAIDED FAST CHARGE - (B19 MICCEL-1 )",0,2.49,7.99,"Cables & Chargers",""],
+  ["QBFRDM-ULTS26-BK","For Samsung s26 Ultra Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Black",0,2.75,8.99,"Samsung S26 Ultra",""],
+  ["QBFRDM-ULTS26-RGOLD","For Samsung s26 Ultra Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Rose Gold",0,2.75,8.99,"Samsung S26 Ultra",""],
+  ["EGCTEM-IP14-BK","For iPhone 13/13 Pro/14 Bulk White Paper Card Package Black edged Tempered Glass (Black)",0,0.85,2.99,"iPhone 13",""],
+  ["QBBTRFLY-IP14-TEAL","For iPhone 14/13 Butterfly Ornaments Diamond Bling Glitter Hybrid Case - Teal",0,3.45,10.99,"iPhone 14",""],
+  ["QBBTRFLY-IP14-WHIT","For iPhone 14/13 Butterfly Ornaments Diamond Bling Glitter Hybrid Case - White",0,3.45,10.99,"iPhone 14",""],
+  ["QBMNGLE-IP14-PNK","For iPhone 13/14 Beautiful ANGEL Hearts Glitter Shimmer Diamond Edged Hybrid Case - Pink",0,2.95,8.99,"iPhone 13/14",""],
+  ["QBMNGLE-IP14-PRP","For iPhone 13/14 Beautiful ANGEL Hearts Glitter Shimmer Diamond Edged Hybrid Case - Purple",0,2.95,8.99,"iPhone 13/14",""],
+  ["EGCTEM-PR14-BK","For Apple iPhone 14 PRO 6.1\" Bulk White Paper Card Package Black edged Tempered Glass (Black)",0,0.85,2.99,"iPhone 14 Pro",""],
+  ["PVTEM-PR14","For Apple iPhone 14 PRO 6.1\" Privacy Tempered",0,1.10,3.99,"iPhone 14 Pro",""],
+  ["NCTEM-14PRMX","For Apple iPhone 14 Pro Max Clear Tempered Glass",0,0.80,2.99,"iPhone 14 Pro Max",""],
+  ["QB1A-14PRMX-6","For iPhone 14 PRO MAX 6.7\" Epoxy Glitter Butterfly Ornaments Design HQ Metal Buttons Hybrid - 6",0,2.95,8.99,"iPhone 14 Pro Max",""],
+  ["QBFRDM-14PRMX-GOLD","For iPhone 14 PRO MAX 6.7\" Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Gold",0,2.75,8.99,"iPhone 14 Pro Max",""],
+  ["NCTEM-PLUS15","For iPhone 15 Plus Clear Tempered Glass",0,0.80,2.99,"iPhone 15 Plus",""],
+  ["QBBTRFLY-PLUS15-LPNK","For iPhone 15 Plus/iPhone 14 Plus Butterfly Ornaments Diamond Bling Glitter Hybrid Case - Light Pink",0,3.45,10.99,"iPhone 15 Plus",""],
+  ["QBTRNS-PLUS15-CLR","For iPhone 15 Plus PURE CRYSTAL Transparent Thick 2.0mm ShockProof Chromed Buttons Case Cover - Clear",0,2.45,7.99,"iPhone 15 Plus",""],
+  ["CATEM-15PRO-GOLD","For iPhone 15 Pro Diamond Bling Camera Lens Full Tempered Glass - Gold",0,0.50,1.99,"iPhone 15 Pro",""],
+  ["CATEM-15PRO-PRP","For iPhone 15 Pro Diamond Bling Camera Lens Full Tempered Glass - Purple",0,0.50,1.99,"iPhone 15 Pro",""],
+  ["QBFRDM-15PRMX-GOLD","For iP15 Pro Max Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Gold",0,2.75,8.99,"iPhone 15 Pro Max",""],
+  ["QBMNNOVT-15PRMX-CLR","For iP15 Pro Max Novelty Full Diamond All Around Transparent Hybrid Case - Clear",0,2.75,8.99,"iPhone 15 Pro Max",""],
+  ["QBSHMR-15PRMX-PRP","For iP15 Pro Max Shimmer Glitter Floral Design Thick TPU Case Cover - Purple",0,2.75,8.99,"iPhone 15 Pro Max",""],
+  ["NCTEM-PLUS16","For iPhone 16 Plus 6.7 inch Clear Tempered Glass",0,0.80,2.99,"iPhone 16 Plus",""],
+  ["QBCLR-PLUS16-BK","For iPhone 16 Plus 6.7 inch Transparent Clear Hybrid with Matching Metal Buttons and Camera Protection - Black",0,1.00,2.99,"iPhone 16 Plus",""],
+  ["QBSHMR-PLUS16-GOLD","For iPhone 16 Plus 6.7 inch Shimmer Glitter Floral Design Thick TPU Case Cover - Gold",0,2.75,8.99,"iPhone 16 Plus",""],
+  ["QBSHMR-PLUS16-PRP","For iPhone 16 Plus 6.7 inch Shimmer Glitter Floral Design Thick TPU Case Cover - Purple",0,2.75,8.99,"iPhone 16 Plus",""],
+  ["QBMNNOVT-MAX16-LPNK","For iPhone 16 Pro Max 6.9 Novelty Full Diamond All Around Transparent Hybrid Case - Light Pink",0,2.75,8.99,"iPhone 16 Pro Max",""],
+  ["QBPRLS-MAX16-3","For iPhone 16 Pro Max 6.9 Pearls Epoxy Glitter Ornaments Design Chrome Edged Case - 3",0,3.25,9.99,"iPhone 16 Pro Max",""],
+  ["QBTRNS-MAX16-CLR","For iPhone 16 Pro Max 6.9 inch PURE CRYSTAL Transparent Thick 2.0mm ShockProof Chromed Buttons Case Cover - Clear",0,2.45,7.99,"iPhone 16 Pro Max",""],
+  ["NCTEM-IP17","For iPhone 17 Tempered Glassin Bulk Cardboard Package",0,0.80,2.99,"iPhone 17",""],
+  ["PVTEM-IP17","For iPhone 17 Privacy Tempered",0,1.10,3.99,"iPhone 17",""],
+  ["NCLRTEM-17PRO","For iPhone 17 Pro Camera Clear Tempered Glass(2.5D)",0,0.60,1.99,"iPhone 17 Pro",""],
+  ["NCTEM-17PRO","For iPhone 17 Pro Tempered Glassin Bulk Cardboard Package",0,0.80,2.99,"iPhone 17 Pro",""],
+  ["PVTEM-17PRO","For iPhone 17 Pro Privacy Tempered",0,1.10,3.99,"iPhone 17 Pro",""],
+  ["QBBTRFLY-17PRO-LPNK","For iPhone 17 Pro Butterfly Ornaments Diamond Bling Glitter Hybrid Case - Light Pink",0,3.45,10.99,"iPhone 17 Pro",""],
+  ["QBBTRFLY-17PRO-TEAL","For iPhone 17 Pro Butterfly Ornaments Diamond Bling Glitter Hybrid Case - Teal",0,3.45,10.99,"iPhone 17 Pro",""],
+  ["QBFRDM-17PRO-PRP","For iPhone 17 Pro Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Purple",0,2.75,8.99,"iPhone 17 Pro",""],
+  ["QBSHMR-17PRO-RGOLD","For iPhone 17 Pro Pro Shimmer Glitter Floral Design Thick TPU Case Cover - Rose Gold",0,2.75,8.99,"iPhone 17 Pro",""],
+  ["QBTRNS-17PRO-CLR","For iPhone 17 Pro PURE CRYSTAL Transparent Thick 2.0mm ShockProof Chromed Buttons Case Cover - Clear",0,2.45,7.99,"iPhone 17 Pro",""],
+  ["QBCLTPU-17MAX-CLRCLR","For iPhone 17 Pro Max Colored Shockproof Transparent Hard PC TPU Hybrid Case Cover - Clear/Clear",0,2.45,7.99,"iPhone 17 Pro Max",""],
+  ["QBFRDM-17MAX-GOLD","For iPhone 17 Pro Max Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Gold",0,2.75,8.99,"iPhone 17 Pro Max",""],
+  ["QBFRDM-17MAX-PRP","For iPhone 17 Pro Max Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Purple",0,2.75,8.99,"iPhone 17 Pro Max",""],
+  ["SAM5GA06GB128-BK-25","Samsung Galaxy A06 5G Dual SIM 128GB (4GB RAM) A066M/DS Black International Model - UNLOCKED - BRAND NEW - OEM - BLACK (#25)",0,99.00,148.99,"Unlocked Phones",""],
+  ["SAMA176GB128-BK-19","SAMSUNG GALAXY A17 5G 128GB DUAL SIM 6GB RAM BRAND NEW OEM - BLACK (19)",0,179.99,269.99,"Unlocked Phones",""],
+  ["SAMA176GB128-BLUE-30","SAMSUNG GALAXY A17 5G 128GB DUAL SIM 6GB RAM BRAND NEW OEM - BLUE (30)",0,179.99,269.99,"Unlocked Phones",""],
+  ["CLRTEM-S23","For Samsung S23 Camera Clear Tempered Glass(2.5D)",0,0.60,1.99,"Samsung S23",""],
+  ["NCTEM-S23","For Samsung S23 Clear Tempered Glass",0,0.80,2.99,"Samsung S23",""],
+  ["QBCDTPU-S23-CLR","For Samsung S23 Shockproof Transparent Thick TPU Case Cover - Clear",0,1.95,5.99,"Samsung S23",""],
+  ["QBFRDM-S23-BK","For Samsung S23 Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Black",0,2.75,8.99,"Samsung S23",""],
+  ["QBFRDM-S23-GOLD","For Samsung S23 Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Gold",0,2.75,8.99,"Samsung S23",""],
+  ["QBFRDM-S23-PRP","For Samsung S23 Butterfly Freedom Shimmer Glitter Thick TPU Case Cover - Purple",0,2.75,8.99,"Samsung S23",""],
+  ["NCTEM-S25","For Samsung s25/s24 Clear Tempered Glass",0,0.80,2.99,"Samsung S25/S24",""],
+  ["QBEXQS-S25-RED","For Samsung s25/s24 Exquisite Tough Shockproof Hybrid Case Cover - Red",0,2.75,8.99,"Samsung S25/S24",""],
+  ["QBSHMR-S25-BK","For Samsung s25/s24 Shimmer Glitter Floral Design Thick TPU Case Cover - Black",0,2.75,8.99,"Samsung S25/S24",""],
+  ["QBSHMR-S25-GOLD","For Samsung s25/s24 Shimmer Glitter Floral Design Thick TPU Case Cover - Gold",0,2.75,8.99,"Samsung S25/S24",""],
+];
+// Bump when the built-in list changes: phones holding older data get it wiped
+const DATA_VERSION = 'WAN85X798313300926-2026-09-30';
+const INVOICE_DATE = '2026-09-30T12:00:00';
+
+// =====================================================================
+// ITEM LIST — starts from the built-in invoice above; replaced/extended
+// by uploaded invoice spreadsheets (stored in localStorage)
+// Row format: [sku, description, qty, costEach, retail, category, upc]
+// =====================================================================
+const LS_SCANS    = 'pb_scan_counts';
+const LS_CYCLE    = 'pb_cycle_start';
+const LS_ITEMS    = 'pb_items';
+const LS_INVOICES = 'pb_invoice_log';
+const LS_BARCODES = 'pb_barcode_map';
+const LS_VERSION  = 'pb_data_version';
+
+const DEFAULT_LOG = [
+  { name: 'WAN85X798313300926 · Highest Rated Wireless', skus: 152, units: 303, cost: 1121.23, at: INVOICE_DATE },
+  { name: 'KBXLHI798332170626 (catalog only)', skus: 85, units: 0, cost: 0, at: '2026-06-17T12:00:00', catalog: true },
+  { name: 'AMOC5V798339131125 (catalog only)', skus: 55, units: 0, cost: 0, at: '2025-11-13T12:00:00', catalog: true },
 ];
 
-// Build lookup by SKU
-const skuMap = {};
-INVOICE.forEach((row, i) => {
-  skuMap[row[0].toUpperCase()] = { idx: i, sku: row[0], desc: row[1], qty: row[2], cost: row[3], retail: row[4], cat: row[5] };
-});
+let INVOICE = DEFAULT_INVOICE.map(r => r.slice());
+let invoiceLog = DEFAULT_LOG.map(e => ({ ...e }));
+let barcodeMap = {};   // scanned code -> sku (links made in the app)
+let skuMap = {};       // SKU -> item
+let codeIndex = {};    // barcode/UPC -> item
+
+function normCode(c) { return String(c ?? '').trim().toUpperCase(); }
+// UPC-A vs EAN-13 differ by a leading 0 — compare numeric codes without leading zeros
+function codeKey(c) { const n = normCode(c); return /^\d+$/.test(n) ? n.replace(/^0+/, '') : n; }
+
+function rebuildIndex() {
+  skuMap = {}; codeIndex = {};
+  INVOICE.forEach((r, i) => {
+    const item = { idx: i, sku: r[0], desc: r[1], qty: r[2], cost: r[3], retail: r[4], cat: r[5], upc: r[6] || '' };
+    skuMap[normCode(r[0])] = item;
+    if (r[6]) codeIndex[codeKey(r[6])] = item;
+  });
+  Object.entries(barcodeMap).forEach(([code, sku]) => {
+    const it = skuMap[normCode(sku)];
+    if (it) codeIndex[codeKey(code)] = it;
+  });
+}
+
+function lookupCode(raw) {
+  const n = normCode(raw);
+  if (!n) return null;
+  return skuMap[n] || codeIndex[codeKey(n)] || null;
+}
 
 // =====================================================================
 // APP STATE
 // =====================================================================
 let db = null;
-let scanCounts = {}; // sku -> {scanned, updatedAt}
+let scanCounts = {}; // sku -> {scanned (= remaining on shelf), updatedAt}
 let currentTab = 'scan';
 let modalItem = null;
 let modalQty = 0;
 let cycleStart = null;
 let filterCat = 'All';
 let searchQuery = '';
+let sortMode = 'default';
 
-// Batch Receive Mode
 let batchMode = false;
 let batchLog = []; // [{sku, desc, qty, time}]
 
 // =====================================================================
-// STORAGE — localStorage for standalone, Claude db if available
+// STORAGE
 // =====================================================================
-const LS_SCANS = 'pb_scan_counts';
-const LS_CYCLE = 'pb_cycle_start';
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } }
+function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
 
 function saveToStorage() {
-  try {
-    localStorage.setItem(LS_SCANS, JSON.stringify(scanCounts));
-    if (cycleStart) localStorage.setItem(LS_CYCLE, cycleStart);
-  } catch(e) {}
+  lsSet(LS_SCANS, JSON.stringify(scanCounts));
+  if (cycleStart) lsSet(LS_CYCLE, cycleStart);
 }
+function saveItems() {
+  if (!lsSet(LS_ITEMS, JSON.stringify(INVOICE))) showToast('Could not save item list (storage full?)', 'error');
+  lsSet(LS_INVOICES, JSON.stringify(invoiceLog));
+}
+function saveBarcodes() { lsSet(LS_BARCODES, JSON.stringify(barcodeMap)); }
 
 function loadFromStorage() {
-  try {
-    const s = localStorage.getItem(LS_SCANS);
-    if (s) scanCounts = JSON.parse(s);
-    cycleStart = localStorage.getItem(LS_CYCLE) || null;
-  } catch(e) {}
+  // One-time wipe: counts/lists saved against an older built-in list are discarded
+  if (lsGet(LS_VERSION) !== DATA_VERSION) {
+    [LS_SCANS, LS_CYCLE, LS_ITEMS, LS_INVOICES, LS_BARCODES].forEach(lsDel);
+    lsSet(LS_CYCLE, INVOICE_DATE);
+    lsSet(LS_VERSION, DATA_VERSION);
+  }
+  try { const s = lsGet(LS_SCANS); if (s) scanCounts = JSON.parse(s) || {}; } catch (e) {}
+  cycleStart = lsGet(LS_CYCLE) || null;
+  try { const it = JSON.parse(lsGet(LS_ITEMS) || 'null'); if (Array.isArray(it)) INVOICE = it; } catch (e) {}
+  try { const lg = JSON.parse(lsGet(LS_INVOICES) || 'null'); if (Array.isArray(lg)) invoiceLog = lg; } catch (e) {}
+  try { barcodeMap = JSON.parse(lsGet(LS_BARCODES) || '{}') || {}; } catch (e) {}
+  rebuildIndex();
 }
 
 async function initDB() {
-  // Load from localStorage first (works offline, no iframe restrictions)
   loadFromStorage();
-
-  // Also try Claude db if available (claude.ai artifact context)
+  // Also use Claude db if available (claude.ai artifact context)
   try {
     db = await window.claude?.use('db');
     if (db) {
@@ -685,90 +885,93 @@ async function initDB() {
       }, () => renderApp());
       return;
     }
-  } catch(e) {}
-
+  } catch (e) {}
   renderApp();
+}
+
+// =====================================================================
+// REVERSE-COUNT MATH
+// received = invoice qty, remaining = what's counted on the shelf,
+// sold = received − remaining. Uncounted items are assumed unsold.
+// =====================================================================
+function isCounted(r) { return scanCounts[r[0]] !== undefined; }
+function remainingOf(r) { return isCounted(r) ? scanCounts[r[0]].scanned : r[2]; }
+function soldOf(r) { return Math.max(0, r[2] - remainingOf(r)); }
+function isLow(r) { return isCounted(r) && remainingOf(r) <= Math.max(1, Math.floor(r[2] * 0.25)); }
+function stockClass(r) {
+  const left = remainingOf(r);
+  if (!r[2]) return isCounted(r) ? 'all' : '';
+  const pct = left / r[2];
+  return pct >= 1 ? 'all' : pct > 0.3 ? 'some' : 'none';
 }
 
 // =====================================================================
 // RENDER
 // =====================================================================
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 function renderApp() {
   document.getElementById('loading-state')?.remove();
+  const sub = document.getElementById('hdr-sub');
+  if (sub) sub.textContent = `Popcorn Beauty — ${INVOICE.length} SKUs · ${invoiceLog.length} invoice${invoiceLog.length === 1 ? '' : 's'}`;
   const main = document.getElementById('main-content');
-
   if (currentTab === 'scan') renderScan(main);
   else if (currentTab === 'inventory') renderInventory(main);
   else if (currentTab === 'profit') renderProfit(main);
+  else if (currentTab === 'invoices') renderInvoices(main);
 }
 
 function renderScan(main) {
-  const totalScanned = INVOICE.reduce((s, r) => s + (scanCounts[r[0]]?.scanned ?? 0), 0);
   const totalItems = INVOICE.reduce((s, r) => s + r[2], 0);
-  const totalLeft = totalItems - totalScanned;
-  const estimatedSold = totalScanned; // scanned = counted as remaining, so sold = total - scanned
-  // Actually: user scans REMAINING items, so:
-  // remaining = scanned count, sold = received - remaining
-  const totalRemaining = INVOICE.reduce((s, r) => {
-    const counted = scanCounts[r[0]]?.scanned;
-    return counted !== undefined ? s + counted : s + r[2]; // uncounted items assumed full
-  }, 0);
-  const countedItems = Object.keys(scanCounts).length;
-  const soldEstimate = totalItems - totalRemaining;
+  const totalRemaining = INVOICE.reduce((s, r) => s + remainingOf(r), 0);
+  const soldEstimate = INVOICE.reduce((s, r) => s + soldOf(r), 0);
+  const countedItems = INVOICE.filter(isCounted).length;
+  const lowCount = INVOICE.filter(isLow).length;
 
   main.innerHTML = `
     <div class="cycle-bar">
       <div>
-        <div class="cycle-label">Invoice Cycle</div>
-        <div class="cycle-date">${cycleStart ? formatDate(cycleStart) : 'Sep 30, 2026'} → now</div>
+        <div class="cycle-label">Count Cycle</div>
+        <div class="cycle-date">${formatDate(cycleStart || INVOICE_DATE)} → now</div>
       </div>
       <button class="btn secondary btn-sm" onclick="resetCycle()">New Cycle</button>
     </div>
 
     <div class="kpi-grid">
-      <div class="kpi-card">
-        <div class="kpi-label">Items Remaining</div>
-        <div class="kpi-value blue">${totalRemaining.toLocaleString()}</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Sold (Est.)</div>
-        <div class="kpi-value green">${soldEstimate > 0 ? soldEstimate.toLocaleString() : '—'}</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">SKUs Counted</div>
-        <div class="kpi-value">${countedItems} <span style="font-size:13px;color:var(--fg-muted)">/ ${INVOICE.length}</span></div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Total Received</div>
-        <div class="kpi-value">${totalItems.toLocaleString()}</div>
-      </div>
+      <div class="kpi-card"><div class="kpi-label">Items Remaining</div><div class="kpi-value blue">${totalRemaining.toLocaleString()}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Sold (Est.)</div><div class="kpi-value green">${soldEstimate > 0 ? soldEstimate.toLocaleString() : '—'}</div></div>
+      <div class="kpi-card"><div class="kpi-label">SKUs Counted</div><div class="kpi-value">${countedItems} <span style="font-size:13px;color:var(--fg-muted)">/ ${INVOICE.length}</span></div></div>
+      <div class="kpi-card" style="cursor:pointer" onclick="filterCat='⚠ Low stock';switchTab('inventory')"><div class="kpi-label">Running Low</div><div class="kpi-value ${lowCount ? 'accent' : ''}">${lowCount}</div></div>
     </div>
 
+    ${INVOICE.length === 0 ? `
+    <div class="notice"><strong>No items yet</strong>Upload an invoice spreadsheet in the <a href="#" onclick="switchTab('invoices');return false" style="color:var(--blue)">📄 Invoices</a> tab to load your SKU list.</div>` : ''}
+
     <div class="panel">
-      <div class="panel-head"><h2>Scan Remaining Inventory</h2></div>
+      <div class="panel-head"><h2>Count What's On The Shelf</h2></div>
       <div class="panel-body" style="display:flex;flex-direction:column;gap:10px">
         <p style="font-size:13px;color:var(--fg-muted);line-height:1.6">
-          Scan or type the <strong style="color:var(--fg)">SKU barcode</strong> of each item <em>still on your shelf</em>. Enter how many you have left. The app calculates what was sold.
+          Scan each item <em>still on your shelf</em> and enter how many are left. Received minus remaining = sold.
         </p>
-        <!-- Camera scan buttons -->
         <div style="display:flex;gap:8px">
           <button class="btn" style="flex:2;font-size:15px;padding:14px;display:flex;align-items:center;justify-content:center;gap:8px" onclick="openCamera()">
             <span style="font-size:20px">📷</span> Scan with Camera
           </button>
-          <button id="batch-toggle-btn" class="btn secondary" style="flex:1;font-size:13px;padding:14px 10px;display:flex;align-items:center;justify-content:center;gap:6px;${batchMode?'background:var(--green);color:#fff':''}" onclick="toggleBatchMode()">
+          <button id="batch-toggle-btn" class="btn secondary" style="flex:1;font-size:13px;padding:14px 10px;display:flex;align-items:center;justify-content:center;gap:6px;${batchMode ? 'background:var(--green);color:#fff' : ''}" onclick="toggleBatchMode()">
             ${batchMode ? `✕ Exit Batch<span id="batch-counter" style="margin-left:4px;font-size:11px;opacity:.8">${batchLog.length} scanned</span>` : '📦 Batch<br>Receive'}
           </button>
         </div>
+        <button class="btn secondary btn-sm" style="width:100%" onclick="takePhoto()">📸 Camera not working? Scan from a photo</button>
         ${batchMode ? `<div style="background:rgba(63,185,80,.12);border:1px solid var(--green);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--green)">
           <strong>📦 Batch Mode ON</strong> — Camera stays open. Each scan auto-records full received qty. Tap "Exit Batch" when done to review.
         </div>` : ''}
         <div style="display:flex;align-items:center;gap:8px;color:var(--fg-muted);font-size:12px">
-          <div style="flex:1;height:1px;background:var(--border)"></div>
-          <span>or type SKU manually</span>
-          <div style="flex:1;height:1px;background:var(--border)"></div>
+          <div style="flex:1;height:1px;background:var(--border)"></div><span>or type SKU / barcode</span><div style="flex:1;height:1px;background:var(--border)"></div>
         </div>
         <div class="scan-row">
-          <input class="scan-input" id="scan-input" type="text" placeholder="Type SKU…" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" onkeydown="if(event.key==='Enter')handleScan()">
+          <input class="scan-input" id="scan-input" type="text" placeholder="Type SKU or barcode…" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" onkeydown="if(event.key==='Enter')handleScan()">
           <button class="btn secondary" onclick="handleScan()">Count</button>
         </div>
         <div class="scan-feedback" id="scan-feedback"></div>
@@ -777,153 +980,130 @@ function renderScan(main) {
 
     <div class="panel">
       <div class="panel-head"><h2>Quick Count — Tap Any Item</h2></div>
-      <div class="inv-list" id="quick-list">
-        ${renderQuickList()}
-      </div>
+      <div class="inv-list" id="quick-list">${renderQuickList()}</div>
     </div>
   `;
+}
 
-  document.getElementById('scan-input')?.focus();
+function itemRow(r, sub) {
+  const counted = isCounted(r);
+  const left = remainingOf(r);
+  return `
+    <div class="inv-item" data-sku="${esc(r[0])}" onclick="openModal(this.dataset.sku)" style="cursor:pointer">
+      <div class="inv-name">${esc(r[1])}</div>
+      <div class="inv-sku">${esc(sub)}</div>
+      <div class="inv-counts">
+        <div class="inv-left ${stockClass(r)}">${left}</div>
+        <div class="inv-fraction">${!r[2] ? (counted ? 'older stock on hand' : 'older item · not counted') : counted ? `${soldOf(r)} sold · rcvd ${r[2]}` : `rcvd ${r[2]} · not counted`}</div>
+      </div>
+    </div>`;
 }
 
 function renderQuickList() {
-  // Show uncounted items first, then recently counted
-  const items = [...INVOICE].sort((a, b) => {
-    const aHas = scanCounts[a[0]] !== undefined;
-    const bHas = scanCounts[b[0]] !== undefined;
-    if (aHas && !bHas) return 1;
-    if (!aHas && bHas) return -1;
-    return 0;
-  }).slice(0, 30);
-
-  return items.map(r => {
-    const counted = scanCounts[r[0]];
-    const left = counted !== undefined ? counted.scanned : r[2];
-    const sold = r[2] - left;
-    const pct = left / r[2];
-    const cls = pct === 1 ? 'all' : pct > 0.3 ? 'some' : 'none';
-    return `
-      <div class="inv-item" onclick="openModal('${r[0]}')" style="cursor:pointer">
-        <div class="inv-name">${r[1]}</div>
-        <div class="inv-sku">${r[0]}</div>
-        <div class="inv-counts">
-          <div class="inv-left ${cls}">${left}</div>
-          <div class="inv-fraction">${counted ? `${sold} sold` : 'not counted'}</div>
-        </div>
-      </div>`;
-  }).join('') + `
+  if (!INVOICE.length) return '';
+  const rank = r => (isCounted(r) ? 2 : 0) + (r[2] > 0 ? 0 : 1);
+  const items = [...INVOICE].sort((a, b) => rank(a) - rank(b)).slice(0, 30);
+  return items.map(r => itemRow(r, r[0])).join('') + `
     <div class="inv-item" style="justify-content:center;cursor:pointer;color:var(--blue);font-size:13px" onclick="switchTab('inventory')">
       View all ${INVOICE.length} items →
     </div>`;
 }
 
-function renderInventory(main) {
-  const cats = ['All', ...new Set(INVOICE.map(r => r[5]))].sort();
-  let filtered = INVOICE.filter(r => {
-    const catOk = filterCat === 'All' || r[5] === filterCat;
-    const q = searchQuery.toLowerCase();
-    const searchOk = !q || r[0].toLowerCase().includes(q) || r[1].toLowerCase().includes(q);
-    return catOk && searchOk;
-  });
+const SPECIAL_FILTERS = {
+  '⚠ Low stock': isLow,
+  'Sold out': r => isCounted(r) && remainingOf(r) === 0,
+  'Not counted': r => !isCounted(r),
+  'This shipment': r => r[2] > 0,
+  'Older items': r => r[2] === 0,
+};
 
+function renderInventory(main) {
+  const cats = [...new Set(INVOICE.map(r => r[5]))].sort();
+  const chips = ['All', ...Object.keys(SPECIAL_FILTERS), ...cats];
   main.innerHTML = `
-    <input class="search-input" placeholder="Search SKU or description…" value="${searchQuery}" oninput="searchQuery=this.value;renderApp()">
+    <input class="search-input" id="inv-search" placeholder="Search SKU, barcode or description…" value="${esc(searchQuery)}" oninput="searchQuery=this.value;renderInvList()" autocomplete="off" autocorrect="off" spellcheck="false">
     <div class="filter-row">
-      ${cats.map(c => `<span class="filter-chip${filterCat===c?' active':''}" onclick="filterCat='${c}';renderApp()">${c}</span>`).join('')}
+      ${chips.map(c => `<span class="filter-chip${filterCat === c ? ' active' : ''}" data-c="${esc(c)}" onclick="filterCat=this.dataset.c;renderApp()">${esc(c)}</span>`).join('')}
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <select onchange="sortMode=this.value;renderInvList()" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--fg);font-size:13px">
+        <option value="default"${sortMode === 'default' ? ' selected' : ''}>Invoice order</option>
+        <option value="sold"${sortMode === 'sold' ? ' selected' : ''}>Most sold first</option>
+        <option value="left"${sortMode === 'left' ? ' selected' : ''}>Lowest stock first</option>
+        <option value="name"${sortMode === 'name' ? ' selected' : ''}>Name A–Z</option>
+      </select>
+      <button class="btn secondary btn-sm" onclick="exportCounts()">⬇ Export CSV</button>
     </div>
     <div class="panel">
-      <div class="panel-head"><h2>${filtered.length} items</h2></div>
-      <div class="inv-list">
-        ${filtered.map(r => {
-          const counted = scanCounts[r[0]];
-          const left = counted !== undefined ? counted.scanned : r[2];
-          const sold = r[2] - left;
-          const pct = left / r[2];
-          const cls = pct === 1 ? 'all' : pct > 0.3 ? 'some' : 'none';
-          return `
-            <div class="inv-item" onclick="openModal('${r[0]}')" style="cursor:pointer">
-              <div class="inv-name">${r[1]}</div>
-              <div class="inv-sku">${r[0]} · ${r[5]}</div>
-              <div class="inv-counts">
-                <div class="inv-left ${cls}">${left}</div>
-                <div class="inv-fraction">${counted ? `${sold} sold · rcvd ${r[2]}` : `rcvd ${r[2]}`}</div>
-              </div>
-            </div>`;
-        }).join('')}
-      </div>
+      <div class="panel-head"><h2 id="inv-count"></h2></div>
+      <div class="inv-list" id="inv-list"></div>
     </div>
   `;
+  renderInvList();
+}
+
+// Re-renders only the list so the search box keeps focus while typing
+function renderInvList() {
+  const q = searchQuery.toLowerCase().trim();
+  let filtered = INVOICE.filter(r => {
+    const catOk = filterCat === 'All' || (SPECIAL_FILTERS[filterCat] ? SPECIAL_FILTERS[filterCat](r) : r[5] === filterCat);
+    const searchOk = !q || String(r[0]).toLowerCase().includes(q) || String(r[1]).toLowerCase().includes(q) || String(r[6] || '').includes(q);
+    return catOk && searchOk;
+  });
+  if (sortMode === 'sold') filtered.sort((a, b) => soldOf(b) - soldOf(a));
+  else if (sortMode === 'left') filtered.sort((a, b) => remainingOf(a) - remainingOf(b));
+  else if (sortMode === 'name') filtered.sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  const countEl = document.getElementById('inv-count');
+  const listEl = document.getElementById('inv-list');
+  if (!countEl || !listEl) return;
+  countEl.textContent = `${filtered.length} item${filtered.length === 1 ? '' : 's'}`;
+  listEl.innerHTML = filtered.length
+    ? filtered.map(r => itemRow(r, `${r[0]} · ${r[5]}`)).join('')
+    : `<div class="inv-item" style="justify-content:center;color:var(--fg-muted);font-size:13px">No matching items</div>`;
 }
 
 function renderProfit(main) {
-  let totalCost = 0, totalRevenue = 0, totalSold = 0, totalUnits = 0;
+  let totalCost = 0, totalRevenue = 0, totalSold = 0, totalUnits = 0, cogsSold = 0, inventoryValue = 0;
   const catData = {};
-
   INVOICE.forEach(r => {
-    const counted = scanCounts[r[0]];
-    const left = counted !== undefined ? counted.scanned : r[2];
-    const sold = r[2] - left;
+    const sold = soldOf(r);
     totalUnits += r[2];
     totalCost += r[2] * r[3];
-    const soldRevenue = sold * r[4];
-    const soldCost = sold * r[3];
-    totalRevenue += soldRevenue;
+    totalRevenue += sold * r[4];
+    cogsSold += sold * r[3];
     totalSold += sold;
-
-    if (!catData[r[5]]) catData[r[5]] = {sold:0, revenue:0, cost:0, units:0};
+    inventoryValue += remainingOf(r) * r[3];
+    if (!catData[r[5]]) catData[r[5]] = { sold: 0, revenue: 0, cost: 0, units: 0 };
     catData[r[5]].sold += sold;
-    catData[r[5]].revenue += soldRevenue;
-    catData[r[5]].cost += soldCost;
+    catData[r[5]].revenue += sold * r[4];
+    catData[r[5]].cost += sold * r[3];
     catData[r[5]].units += r[2];
   });
-
-  const totalProfit = totalRevenue - (totalSold > 0 ? INVOICE.reduce((s,r)=>{
-    const counted = scanCounts[r[0]];
-    const left = counted !== undefined ? counted.scanned : r[2];
-    return s + (r[2]-left)*r[3];
-  },0) : 0);
-  const margin = totalRevenue > 0 ? (totalProfit/totalRevenue*100) : 0;
-  const inventoryValue = INVOICE.reduce((s,r)=>{
-    const counted = scanCounts[r[0]];
-    const left = counted !== undefined ? counted.scanned : r[2];
-    return s + left * r[3];
-  },0);
-
-  const countedCount = Object.keys(scanCounts).length;
+  const totalProfit = totalRevenue - cogsSold;
+  const margin = totalRevenue > 0 ? (totalProfit / totalRevenue * 100) : 0;
+  const countedCount = INVOICE.filter(isCounted).length;
 
   main.innerHTML = `
     <div class="kpi-grid">
-      <div class="kpi-card">
-        <div class="kpi-label">Gross Profit</div>
-        <div class="kpi-value ${totalProfit >= 0 ? 'green' : 'accent'}">${fmt(totalProfit)}</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Revenue</div>
-        <div class="kpi-value blue">${fmt(totalRevenue)}</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Margin</div>
-        <div class="kpi-value ${margin >= 50 ? 'green' : 'yellow'}">${margin.toFixed(0)}%</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Inv. Value Left</div>
-        <div class="kpi-value">${fmt(inventoryValue)}</div>
-      </div>
+      <div class="kpi-card"><div class="kpi-label">Gross Profit</div><div class="kpi-value ${totalProfit >= 0 ? 'green' : 'accent'}">${fmt(totalProfit)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Revenue</div><div class="kpi-value blue">${fmt(totalRevenue)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Margin</div><div class="kpi-value ${margin >= 50 ? 'green' : 'yellow'}">${margin.toFixed(0)}%</div></div>
+      <div class="kpi-card"><div class="kpi-label">Inv. Value Left</div><div class="kpi-value">${fmt(inventoryValue)}</div></div>
     </div>
 
     ${countedCount < INVOICE.length ? `
     <div class="notice">
       <strong>⚠️ Partial Count</strong>
-      ${countedCount} of ${INVOICE.length} SKUs counted. Uncounted items assumed at full received quantity. Scan more items for a more accurate profit figure.
+      ${countedCount} of ${INVOICE.length} SKUs counted. Uncounted items are assumed unsold, so profit is understated until everything is counted.
     </div>` : ''}
 
     <div class="panel">
-      <div class="panel-head"><h2>Invoice Summary</h2></div>
+      <div class="panel-head"><h2>Summary</h2></div>
       <div class="panel-body profit-section">
         <div class="profit-row"><span class="profit-label">Invoice Total (Cost)</span><span class="profit-val">${fmt(totalCost)}</span></div>
         <div class="profit-row"><span class="profit-label">Units Received</span><span class="profit-val">${totalUnits}</span></div>
         <div class="profit-row"><span class="profit-label">Units Sold (Est.)</span><span class="profit-val">${totalSold}</span></div>
-        <div class="profit-row"><span class="profit-label">COGS on Sold</span><span class="profit-val neg">${fmt(INVOICE.reduce((s,r)=>{const counted=scanCounts[r[0]];const left=counted!==undefined?counted.scanned:r[2];return s+(r[2]-left)*r[3];},0))}</span></div>
+        <div class="profit-row"><span class="profit-label">COGS on Sold</span><span class="profit-val neg">${fmt(cogsSold)}</span></div>
         <div class="profit-row"><span class="profit-label">Revenue on Sold</span><span class="profit-val pos">${fmt(totalRevenue)}</span></div>
         <div class="profit-row" style="border-top:2px solid var(--border);padding-top:12px;margin-top:4px"><span class="profit-label" style="font-weight:600;color:var(--fg)">Gross Profit</span><span class="profit-val pos" style="font-size:18px">${fmt(totalProfit)}</span></div>
       </div>
@@ -932,13 +1112,13 @@ function renderProfit(main) {
     <div class="panel">
       <div class="panel-head"><h2>By Category</h2></div>
       <div class="inv-list">
-        ${Object.entries(catData).sort((a,b)=>b[1].revenue-a[1].revenue).map(([cat, d]) => {
+        ${Object.entries(catData).sort((a, b) => b[1].revenue - a[1].revenue).map(([cat, d]) => {
           const p = d.revenue - d.cost;
           return `<div class="inv-item">
-            <div class="inv-name">${cat}</div>
+            <div class="inv-name">${esc(cat)}</div>
             <div class="inv-sku">${d.sold} sold · ${d.units} rcvd</div>
             <div class="inv-counts">
-              <div class="inv-left ${p>0?'some':'all'}" style="font-size:15px">${fmt(p)}</div>
+              <div class="inv-left ${p > 0 ? 'some' : 'all'}" style="font-size:15px">${fmt(p)}</div>
               <div class="inv-fraction">${fmt(d.revenue)} rev</div>
             </div>
           </div>`;
@@ -949,88 +1129,488 @@ function renderProfit(main) {
 }
 
 // =====================================================================
-// SCAN HANDLER
+// INVOICES TAB — upload spreadsheets to build the SKU list
+// =====================================================================
+let pendingImports = []; // [{name, sheet, rows, header, map}]
+let importMode = 'add';
+let importMarkup = 2.5;
+
+function renderInvoices(main) {
+  const units = INVOICE.reduce((s, r) => s + r[2], 0);
+  const cost = INVOICE.reduce((s, r) => s + r[2] * r[3], 0);
+  const links = Object.keys(barcodeMap).length;
+  const withUpc = INVOICE.filter(r => r[6]).length;
+
+  main.innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h2>Upload Invoices</h2></div>
+      <div class="panel-body" style="display:flex;flex-direction:column;gap:10px">
+        <p style="font-size:13px;color:var(--fg-muted);line-height:1.6">
+          Upload invoice spreadsheets (Excel or CSV). Columns are detected automatically and you can fix them before importing. Upload several at once to combine shipments.
+        </p>
+        <label class="btn" style="text-align:center;padding:14px;font-size:15px;cursor:pointer">
+          📄 Choose Invoice Files
+          <input type="file" multiple accept=".csv,.tsv,.txt,.xlsx,.xls,.xlsm,.ods,text/csv" style="display:none" onchange="handleInvoiceFiles(this.files);this.value=''">
+        </label>
+        <p style="font-size:12px;color:var(--fg-muted);line-height:1.5">PDF invoices can't be read here. Convert them to Excel or CSV first.</p>
+      </div>
+    </div>
+
+    <div id="import-area">${renderImportPreview()}</div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Current Item List</h2></div>
+      <div class="panel-body profit-section">
+        <div class="profit-row"><span class="profit-label">SKUs</span><span class="profit-val">${INVOICE.length}</span></div>
+        <div class="profit-row"><span class="profit-label">Units received</span><span class="profit-val">${units.toLocaleString()}</span></div>
+        <div class="profit-row"><span class="profit-label">Cost total</span><span class="profit-val">${fmt(cost)}</span></div>
+        <div class="profit-row"><span class="profit-label">Items with a barcode/UPC</span><span class="profit-val">${withUpc}</span></div>
+        <div class="profit-row"><span class="profit-label">Barcodes linked in app</span><span class="profit-val">${links}</span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Invoices Loaded</h2></div>
+      <div class="inv-list">
+        ${invoiceLog.length ? invoiceLog.map(e => `
+          <div class="inv-item">
+            <div class="inv-name">${esc(e.name)}</div>
+            <div class="inv-sku">${e.skus} SKUs · ${e.at ? formatDate(e.at) : ''}</div>
+            <div class="inv-counts">${e.catalog ? `<div class="inv-fraction">catalog only</div>` : `<div class="inv-left all" style="font-size:15px">${e.units}</div><div class="inv-fraction">${fmt(e.cost || 0)}</div>`}</div>
+          </div>`).join('') : `<div class="inv-item" style="justify-content:center;color:var(--fg-muted);font-size:13px">No invoices loaded</div>`}
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Tools</h2></div>
+      <div class="panel-body" style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn secondary" onclick="exportCounts()">⬇ Export counts (CSV)</button>
+        <button class="btn secondary" onclick="carryForward()">↪ Carry remaining stock into a new cycle</button>
+        <button class="btn secondary" onclick="clearBarcodeLinks()">Clear barcode links</button>
+        <button class="btn secondary" onclick="resetItemList()">Reset to built-in invoice</button>
+        <button class="btn secondary" style="color:var(--accent)" onclick="clearItemList()">Clear item list</button>
+      </div>
+    </div>
+  `;
+}
+
+const FIELD_DEFS = [
+  // [key, label, synonyms (best first)] — matched in this order
+  ['upc',    'Barcode / UPC',  ['upc', 'barcode', 'bar code', 'upc code', 'ean', 'gtin']],
+  ['retail', 'Retail price',   ['retail', 'retail price', 'msrp', 'srp', 'suggested retail', 'sell price', 'selling price']],
+  ['sku',    'SKU / Item #',   ['sku', 'item #', 'item#', 'item no', 'item number', 'item code', 'product code', 'model', 'model #', 'part #', 'part number', 'style', 'item', 'code']],
+  ['qty',    'Qty received',   ['qty shipped', 'shipped', 'ship qty', 'qty', 'quantity', 'units', 'qty ordered', 'ordered', 'pcs', 'count']],
+  ['cost',   'Unit cost',      ['unit cost', 'cost', 'unit price', 'price', 'each', 'wholesale', 'rate']],
+  ['desc',   'Description',    ['description', 'item description', 'product description', 'desc', 'product name', 'item name', 'product', 'name', 'title']],
+  ['cat',    'Category',       ['category', 'department', 'dept', 'cat', 'type', 'class', 'group']],
+];
+const MONEY_BLOCK = ['total', 'amount', 'ext', 'extended', 'subtotal', 'line'];
+
+function normH(s) { return String(s ?? '').toLowerCase().replace(/[^a-z0-9#]+/g, ' ').trim(); }
+
+function matchScore(h, syns) {
+  let best = 0;
+  syns.forEach((s, i) => {
+    const w = (syns.length - i) / syns.length / 2;
+    if (h === s) best = Math.max(best, 3 + w);
+    else if (h.startsWith(s + ' ') || h.endsWith(' ' + s)) best = Math.max(best, 2 + w);
+    else if (s.length > 2 && h.includes(s)) best = Math.max(best, 1 + w);
+  });
+  return best;
+}
+
+function mapHeaderRow(row) {
+  const heads = row.map(normH);
+  const map = {}; const used = new Set(); let found = 0;
+  FIELD_DEFS.forEach(([key, , syns]) => {
+    let bestCol = null, bestScore = 0;
+    heads.forEach((h, c) => {
+      if (!h || used.has(c)) return;
+      if (['cost', 'retail', 'qty'].includes(key) && MONEY_BLOCK.some(b => h.split(' ').includes(b))) return;
+      const sc = matchScore(h, syns);
+      if (sc > bestScore) { bestScore = sc; bestCol = c; }
+    });
+    map[key] = bestCol;
+    if (bestCol !== null) { used.add(bestCol); found++; }
+  });
+  return { map, found };
+}
+
+function detectColumns(rows) {
+  let best = { header: -1, map: {}, score: 0 };
+  for (let i = 0; i < Math.min(rows.length, 30); i++) {
+    const { map, found } = mapHeaderRow(rows[i] || []);
+    if (found > best.score) best = { header: i, map, score: found };
+  }
+  if (best.score < 2) {
+    best.header = -1;
+    FIELD_DEFS.forEach(([k]) => best.map[k] = null);
+  }
+  return best;
+}
+
+function ensureXLSX() {
+  if (window.XLSX) return Promise.resolve();
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = res;
+    s.onerror = () => rej(new Error('Could not load the spreadsheet reader. Check your connection.'));
+    document.head.appendChild(s);
+  });
+}
+
+async function handleInvoiceFiles(fileList) {
+  // Copy first: the input is cleared right after this call, which empties the live FileList
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  showToast('Reading files…');
+  try { await ensureXLSX(); } catch (e) { showToast(e.message, 'error'); return; }
+  for (const f of files) {
+    if (/\.pdf$/i.test(f.name)) { showToast(f.name + ': PDFs not supported — use Excel/CSV', 'error'); continue; }
+    try {
+      const buf = await f.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      let best = null;
+      wb.SheetNames.forEach(sn => {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: '', raw: true, blankrows: false });
+        const det = detectColumns(rows);
+        if (!best || det.score > best.score || (det.score === best.score && rows.length > best.rows.length)) best = { ...det, rows, sheet: sn };
+      });
+      if (best) pendingImports.push({ name: f.name.replace(/\.[^.]+$/, ''), sheet: best.sheet, rows: best.rows, header: best.header, map: best.map });
+    } catch (e) {
+      showToast('Could not read ' + f.name, 'error');
+    }
+  }
+  renderApp();
+  document.getElementById('import-area')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function toNum(v) {
+  if (typeof v === 'number') return v;
+  const n = parseFloat(String(v ?? '').replace(/[^0-9.\-]/g, ''));
+  return isNaN(n) ? NaN : n;
+}
+
+function parseImport(imp, allowZero = false) {
+  const m = imp.map;
+  const byKey = {}; const out = [];
+  for (let i = imp.header + 1; i < imp.rows.length; i++) {
+    const row = imp.rows[i] || [];
+    const g = f => (m[f] === null || m[f] === undefined) ? '' : row[m[f]];
+    let sku = normCode(g('sku'));
+    const desc = String(g('desc') ?? '').trim();
+    const upc = String(g('upc') ?? '').trim().replace(/\.0+$/, '');
+    if (!sku && !desc && !upc) continue;
+    if (/^(sub\s*)?total|^tax|^shipping|^freight|^discount|^balance/i.test(desc || sku)) continue;
+    const qty = (m.qty === null || m.qty === undefined) ? 1 : toNum(g('qty'));
+    if (isNaN(qty) || qty < 0 || (qty === 0 && !allowZero)) continue;
+    if (!sku) sku = upc ? normCode(upc) : desc.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 28);
+    let cost = toNum(g('cost')); if (isNaN(cost) || cost < 0) cost = 0;
+    let retail = toNum(g('retail'));
+    if (isNaN(retail) || retail <= 0) retail = cost > 0 ? Math.max(0.99, Math.ceil(cost * importMarkup) - 0.01) : 0;
+    const cat = String(g('cat') ?? '').trim() || 'Uncategorized';
+    if (byKey[sku]) { byKey[sku][2] += Math.round(qty); continue; }
+    const r = [sku, desc || sku, Math.round(qty), +cost.toFixed(2), +retail.toFixed(2), cat, upc];
+    byKey[sku] = r; out.push(r);
+  }
+  return out;
+}
+
+function colLabel(c) {
+  let s = ''; c++;
+  while (c > 0) { const m = (c - 1) % 26; s = String.fromCharCode(65 + m) + s; c = Math.floor((c - 1) / 26); }
+  return s;
+}
+
+function renderImportPreview() {
+  if (!pendingImports.length) return '';
+  const anyNoRetail = pendingImports.some(p => p.map.retail === null || p.map.retail === undefined);
+  return `
+    <div class="panel" style="border-color:var(--blue)">
+      <div class="panel-head"><h2>Review Before Importing</h2></div>
+      <div class="panel-body" style="display:flex;flex-direction:column;gap:14px">
+        ${pendingImports.map((imp, i) => {
+          const items = parseImport(imp, importMode === 'catalog');
+          const units = items.reduce((s, r) => s + r[2], 0);
+          const cost = items.reduce((s, r) => s + r[2] * r[3], 0);
+          const width = Math.max(0, ...imp.rows.slice(0, 50).map(r => (r || []).length));
+          const headRow = imp.rows[imp.header] || [];
+          const opts = sel => `<option value="">— none —</option>` + Array.from({ length: width }, (_, c) =>
+            `<option value="${c}"${sel === c ? ' selected' : ''}>${colLabel(c)}${imp.header >= 0 && headRow[c] !== '' ? ': ' + esc(String(headRow[c]).slice(0, 24)) : ''}</option>`).join('');
+          return `
+          <div style="border:1px solid var(--border);border-radius:10px;padding:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+              <div style="font-weight:600;color:var(--fg)">${esc(imp.name)}</div>
+              <button class="btn secondary btn-sm" onclick="pendingImports.splice(${i},1);renderApp()">Remove</button>
+            </div>
+            <div style="font-size:12px;color:var(--fg-muted);margin:4px 0 10px">Sheet "${esc(imp.sheet)}" · header row ${imp.header >= 0 ? imp.header + 1 : 'not found'} ·
+              <strong style="color:${items.length ? 'var(--green)' : 'var(--accent)'}">${items.length} items, ${units} units, ${fmt(cost)}</strong></div>
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;font-size:13px">
+              <span style="color:var(--fg-muted)">Header row</span>
+              <input type="number" min="0" value="${imp.header + 1}" onchange="setImportHeader(${i}, this.value)" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--fg);width:80px">
+              ${FIELD_DEFS.map(([k, label]) => `
+                <span style="color:var(--fg-muted)">${label}</span>
+                <select onchange="setImportMap(${i},'${k}',this.value)" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--fg);font-size:13px;min-width:0">${opts(imp.map[k])}</select>`).join('')}
+            </div>
+            ${items.length ? `
+            <div style="margin-top:10px;font-size:12px;color:var(--fg-muted)">First rows:</div>
+            <div style="overflow-x:auto"><table style="width:100%;font-size:12px;border-collapse:collapse;margin-top:4px">
+              <tr style="color:var(--fg-muted);text-align:left"><th style="padding:3px 6px">SKU</th><th style="padding:3px 6px">Description</th><th style="padding:3px 6px">Qty</th><th style="padding:3px 6px">Cost</th><th style="padding:3px 6px">Retail</th></tr>
+              ${items.slice(0, 5).map(r => `<tr style="border-top:1px solid var(--border)"><td style="padding:3px 6px;white-space:nowrap">${esc(r[0])}</td><td style="padding:3px 6px">${esc(String(r[1]).slice(0, 40))}</td><td style="padding:3px 6px">${r[2]}</td><td style="padding:3px 6px">${fmt(r[3])}</td><td style="padding:3px 6px">${fmt(r[4])}</td></tr>`).join('')}
+            </table></div>` : `<div style="margin-top:10px;font-size:13px;color:var(--accent)">No items found — set the header row and at least the Description or SKU column and the Qty column.</div>`}
+          </div>`;
+        }).join('')}
+
+        ${anyNoRetail ? `
+        <label style="font-size:13px;color:var(--fg-muted);display:flex;align-items:center;gap:8px">
+          No retail column — price items at cost ×
+          <input type="number" step="0.1" min="1" value="${importMarkup}" onchange="importMarkup=Math.max(1,parseFloat(this.value)||2.5);renderApp()" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--fg);width:70px">
+        </label>` : ''}
+
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
+          ${[['add', 'Add to stock', 'new shipment — quantities count as received'],
+             ['catalog', 'Catalog only', 'older invoice — adds items at qty 0 so leftover stock scans'],
+             ['replace', 'Replace list', 'start over with just these invoices']].map(([v, t, d]) => `
+          <label style="display:flex;gap:8px;align-items:flex-start;border:1px solid ${importMode === v ? 'var(--blue)' : 'var(--border)'};border-radius:8px;padding:8px 10px;cursor:pointer">
+            <input type="radio" name="imode" ${importMode === v ? 'checked' : ''} onchange="importMode='${v}';renderApp()" style="margin-top:2px">
+            <span><strong style="color:var(--fg)">${t}</strong><br><span style="color:var(--fg-muted);font-size:12px">${d}</span></span>
+          </label>`).join('')}
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn secondary" style="flex:1" onclick="pendingImports=[];renderApp()">Cancel</button>
+          <button class="btn green-btn" style="flex:2" onclick="commitImports()">Import ${pendingImports.length} invoice${pendingImports.length === 1 ? '' : 's'}</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function setImportMap(i, key, val) {
+  pendingImports[i].map[key] = val === '' ? null : parseInt(val, 10);
+  renderApp();
+}
+function setImportHeader(i, val) {
+  const imp = pendingImports[i];
+  const n = parseInt(val, 10) - 1;
+  imp.header = isNaN(n) ? -1 : Math.max(-1, Math.min(n, imp.rows.length - 1));
+  if (imp.header >= 0) {
+    const { map, found } = mapHeaderRow(imp.rows[imp.header] || []);
+    if (found >= 2) imp.map = map;
+  }
+  renderApp();
+}
+
+function commitImports() {
+  const catalog = importMode === 'catalog';
+  const parsed = pendingImports.map(imp => ({ imp, items: parseImport(imp, catalog) })).filter(p => p.items.length);
+  if (!parsed.length) { showToast('Nothing to import — check the column choices', 'error'); return; }
+
+  if (importMode === 'add' || catalog) {
+    const dupes = parsed.filter(p => invoiceLog.some(e => e.name === p.imp.name)).map(p => p.imp.name);
+    if (dupes.length && !confirm(`Already imported: ${dupes.join(', ')}.\nImporting again will add those quantities twice. Continue?`)) return;
+  } else if (!confirm('Replace the whole item list with these invoices?\nCounts for SKUs that are still on the list are kept.')) return;
+
+  const base = importMode === 'replace' ? [] : INVOICE.map(r => r.slice());
+  if (importMode === 'replace') invoiceLog = [];
+  const idx = {}; base.forEach((r, i) => idx[normCode(r[0])] = i);
+
+  parsed.forEach(({ imp, items }) => {
+    items.forEach(r => {
+      const k = normCode(r[0]);
+      if (catalog) {
+        if (k in idx) {
+          const b = base[idx[k]];
+          if (!b[3] && r[3]) b[3] = r[3];
+          if (!b[6] && r[6]) b[6] = r[6];
+        } else {
+          idx[k] = base.length;
+          base.push([r[0], r[1], 0, r[3], r[4], r[5], r[6]]);
+        }
+        return;
+      }
+      if (k in idx) {
+        const b = base[idx[k]];
+        b[2] += r[2];
+        if (r[3]) b[3] = r[3];
+        if (r[4]) b[4] = r[4];
+        if (r[1] && r[1] !== r[0]) b[1] = r[1];
+        if (r[5] && r[5] !== 'Uncategorized') b[5] = r[5];
+        if (r[6]) b[6] = r[6];
+      } else {
+        idx[k] = base.length;
+        base.push(r);
+      }
+    });
+    invoiceLog.push({
+      name: imp.name + (catalog ? ' (catalog only)' : ''), skus: items.length, catalog,
+      units: catalog ? 0 : items.reduce((s, r) => s + r[2], 0),
+      cost: catalog ? 0 : items.reduce((s, r) => s + r[2] * r[3], 0),
+      at: new Date().toISOString()
+    });
+  });
+
+  INVOICE = base;
+  saveItems();
+  rebuildIndex();
+  const n = parsed.reduce((s, p) => s + p.items.length, 0);
+  pendingImports = [];
+  showToast(`✓ Imported ${n} line items`, 'success');
+  renderApp();
+}
+
+function exportCounts() {
+  const head = ['SKU', 'UPC', 'Description', 'Category', 'Received', 'Remaining', 'Sold', 'Counted', 'Unit Cost', 'Retail', 'Revenue', 'Gross Profit'];
+  const lines = [head];
+  INVOICE.forEach(r => {
+    const sold = soldOf(r);
+    lines.push([r[0], r[6] || '', r[1], r[5], r[2], remainingOf(r), sold, isCounted(r) ? 'yes' : 'no',
+      r[3], r[4], (sold * r[4]).toFixed(2), (sold * (r[4] - r[3])).toFixed(2)]);
+  });
+  const csv = lines.map(l => l.map(v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'popcorn-inventory-' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+
+function carryForward() {
+  const counted = INVOICE.filter(isCounted).length;
+  if (!confirm(`Close this cycle?\nEach item's remaining count (${counted} of ${INVOICE.length} counted; uncounted keep their current qty) becomes its new starting stock, and counts are cleared. Then add your next invoice on top.`)) return;
+  INVOICE.forEach(r => { r[2] = remainingOf(r); });
+  invoiceLog = [{ name: 'Carried-forward stock', skus: INVOICE.length, units: INVOICE.reduce((s, r) => s + r[2], 0), cost: INVOICE.reduce((s, r) => s + r[2] * r[3], 0), at: new Date().toISOString() }];
+  scanCounts = {};
+  cycleStart = new Date().toISOString();
+  saveItems(); saveToStorage(); rebuildIndex();
+  showToast('New cycle started from remaining stock', 'success');
+  renderApp();
+}
+function clearBarcodeLinks() {
+  if (!confirm('Remove all barcodes you linked to items in the app?')) return;
+  barcodeMap = {}; saveBarcodes(); rebuildIndex(); renderApp();
+}
+function resetItemList() {
+  if (!confirm('Go back to the built-in invoice list? Uploaded invoices are removed (counts are kept).')) return;
+  INVOICE = DEFAULT_INVOICE.map(r => r.slice());
+  invoiceLog = DEFAULT_LOG.map(e => ({ ...e }));
+  lsDel(LS_ITEMS); lsDel(LS_INVOICES); rebuildIndex(); renderApp();
+}
+function clearItemList() {
+  if (!confirm('Empty the item list so you can start fresh from your own invoices?')) return;
+  INVOICE = []; invoiceLog = [];
+  saveItems(); rebuildIndex(); renderApp();
+}
+
+// =====================================================================
+// SCAN HANDLER (typed)
 // =====================================================================
 function handleScan() {
   const input = document.getElementById('scan-input');
-  const raw = input.value.trim().toUpperCase();
+  const raw = normCode(input.value);
   if (!raw) return;
-
-  const item = skuMap[raw];
+  const item = lookupCode(raw);
   const fb = document.getElementById('scan-feedback');
-
   if (!item) {
     fb.className = 'scan-feedback visible not-found';
-    fb.innerHTML = `<div class="fb-sku">${raw}</div><div class="fb-name">SKU not found in invoice</div><div style="font-size:13px;color:var(--fg-muted)">Check the barcode or tap an item below to count manually.</div>`;
+    fb.innerHTML = `<div class="fb-sku">${esc(raw)}</div><div class="fb-name">Not on your invoices</div>
+      <button class="btn btn-sm" style="margin-top:8px" data-code="${esc(raw)}" onclick="openLinkPicker(this.dataset.code)">Link this code to an item</button>`;
     return;
   }
-
   input.value = '';
+  fb.className = 'scan-feedback';
   openModal(item.sku);
 }
 
 // =====================================================================
-// MODAL
+// COUNT MODAL
 // =====================================================================
-function openModal(sku) {
-  const item = skuMap[sku.toUpperCase()];
-  if (!item) return;
-  modalItem = item;
-  const counted = scanCounts[sku];
-  modalQty = counted !== undefined ? counted.scanned : item.qty;
+const MODAL_SHEET_HTML = `
+  <div class="modal-sku-label" id="modal-sku"></div>
+  <div class="modal-desc" id="modal-desc"></div>
+  <div class="qty-editor">
+    <button class="qty-btn" onclick="adjustQty(-1)">−</button>
+    <div class="qty-display" id="qty-display" onclick="typeQty()" style="cursor:pointer" title="Tap to type a number">0</div>
+    <button class="qty-btn" onclick="adjustQty(1)">+</button>
+  </div>
+  <div style="text-align:center;font-size:11px;color:var(--fg-muted);margin-top:-6px;margin-bottom:8px">Tap the number to type it</div>
+  <div id="modal-info"></div>
+  <div style="display:flex;gap:8px;margin-top:16px">
+    <button class="btn secondary" style="flex:1" onclick="closeModal()">Cancel</button>
+    <button class="btn green-btn" style="flex:1" id="save-btn" onclick="saveQty()">Save Count</button>
+  </div>`;
 
+function restoreModalSheet() {
+  document.querySelector('#modal .modal-sheet').innerHTML = MODAL_SHEET_HTML;
+}
+
+function openModal(sku) {
+  const item = lookupCode(sku);
+  if (!item) return;
+  restoreModalSheet();
+  modalItem = item;
+  const counted = scanCounts[item.sku];
+  modalQty = counted !== undefined ? counted.scanned : item.qty;
   document.getElementById('modal-sku').textContent = item.sku + ' · ' + item.cat;
   document.getElementById('modal-desc').textContent = item.desc;
-  document.getElementById('qty-display').textContent = modalQty;
-
-  const sold = item.qty - modalQty;
-  const revenue = sold * item.retail;
-  const profit = revenue - sold * item.cost;
-  document.getElementById('modal-info').innerHTML = `
-    <div class="modal-info-row"><span class="label">Received</span><span>${item.qty} units</span></div>
-    <div class="modal-info-row"><span class="label">Estimated Sold</span><span style="color:var(--green)">${sold} units</span></div>
-    <div class="modal-info-row"><span class="label">Cost Each</span><span>${fmt(item.cost)}</span></div>
-    <div class="modal-info-row"><span class="label">Retail Price</span><span>${fmt(item.retail)}</span></div>
-    <div class="modal-info-row"><span class="label">Revenue (sold)</span><span style="color:var(--blue)">${fmt(revenue)}</span></div>
-    <div class="modal-info-row"><span class="label">Gross Profit</span><span style="color:var(--green)">${fmt(profit)}</span></div>
-  `;
-
+  refreshModalInfo();
   document.getElementById('modal').classList.add('open');
+}
+
+function refreshModalInfo() {
+  const it = modalItem;
+  document.getElementById('qty-display').textContent = modalQty;
+  const sold = Math.max(0, it.qty - modalQty);
+  const revenue = sold * it.retail;
+  const profit = revenue - sold * it.cost;
+  document.getElementById('modal-info').innerHTML = `
+    <div class="modal-info-row"><span class="label">Received</span><span>${it.qty} units</span></div>
+    <div class="modal-info-row"><span class="label">Remaining (your count)</span><span>${modalQty} units</span></div>
+    <div class="modal-info-row"><span class="label">Sold</span><span style="color:var(--green)">${sold} units</span></div>
+    ${modalQty > it.qty ? `<div class="modal-info-row"><span class="label">Extra on hand</span><span style="color:var(--yellow)">+${modalQty - it.qty} (older stock?)</span></div>` : ''}
+    <div class="modal-info-row"><span class="label">Cost / Retail</span><span>${fmt(it.cost)} / <a href="#" onclick="editRetail();return false" style="color:var(--blue)">${fmt(it.retail)} ✎</a></span></div>
+    <div class="modal-info-row"><span class="label">Revenue (sold)</span><span style="color:var(--blue)">${fmt(revenue)}</span></div>
+    <div class="modal-info-row"><span class="label">Gross Profit</span><span style="color:var(--green)">${fmt(profit)}</span></div>`;
+}
+
+function editRetail() {
+  if (!modalItem) return;
+  const v = prompt(`Retail price for "${modalItem.desc}"`, modalItem.retail.toFixed(2));
+  if (v === null) return;
+  const n = toNum(v);
+  if (isNaN(n) || n < 0) return;
+  const row = INVOICE[modalItem.idx];
+  row[4] = +n.toFixed(2);
+  modalItem.retail = row[4];
+  saveItems();
+  refreshModalInfo();
 }
 
 function adjustQty(delta) {
   if (!modalItem) return;
-  modalQty = Math.max(0, Math.min(modalItem.qty, modalQty + delta));
-  document.getElementById('qty-display').textContent = modalQty;
+  modalQty = Math.max(0, modalQty + delta);
+  refreshModalInfo();
+}
 
-  const sold = modalItem.qty - modalQty;
-  const revenue = sold * modalItem.retail;
-  const profit = revenue - sold * modalItem.cost;
-  document.getElementById('modal-info').innerHTML = `
-    <div class="modal-info-row"><span class="label">Received</span><span>${modalItem.qty} units</span></div>
-    <div class="modal-info-row"><span class="label">Estimated Sold</span><span style="color:var(--green)">${sold} units</span></div>
-    <div class="modal-info-row"><span class="label">Cost Each</span><span>${fmt(modalItem.cost)}</span></div>
-    <div class="modal-info-row"><span class="label">Retail Price</span><span>${fmt(modalItem.retail)}</span></div>
-    <div class="modal-info-row"><span class="label">Revenue (sold)</span><span style="color:var(--blue)">${fmt(revenue)}</span></div>
-    <div class="modal-info-row"><span class="label">Gross Profit</span><span style="color:var(--green)">${fmt(profit)}</span></div>
-  `;
+function typeQty() {
+  if (!modalItem) return;
+  const v = prompt(`How many "${modalItem.desc}" are left on the shelf?`, modalQty);
+  if (v === null) return;
+  const n = parseInt(v, 10);
+  if (isNaN(n) || n < 0) return;
+  modalQty = n;
+  refreshModalInfo();
 }
 
 async function saveQty() {
   if (!modalItem) return;
   const sku = modalItem.sku;
   scanCounts[sku] = { scanned: modalQty, updatedAt: new Date().toISOString() };
-
   saveToStorage();
-
-  if (db) {
-    try {
-      await db.doc('scans/' + sku).set({ scanned: modalQty, updatedAt: new Date().toISOString() });
-    } catch(e) {}
-  }
-
+  if (db) { try { await db.doc('scans/' + sku).set(scanCounts[sku]); } catch (e) {} }
+  const left = modalQty;
   closeModal();
-  showToast(`✓ ${sku}: ${modalQty} remaining`, 'success');
+  showToast(`✓ ${sku}: ${left} remaining`, 'success');
   renderApp();
 }
 
@@ -1040,10 +1620,52 @@ function closeModal() {
 }
 
 // =====================================================================
+// LINK BARCODE → ITEM
+// =====================================================================
+let linkCode = null;
+
+function openLinkPicker(code) {
+  linkCode = normCode(code);
+  document.getElementById('link-code').textContent = linkCode;
+  document.getElementById('link-search').value = '';
+  renderLinkList();
+  document.getElementById('link-modal').classList.add('open');
+}
+
+function renderLinkList() {
+  const q = (document.getElementById('link-search').value || '').toLowerCase().trim();
+  const list = INVOICE.filter(r => !q || String(r[0]).toLowerCase().includes(q) || String(r[1]).toLowerCase().includes(q)).slice(0, 80);
+  document.getElementById('link-list').innerHTML = list.length
+    ? list.map(r => `
+      <div class="inv-item" data-sku="${esc(r[0])}" onclick="linkCodeTo(this.dataset.sku)" style="cursor:pointer">
+        <div class="inv-name">${esc(r[1])}</div>
+        <div class="inv-sku">${esc(r[0])}${r[6] ? ' · has UPC' : ''}</div>
+      </div>`).join('')
+    : `<div class="inv-item" style="justify-content:center;color:var(--fg-muted);font-size:13px">No matching items</div>`;
+}
+
+function linkCodeTo(sku) {
+  if (!linkCode) return;
+  barcodeMap[linkCode] = sku;
+  saveBarcodes();
+  rebuildIndex();
+  closeLinkPicker();
+  const item = skuMap[normCode(sku)];
+  showToast(`🔗 Linked to ${item.sku}`, 'success');
+  if (batchMode) { recordBatch(item); renderApp(); openCamera(); }
+  else openModal(item.sku);
+}
+
+function closeLinkPicker() {
+  document.getElementById('link-modal').classList.remove('open');
+  linkCode = null;
+}
+
+// =====================================================================
 // CYCLE RESET
 // =====================================================================
 async function resetCycle() {
-  if (!confirm('Start a new inventory cycle? This clears all scan counts.')) return;
+  if (!confirm('Start a new count cycle? This clears all counts (the item list stays).')) return;
   scanCounts = {};
   cycleStart = new Date().toISOString();
   saveToStorage();
@@ -1052,14 +1674,14 @@ async function resetCycle() {
       const snap = await db.collection('scans').get();
       for (const d of snap.docs) await db.doc('scans/' + d.id).delete();
       await db.doc('cycle/current').set({ startDate: cycleStart });
-    } catch(e) {}
+    } catch (e) {}
   }
   showToast('New cycle started', 'success');
   renderApp();
 }
 
 // =====================================================================
-// TABS
+// TABS / UTILS
 // =====================================================================
 function switchTab(tab) {
   currentTab = tab;
@@ -1068,129 +1690,235 @@ function switchTab(tab) {
   renderApp();
 }
 
-// =====================================================================
-// UTILS
-// =====================================================================
-function fmt(n) { return '$' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+function fmt(n) { return (n < 0 ? '-$' : '$') + Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
 function formatDate(iso) {
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'});
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 let toastTimer;
-function showToast(msg, type='') {
+function showToast(msg, type = '') {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.className = 'toast show ' + type;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
 }
 
 // =====================================================================
-// CAMERA SCANNER — ZXing (Google barcode library, solid iOS Chrome/Safari)
-// Direct getUserMedia → video element → canvas frame capture loop
-// No web workers, no Quagga — clean and reliable on iOS
+// CAMERA SCANNER — getUserMedia → <video> → canvas → ZXing
 // =====================================================================
 let cameraActive = false;
 let lastScannedSku = null;
 let scanLoopId = null;
 let camStream = null;
 let zxingReader = null;
+let camSession = 0;
 
-function setStatus(msg) {
-  document.getElementById('cam-status').textContent = msg;
+function setStatus(msg) { document.getElementById('cam-status').textContent = msg; }
+
+function detectBrowser() {
+  const ua = navigator.userAgent;
+  const iOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (/CriOS/.test(ua)) return 'chrome';
+  if (/FxiOS|EdgiOS/.test(ua)) return 'other-ios';
+  if (iOS) return /Safari\//.test(ua) ? 'safari' : 'inapp'; // in-app web views omit "Safari/"
+  if (/Android/.test(ua)) return /; wv\)/.test(ua) ? 'inapp' : 'android';
+  return 'desktop';
+}
+
+function blockedHelp() {
+  switch (detectBrowser()) {
+    case 'inapp':
+      return `You're in an app's built-in browser (Claude, Instagram, Gmail…), which can't use the camera. Tap the <b>⋯</b> or share button and choose <b>Open in Safari</b>.`;
+    case 'chrome':
+      return `Open iPhone <b>Settings → Apps → Chrome → Camera</b> and turn it ON, then reload this page.`;
+    case 'safari':
+      return `Tap <b>aA</b> in the address bar → <b>Website Settings → Camera → Allow</b>, then reload.<br>Still blocked? Check iPhone <b>Settings → Apps → Safari → Camera</b> is set to Ask or Allow.`;
+    case 'android':
+      return `Tap the icon left of the address → <b>Permissions → Camera → Allow</b>, then reload.`;
+    default:
+      return `Allow camera access for this site in your browser settings, then reload.`;
+  }
+}
+
+function envIssue() {
+  let framed = false;
+  try { framed = window.self !== window.top; } catch (e) { framed = true; }
+  if (framed) return `This is an embedded preview, which blocks the camera. Open <b>pop941.github.io/PopCornBeauty/scanner-standalone.html</b> directly in Safari or Chrome.`;
+  if (!window.isSecureContext) return `The camera only works on an <b>https://</b> address.`;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    return detectBrowser() === 'inapp' ? blockedHelp() : `This browser doesn't support the live camera. Use the photo option instead.`;
+  }
+  return null;
+}
+
+function hideCamHelp() {
+  const el = document.getElementById('cam-help');
+  el.style.display = 'none'; el.innerHTML = '';
+}
+
+function showCamHelp(title, html, detail, canRetry = true) {
+  const el = document.getElementById('cam-help');
+  el.innerHTML = `
+    <div style="font-weight:600;color:var(--fg);margin-bottom:4px">${title}</div>
+    <div>${html}</div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      ${canRetry ? `<button class="btn secondary btn-sm" style="flex:1" onclick="openCamera()">↻ Try again</button>` : ''}
+      <button class="btn btn-sm" style="flex:1" onclick="takePhoto()">📸 Use a photo instead</button>
+    </div>
+    ${detail ? `<div style="font-size:11px;color:var(--fg-muted);margin-top:8px">Error: ${esc(detail)}</div>` : ''}`;
+  el.style.display = 'block';
+}
+
+async function getCameraStream() {
+  const attempts = [
+    { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+    { video: { facingMode: 'environment' }, audio: false },
+    { video: true, audio: false },
+  ];
+  let lastErr;
+  for (const c of attempts) {
+    try { return await navigator.mediaDevices.getUserMedia(c); }
+    catch (e) {
+      lastErr = e;
+      // A permission refusal won't change with different constraints
+      if (['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(e?.name)) throw e;
+    }
+  }
+  throw lastErr;
+}
+
+function handleCamError(e) {
+  const n = e?.name || 'Error';
+  const detail = n + (e?.message ? ': ' + e.message : '');
+  if (['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(n)) {
+    setStatus('Camera permission is off');
+    showCamHelp('Camera permission is off for this site', blockedHelp(), detail);
+  } else if (n === 'NotFoundError' || n === 'OverconstrainedError') {
+    setStatus('No camera found');
+    showCamHelp('No camera found', `This device didn't report a usable camera.`, detail);
+  } else if (n === 'NotReadableError' || n === 'AbortError') {
+    setStatus('Camera is busy');
+    showCamHelp('Camera is busy', `Another app or tab is using the camera (FaceTime, another browser tab). Close it and try again.`, detail);
+  } else {
+    setStatus('Camera couldn’t start');
+    showCamHelp('Camera couldn’t start', `Reload the page and try again.`, detail);
+  }
+  showManualEntry();
 }
 
 async function openCamera() {
-  // Stop any previous instance first
   _stopCameraInternal();
-
+  const session = ++camSession;
   document.getElementById('camera-modal').classList.add('open');
-  setStatus(batchMode ? '📦 Batch — starting camera…' : 'Starting camera…');
   document.getElementById('cam-result-bar').style.display = 'none';
+  document.getElementById('cam-tap').style.display = 'none';
+  hideCamHelp();
+  setStatus(batchMode ? '📦 Batch — starting camera…' : 'Starting camera…');
   lastScannedSku = null;
-  cameraActive = true;
   updateBatchCounter();
 
+  const issue = envIssue();
+  if (issue) {
+    setStatus('Camera not available here');
+    showCamHelp('Live camera can’t run here', issue, '', false);
+    showManualEntry();
+    return;
+  }
+
+  let stream;
+  try { stream = await getCameraStream(); }
+  catch (e) { if (session === camSession) handleCamError(e); return; }
+
+  // Closed or restarted while the permission prompt was up
+  if (session !== camSession) { stream.getTracks().forEach(t => t.stop()); return; }
+
+  camStream = stream;
+  cameraActive = true;
   const video = document.getElementById('zxing-video');
+  video.muted = true;
+  video.setAttribute('playsinline', '');
+  video.srcObject = stream;
+
   try {
-    camStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' } },
-      audio: false
-    });
-    video.srcObject = camStream;
     await video.play();
     setStatus(batchMode ? '📦 BATCH — point at barcode' : 'Hold barcode in the red box');
-    startZXingScan(video);
-  } catch(e) {
-    const n = e?.name || '';
-    if (n === 'NotAllowedError' || n === 'PermissionDeniedError') {
-      setStatus('Camera blocked — iPhone Settings → Chrome → Camera → ON');
-    } else {
-      setStatus('Camera error — type SKU manually below');
-    }
-    showManualEntry();
+  } catch (e) {
+    // Permission was granted but iOS refused to autoplay (common in Low Power Mode).
+    // A tap counts as a user gesture and lets the video play.
+    setStatus('Camera allowed — tap the preview to start');
+    document.getElementById('cam-tap').style.display = 'block';
   }
+  startZXingScan(video);
+}
+
+function tapToStartVideo() {
+  const video = document.getElementById('zxing-video');
+  video.play().then(() => {
+    document.getElementById('cam-tap').style.display = 'none';
+    setStatus(batchMode ? '📦 BATCH — point at barcode' : 'Hold barcode in the red box');
+  }).catch(e => {
+    document.getElementById('cam-tap').style.display = 'none';
+    handleCamError(e);
+  });
+}
+
+function makeReader() {
+  const hints = new Map();
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+    ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39, ZXing.BarcodeFormat.EAN_13,
+    ZXing.BarcodeFormat.EAN_8, ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E,
+    ZXing.BarcodeFormat.CODABAR, ZXing.BarcodeFormat.ITF, ZXing.BarcodeFormat.QR_CODE,
+  ]);
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+  const r = new ZXing.MultiFormatReader();
+  r.setHints(hints);
+  return r;
+}
+
+function decodeCanvas(reader, canvas) {
+  try {
+    const res = reader.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(canvas))));
+    const txt = res ? normCode(res.getText()) : '';
+    return txt.length >= 3 ? txt : null;
+  } catch (e) { return null; } // NotFoundException = no barcode in this frame
 }
 
 function startZXingScan(video) {
   if (typeof ZXing === 'undefined') {
-    setStatus('Scanner loading… try again in a moment');
-    setTimeout(() => startZXingScan(video), 1000);
+    setStatus('Scanner loading… one moment');
+    setTimeout(() => { if (cameraActive) startZXingScan(video); }, 1000);
     return;
   }
-
-  const hints = new Map();
-  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-    ZXing.BarcodeFormat.CODE_128,
-    ZXing.BarcodeFormat.CODE_39,
-    ZXing.BarcodeFormat.EAN_13,
-    ZXing.BarcodeFormat.EAN_8,
-    ZXing.BarcodeFormat.UPC_A,
-    ZXing.BarcodeFormat.UPC_E,
-    ZXing.BarcodeFormat.CODABAR,
-    ZXing.BarcodeFormat.ITF,
-    ZXing.BarcodeFormat.QR_CODE,
-  ]);
-  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-  zxingReader = new ZXing.MultiFormatReader();
-  zxingReader.setHints(hints);
-
+  zxingReader = makeReader();
   const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  let lastCode = null;
-  let matchCount = 0;
-  let frame = 0;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  let lastCode = null, matchCount = 0, frame = 0, attempt = 0;
 
   function tick() {
     if (!cameraActive) return;
-    frame++;
-    if (frame % 3 !== 0) { scanLoopId = requestAnimationFrame(tick); return; }
-    if (video.readyState < video.HAVE_ENOUGH_DATA) { scanLoopId = requestAnimationFrame(tick); return; }
-
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    try {
-      const lum = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
-      const bin = new ZXing.HybridBinarizer(lum);
-      const bmp = new ZXing.BinaryBitmap(bin);
-      const result = zxingReader.decode(bmp);
-      if (result) {
-        const raw = (result.getText() || '').trim().toUpperCase();
-        if (raw && raw.length >= 3) {
-          if (raw === lastCode) { matchCount++; } else { lastCode = raw; matchCount = 1; }
-          const threshold = batchMode ? 1 : 2;
-          if (matchCount >= threshold && raw !== lastScannedSku) {
-            matchCount = 0;
-            handleBarcode(raw);
-          }
-        }
-      }
-    } catch(e) { /* NotFoundException is normal — no barcode in frame */ }
-
     scanLoopId = requestAnimationFrame(tick);
+    if (++frame % 3 !== 0) return;
+    if (video.readyState < video.HAVE_ENOUGH_DATA || !video.videoWidth) return;
+
+    const vw = video.videoWidth, vh = video.videoHeight;
+    // Alternate: centre band (where the red box is, faster) and the full frame
+    const full = (++attempt % 3 === 0);
+    const sw = full ? vw : Math.round(vw * 0.9), sh = full ? vh : Math.round(vh * 0.5);
+    const sx = (vw - sw) / 2, sy = (vh - sh) / 2;
+    const scale = Math.min(1, 1000 / sw);
+    canvas.width = Math.round(sw * scale);
+    canvas.height = Math.round(sh * scale);
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+
+    const raw = decodeCanvas(zxingReader, canvas);
+    if (!raw) return;
+    if (raw === lastCode) matchCount++; else { lastCode = raw; matchCount = 1; }
+    const threshold = batchMode ? 1 : 2;
+    if (matchCount >= threshold && raw !== lastScannedSku) {
+      matchCount = 0;
+      handleBarcode(raw);
+    }
   }
   scanLoopId = requestAnimationFrame(tick);
 }
@@ -1202,27 +1930,27 @@ function showManualEntry() {
   row.id = 'cam-manual-row';
   row.style.cssText = 'padding:10px 16px;display:flex;gap:8px';
   row.innerHTML = `
-    <input id="cam-manual-input" type="text" placeholder="Type or scan SKU…"
+    <input id="cam-manual-input" type="text" placeholder="Type SKU or barcode…"
       style="flex:1;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;font-size:16px;color:var(--fg);outline:none"
       autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
-    <button class="btn" onclick="submitManualScan()" style="padding:10px 14px">Go</button>
-  `;
+    <button class="btn" onclick="submitManualScan()" style="padding:10px 14px">Go</button>`;
   camVideo.parentElement.insertBefore(row, camVideo.nextSibling);
-  row.querySelector('input').addEventListener('keydown', e => { if(e.key==='Enter') submitManualScan(); });
-  setTimeout(() => document.getElementById('cam-manual-input')?.focus(), 300);
+  row.querySelector('input').addEventListener('keydown', e => { if (e.key === 'Enter') submitManualScan(); });
 }
 
 function submitManualScan() {
   const input = document.getElementById('cam-manual-input');
   if (!input) return;
-  const raw = input.value.trim().toUpperCase();
+  const raw = normCode(input.value);
   if (!raw) return;
   input.value = '';
+  lastScannedSku = null;
   handleBarcode(raw);
 }
 
 function _stopCameraInternal() {
   cameraActive = false;
+  camSession++;
   if (scanLoopId) { cancelAnimationFrame(scanLoopId); scanLoopId = null; }
   if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
   const video = document.getElementById('zxing-video');
@@ -1231,85 +1959,119 @@ function _stopCameraInternal() {
   lastScannedSku = null;
 }
 
-
-
-function submitManualScan() {
-  const input = document.getElementById('cam-manual-input');
-  if (!input) return;
-  const raw = input.value.trim().toUpperCase();
-  if (!raw) return;
-  input.value = '';
-  handleBarcode(raw);
+function recordBatch(item) {
+  const q = scanCounts[item.sku]?.scanned ?? item.qty;
+  scanCounts[item.sku] = { scanned: q, updatedAt: new Date().toISOString() };
+  saveToStorage();
+  if (!batchLog.some(e => e.sku === item.sku)) batchLog.push({ sku: item.sku, desc: item.desc, qty: q, time: new Date() });
+  updateBatchCounter();
+  return q;
 }
 
 function handleBarcode(raw) {
   if (raw === lastScannedSku) return;
   lastScannedSku = raw;
-
-  const item = skuMap[raw];
+  const item = lookupCode(raw);
   const bar = document.getElementById('cam-result-bar');
+  bar.onclick = null;
+  bar.style.cursor = '';
 
   if (item) {
+    bar.style.display = 'block';
+    bar.style.background = 'rgba(63,185,80,.92)';
     if (batchMode) {
-      // BATCH MODE: auto-record at full received quantity, stay in camera
-      const existingQty = scanCounts[raw]?.scanned ?? item.qty;
-      scanCounts[raw] = { scanned: existingQty, updatedAt: new Date().toISOString() };
-      saveToStorage();
-
-      // Add to batch log (avoid duplicate entries for same SKU)
-      const existing = batchLog.findIndex(e => e.sku === raw);
-      if (existing === -1) {
-        batchLog.push({ sku: raw, desc: item.desc, qty: existingQty, time: new Date() });
-      }
-
-      // Flash the result bar green
-      bar.textContent = '✓ ' + raw + ' — ' + item.desc + ' (' + existingQty + ' units)';
-      bar.style.display = 'block';
-      bar.style.background = 'rgba(63,185,80,.92)';
-      updateBatchCounter();
-
-      // Auto-clear bar after 1.5s so next scan is clean
+      const q = recordBatch(item);
+      bar.textContent = '✓ ' + item.sku + ' — ' + item.desc + ' (' + q + ' units)';
       setTimeout(() => {
-        if (!cameraActive) return;
+        if (!cameraActive || lastScannedSku !== raw) return;
         lastScannedSku = null;
         bar.style.display = 'none';
         setStatus('📦 BATCH MODE — scan next item');
       }, 1500);
     } else {
-      // NORMAL MODE: open count modal
-      bar.textContent = '✓ ' + raw + ' — ' + item.desc;
-      bar.style.display = 'block';
-      bar.style.background = 'rgba(63,185,80,.92)';
+      bar.textContent = '✓ ' + item.sku + ' — ' + item.desc;
       setStatus('Found! Opening count…');
-      setTimeout(() => { stopCamera(); openModal(raw); }, 600);
+      setTimeout(() => { stopCamera(); openModal(item.sku); }, 600);
     }
   } else {
-    bar.textContent = '⚠ ' + raw + ' — not in this invoice';
+    bar.textContent = '⚠ ' + raw + ' — not on invoices. Tap here to link it';
     bar.style.display = 'block';
-    bar.style.background = 'rgba(210,153,34,.92)';
-    setStatus('Not found — try next item');
+    bar.style.background = 'rgba(210,153,34,.95)';
+    bar.style.cursor = 'pointer';
+    bar.onclick = () => { stopCamera(); openLinkPicker(raw); };
+    setStatus('Unknown barcode — tap the bar to link it');
     setTimeout(() => {
-      if (!cameraActive) return;
+      if (!cameraActive || lastScannedSku !== raw) return;
       lastScannedSku = null;
       bar.style.display = 'none';
+      bar.onclick = null;
       setStatus(batchMode ? '📦 BATCH MODE — scan next item' : 'Point camera at a barcode');
-    }, 2000);
+    }, 4000);
   }
 }
 
+// ---------- Photo fallback (works where the live camera is blocked) ----------
+function takePhoto() {
+  stopCamera();
+  document.getElementById('photo-input').click();
+}
+
+function loadImage(file) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => { res(im); URL.revokeObjectURL(url); };
+    im.onerror = () => { rej(new Error('bad image')); URL.revokeObjectURL(url); };
+    im.src = url;
+  });
+}
+
+function decodeImage(img) {
+  const reader = makeReader();
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  const W = img.naturalWidth, H = img.naturalHeight;
+  for (const maxSide of [1400, 900, 2200]) {
+    const s = Math.min(1, maxSide / Math.max(W, H));
+    const w = Math.round(W * s), h = Math.round(H * s);
+    for (const rot of [0, 90]) {
+      if (rot === 0) { c.width = w; c.height = h; ctx.drawImage(img, 0, 0, w, h); }
+      else { c.width = h; c.height = w; ctx.save(); ctx.translate(h, 0); ctx.rotate(Math.PI / 2); ctx.drawImage(img, 0, 0, w, h); ctx.restore(); }
+      const code = decodeCanvas(reader, c);
+      if (code) return code;
+    }
+  }
+  return null;
+}
+
+async function decodePhoto(file) {
+  if (!file) return;
+  if (typeof ZXing === 'undefined') { showToast('Scanner still loading — try again', 'error'); return; }
+  showToast('Reading barcode…');
+  let img;
+  try { img = await loadImage(file); } catch (e) { showToast('Could not open that photo', 'error'); return; }
+  await new Promise(r => setTimeout(r, 30)); // let the toast paint
+  const code = decodeImage(img);
+  if (!code) { showToast('No barcode found — get closer, fill the frame, good light', 'error'); return; }
+  const item = lookupCode(code);
+  if (!item) { openLinkPicker(code); return; }
+  if (batchMode) {
+    const q = recordBatch(item);
+    showToast(`✓ ${item.sku} (${q} units) — tap photo again for the next item`, 'success');
+    renderApp();
+  } else {
+    openModal(item.sku);
+  }
+}
+
+// ---------- Batch mode ----------
 function updateBatchCounter() {
   const counter = document.getElementById('batch-counter');
   if (counter) counter.textContent = batchLog.length + ' scanned';
-
-  // Update the in-camera done button
   const doneBtn = document.getElementById('cam-batch-done');
   const doneCount = document.getElementById('cam-batch-count');
-  if (doneBtn) {
-    doneBtn.style.display = batchMode && batchLog.length > 0 ? 'block' : 'none';
-  }
+  if (doneBtn) doneBtn.style.display = batchMode && batchLog.length > 0 ? 'block' : 'none';
   if (doneCount) doneCount.textContent = batchLog.length;
-
-  // Update hint text
   const hint = document.getElementById('cam-hint');
   if (hint) {
     hint.innerHTML = batchMode
@@ -1320,15 +2082,10 @@ function updateBatchCounter() {
 
 function toggleBatchMode() {
   batchMode = !batchMode;
-  const btn = document.getElementById('batch-toggle-btn');
-  if (btn) {
-    btn.textContent = batchMode ? '✕ Exit Batch Mode' : '📦 Batch Receive Mode';
-    btn.style.background = batchMode ? 'var(--green)' : '';
-    btn.style.color = batchMode ? '#fff' : '';
-  }
   if (batchMode) {
     batchLog = [];
     showToast('Batch mode ON — scan items rapidly, no tapping needed', 'success');
+    renderApp();
     openCamera();
   } else {
     showBatchSummary();
@@ -1336,114 +2093,74 @@ function toggleBatchMode() {
 }
 
 function showBatchSummary() {
+  stopCamera();
   if (batchLog.length === 0) {
-    stopCamera();
-    showToast('No items scanned in batch', '');
+    showToast('No items scanned in batch');
+    renderApp();
     return;
   }
-  stopCamera();
-
-  // Build summary modal content
   const modal = document.getElementById('modal');
-  const sheet = modal.querySelector('.modal-sheet');
-  sheet.innerHTML = `
+  modal.querySelector('.modal-sheet').innerHTML = `
     <div class="modal-sku-label" style="font-size:16px">📦 Batch Receive Summary</div>
-    <div class="modal-desc" style="margin-bottom:12px">${batchLog.length} SKU${batchLog.length>1?'s':''} received</div>
+    <div class="modal-desc" style="margin-bottom:12px">${batchLog.length} SKU${batchLog.length > 1 ? 's' : ''} received</div>
     <div style="max-height:260px;overflow-y:auto;margin-bottom:12px">
       ${batchLog.map(e => `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
           <div>
-            <div style="font-weight:600;font-size:13px;color:var(--fg)">${e.sku}</div>
-            <div style="font-size:12px;color:var(--fg-muted)">${e.desc}</div>
+            <div style="font-weight:600;font-size:13px;color:var(--fg)">${esc(e.sku)}</div>
+            <div style="font-size:12px;color:var(--fg-muted)">${esc(e.desc)}</div>
           </div>
           <div style="text-align:right">
             <div style="font-size:13px;color:var(--green);font-weight:600">${e.qty} units</div>
-            <button onclick="openModalFromBatch('${e.sku}')" style="font-size:11px;color:var(--blue);background:none;border:none;cursor:pointer;padding:0">edit</button>
+            <button data-sku="${esc(e.sku)}" onclick="openModalFromBatch(this.dataset.sku)" style="font-size:11px;color:var(--blue);background:none;border:none;cursor:pointer;padding:0">edit</button>
           </div>
         </div>`).join('')}
     </div>
     <div style="display:flex;gap:8px;margin-top:8px">
       <button class="btn secondary" style="flex:1" onclick="closeBatchSummary()">Done</button>
       <button class="btn" style="flex:1;background:var(--accent)" onclick="restartBatch()">Scan More</button>
-    </div>
-  `;
+    </div>`;
   modal.classList.add('open');
   renderApp();
 }
 
 function openModalFromBatch(sku) {
-  document.getElementById('modal').classList.remove('open');
-  setTimeout(() => openModal(sku), 100);
+  // openModal restores the count sheet itself
+  openModal(sku);
 }
 
 function closeBatchSummary() {
-  // Restore modal to original state
-  const sheet = document.querySelector('.modal-sheet');
-  sheet.innerHTML = `
-    <div class="modal-sku-label" id="modal-sku"></div>
-    <div class="modal-desc" id="modal-desc"></div>
-    <div class="qty-editor">
-      <button class="qty-btn" onclick="adjustQty(-1)">−</button>
-      <div class="qty-display" id="qty-display">0</div>
-      <button class="qty-btn" onclick="adjustQty(1)">+</button>
-    </div>
-    <div id="modal-info"></div>
-    <div style="display:flex;gap:8px;margin-top:16px">
-      <button class="btn secondary" style="flex:1" onclick="closeModal()">Cancel</button>
-      <button class="btn green-btn" style="flex:1" id="save-btn" onclick="saveQty()">Save Count</button>
-    </div>
-  `;
+  restoreModalSheet();
   document.getElementById('modal').classList.remove('open');
   batchLog = [];
   batchMode = false;
-  const btn = document.getElementById('batch-toggle-btn');
-  if (btn) {
-    btn.textContent = '📦 Batch Receive Mode';
-    btn.style.background = '';
-    btn.style.color = '';
-  }
+  renderApp();
 }
 
 function restartBatch() {
-  const sheet = document.querySelector('.modal-sheet');
-  sheet.innerHTML = `
-    <div class="modal-sku-label" id="modal-sku"></div>
-    <div class="modal-desc" id="modal-desc"></div>
-    <div class="qty-editor">
-      <button class="qty-btn" onclick="adjustQty(-1)">−</button>
-      <div class="qty-display" id="qty-display">0</div>
-      <button class="qty-btn" onclick="adjustQty(1)">+</button>
-    </div>
-    <div id="modal-info"></div>
-    <div style="display:flex;gap:8px;margin-top:16px">
-      <button class="btn secondary" style="flex:1" onclick="closeModal()">Cancel</button>
-      <button class="btn green-btn" style="flex:1" id="save-btn" onclick="saveQty()">Save Count</button>
-    </div>
-  `;
+  restoreModalSheet();
   document.getElementById('modal').classList.remove('open');
   batchLog = [];
   batchMode = true;
+  renderApp();
   openCamera();
 }
 
-function switchCamera() {
-  _stopCameraInternal();
-  setTimeout(openCamera, 200);
-}
-
-function stopCamera(closeModal = true) {
+function stopCamera(closeModalToo = true) {
   _stopCameraInternal();
   document.getElementById('cam-manual-row')?.remove();
-
-  if (closeModal) {
+  document.getElementById('cam-tap').style.display = 'none';
+  if (closeModalToo) {
     document.getElementById('camera-modal').classList.remove('open');
     document.getElementById('cam-result-bar').style.display = 'none';
+    hideCamHelp();
   }
 }
 
 // =====================================================================
 // BOOT
 // =====================================================================
+restoreModalSheet();
 initDB();
 </script>
-</head><body></body></html>
+</body></html>

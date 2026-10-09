@@ -442,12 +442,16 @@
 <!-- Link-barcode Modal -->
 <div class="modal-overlay" id="link-modal" onclick="if(event.target===this)closeLinkPicker()">
   <div class="modal-sheet">
-    <div class="modal-sku-label">Link barcode to an item</div>
-    <div class="modal-desc" id="link-code" style="font-family:monospace"></div>
-    <p style="font-size:13px;color:var(--fg-muted);margin:6px 0 10px;line-height:1.5">This barcode isn't on your invoices yet. Pick the item it belongs to — next time it scans instantly.</p>
-    <input class="search-input" id="link-search" placeholder="Search item or SKU…" oninput="renderLinkList()" autocomplete="off" autocorrect="off" spellcheck="false">
-    <div class="inv-list" id="link-list" style="max-height:42vh;overflow-y:auto"></div>
-    <button class="btn secondary" style="width:100%;margin-top:10px" onclick="closeLinkPicker()">Cancel</button>
+    <div id="link-pick">
+      <div class="modal-sku-label">New barcode</div>
+      <div class="modal-desc" id="link-code" style="font-family:monospace"></div>
+      <p style="font-size:13px;color:var(--fg-muted);margin:6px 0 10px;line-height:1.5">Type the SKU printed on the label. If it's on the list, tap it to link. If not, add it as a new item. Either way it scans instantly next time.</p>
+      <input class="search-input" id="link-search" placeholder="SKU on the label, e.g. QBFRDM-s25-BK" oninput="renderLinkList()" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
+      <div class="inv-list" id="link-list" style="max-height:36vh;overflow-y:auto"></div>
+      <button class="btn green-btn" style="width:100%;margin-top:10px" onclick="showNewItemForm()">➕ Not on the list — add as new item</button>
+      <button class="btn secondary" style="width:100%;margin-top:8px" onclick="closeLinkPicker()">Cancel</button>
+    </div>
+    <div id="link-new" style="display:none"></div>
   </div>
 </div>
 
@@ -482,7 +486,9 @@
 <script>
 // =====================================================================
 // BUILT-IN ITEM LIST (Highest Rated Wireless invoices)
-//  • WAN85X798313300926 · 09/30/2026 — received stock: 152 SKUs / 303 units
+//  • WAN85X798313300926 · 09/30/2026 — received stock: 152 SKUs / 403 pieces
+//    (invoice says 303 because 3 counter-display lines are boxes: 30W chargers
+//    4×12, 10ft cables 2×10, 3ft cables 2×20 — converted to single pieces)
 //    (155 lines / $1,121.23; 3 lines shipped at qty 0 aren't counted as received)
 //  • KBXLHI798332170626 · 06/17/2026 and AMOC5V798339131125 · 11/13/2025 —
 //    CATALOG ONLY (qty 0): lets older stock still on the shelf scan as a known
@@ -633,11 +639,11 @@ const DEFAULT_INVOICE = [
   ["CANDYPOWERBANK-PRINGLES-19","CANDY POWERBANK 5000 MAH - EPBPR-12-ST - Pringles (D17 CANDY 19)",2,9.99,29.99,"Cables & Chargers",""],
   ["CANDYPOWERBANK-REESES-21","CANDY POWERBANK 5000 MAH - EPBRS-12-ST - Reeses (D17 CANDY 21)",2,9.99,29.99,"Cables & Chargers",""],
   ["CANDYPOWERBANK-TRIX-23","CANDY POWERBANK 5000 MAH - EPBTR-12-ST - Trix (D17 CANDY 23)",2,9.99,29.99,"Cables & Chargers",""],
-  ["ESEEKT30US-WHITE-54","ESEEKGO [PD FAST WALL CHARGER] (30W) - GAN - [12 Pcs Box] - (LANE B2 ITEM 54)",4,39.00,116.99,"Cables & Chargers",""],
+  ["ESEEKT30US-WHITE-54","ESEEKGO [PD FAST WALL CHARGER] (30W) - GAN - counter box of 12 (invoice: 4 boxes @ $39.00) - (LANE B2 ITEM 54)",48,3.25,9.99,"Cables & Chargers",""],
   ["LICENSEDCABLES-NOODLES","LICENSED 6FT C TO C CHARGING CABLE - CUP NOODLES (D17)",2,4.50,13.99,"Cables & Chargers",""],
   ["LICENSEDCABLES-PEANUTS","LICENSED 6FT C TO C CHARGING CABLE - PEANUTS (D17 PEANUTS 6)",2,4.50,13.99,"Cables & Chargers",""],
-  ["SHPD10FTRIV-WHT","$1.00 Each Pack of 10 LOOSE Cable in CounterDisplay Box - 10FT Fast Charging Cable [Type C - Type C PD] - White w Golden Shell (24)",2,10.00,29.99,"Cables & Chargers",""],
-  ["SHPD3FTRIV-BRAD",".50 cents Each Pack of 20 LOOSE Cable in CounterDisplay Box - 3FT Fast Charging Cable [Type C - Type C PD] Nylon Braided - Black w Black Shell (34)",2,10.00,29.99,"Cables & Chargers",""],
+  ["SHPD10FTRIV-WHT","10FT Fast Charging Cable [Type C - Type C PD] - White w Golden Shell - counter display, pack of 10 (invoice: 2 packs @ $10.00) (24)",20,1.00,2.99,"Cables & Chargers",""],
+  ["SHPD3FTRIV-BRAD","3FT Fast Charging Cable [Type C - Type C PD] Nylon Braided - Black w Black Shell - counter display, pack of 20 (invoice: 2 packs @ $10.00) (34)",40,0.50,1.49,"Cables & Chargers",""],
   ["VQD3460W-BLK-3","MICCELL [CABLE] (60W TypeC-TypeC 4FT BLACK) - BRAIDED FAST CHARGE - (LANE B19 ITEM 3)",2,1.75,5.99,"Cables & Chargers",""],
   ["VQD3460W-CSMORN-4","MICCELL [CABLE] (60W TypeC-TypeC 4FT BLACK) - BRAIDED FAST CHARGE (B19 ITEM 4)",2,1.75,5.99,"Cables & Chargers",""],
   ["A2CC-I01S02-1","A2C (CAR MOUNT) (MAGNETIC) - (LANE B7-B8 - A2C - 1)",2,4.50,13.99,"Car Mounts",""],
@@ -802,7 +808,7 @@ const LS_TRANSFERS  = 'pb_transfers';
 const LS_CUR_LOC    = 'pb_current_loc';
 
 const DEFAULT_LOG = [
-  { name: 'WAN85X798313300926 · Highest Rated Wireless', skus: 152, units: 303, cost: 1121.23, at: INVOICE_DATE },
+  { name: 'WAN85X798313300926 · Highest Rated Wireless', skus: 152, units: 403, cost: 1121.23, at: INVOICE_DATE },
   { name: 'KBXLHI798332170626 (catalog only)', skus: 85, units: 0, cost: 0, at: '2026-06-17T12:00:00', catalog: true },
   { name: 'AMOC5V798339131125 (catalog only)', skus: 55, units: 0, cost: 0, at: '2025-11-13T12:00:00', catalog: true },
 ];
@@ -970,7 +976,8 @@ function storeLabel(loc) { return loc === 'all' ? 'Both stores' : `${LOCS[loc].n
 function renderApp() {
   document.getElementById('loading-state')?.remove();
   const sub = document.getElementById('hdr-sub');
-  if (sub) sub.textContent = `Popcorn Beauty — ${INVOICE.length} SKUs · ${invoiceLog.length} invoice${invoiceLog.length === 1 ? '' : 's'}`;
+  const nInv = invoiceLog.filter(e => !e.added).length;
+  if (sub) sub.textContent = `Popcorn Beauty — ${INVOICE.length} SKUs · ${nInv} invoice${nInv === 1 ? '' : 's'}`;
   setLoc(currentLoc, true);
   const main = document.getElementById('main-content');
   if (currentTab === 'scan') renderScan(main);
@@ -1241,7 +1248,7 @@ function renderInvoices(main) {
           <div class="inv-item">
             <div class="inv-name">${esc(e.name)}</div>
             <div class="inv-sku">${e.skus} SKUs · ${e.at ? formatDate(e.at) : ''}</div>
-            <div class="inv-counts">${e.catalog ? `<div class="inv-fraction">catalog only</div>` : `<div class="inv-left all" style="font-size:15px">${e.units}</div><div class="inv-fraction">${fmt(e.cost || 0)}</div>`}</div>
+            <div class="inv-counts">${e.catalog ? `<div class="inv-fraction">${e.added ? 'counted as on hand' : 'catalog only'}</div>` : `<div class="inv-left all" style="font-size:15px">${e.units}</div><div class="inv-fraction">${fmt(e.cost || 0)}</div>`}</div>
           </div>`).join('') : `<div class="inv-item" style="justify-content:center;color:var(--fg-muted);font-size:13px">No invoices loaded</div>`}
       </div>
     </div>
@@ -1810,13 +1817,19 @@ function openLinkPicker(code) {
   linkCode = normCode(code);
   document.getElementById('link-code').textContent = linkCode;
   document.getElementById('link-search').value = '';
+  document.getElementById('link-pick').style.display = '';
+  document.getElementById('link-new').style.display = 'none';
   renderLinkList();
   document.getElementById('link-modal').classList.add('open');
 }
 
+// Compare ignoring case, dashes and spaces: "frdm s25" finds QBFRDM-S25-BK
+function squash(s) { return String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+
 function renderLinkList() {
-  const q = (document.getElementById('link-search').value || '').toLowerCase().trim();
-  const list = INVOICE.filter(r => !q || String(r[0]).toLowerCase().includes(q) || String(r[1]).toLowerCase().includes(q)).slice(0, 80);
+  const raw = (document.getElementById('link-search').value || '').trim();
+  const q = raw.toLowerCase(), qs = squash(raw);
+  const list = INVOICE.filter(r => !q || squash(r[0]).includes(qs) || String(r[1]).toLowerCase().includes(q)).slice(0, 80);
   document.getElementById('link-list').innerHTML = list.length
     ? list.map(r => `
       <div class="inv-item" data-sku="${esc(r[0])}" onclick="linkCodeTo(this.dataset.sku)" style="cursor:pointer">
@@ -1841,6 +1854,100 @@ function linkCodeTo(sku) {
 function closeLinkPicker() {
   document.getElementById('link-modal').classList.remove('open');
   linkCode = null;
+}
+
+// ---------- Add an item that isn't on any invoice ----------
+// Guesses cost/retail from items with the same style code (QBFRDM-…) and the
+// category from items for the same phone (…-S25-…). Everything is editable.
+function guessFromSku(sku) {
+  const parts = normCode(sku).split('-').filter(Boolean);
+  const out = {};
+  if (!parts.length) return out;
+  const style = INVOICE.filter(r => normCode(r[0]).split('-')[0] === parts[0] && r[3] > 0);
+  if (style.length) {
+    const s = style[style.length - 1];
+    out.cost = s[3]; out.retail = s[4]; out.styleDesc = s[1];
+    if (!parts[1]) out.cat = s[5];
+  }
+  if (parts[1]) {
+    const dev = INVOICE.find(r => normCode(r[0]).split('-')[1] === parts[1]);
+    if (dev) out.cat = dev[5];
+  }
+  return out;
+}
+
+function showNewItemForm() {
+  const typed = (document.getElementById('link-search').value || '').trim();
+  const sku = /^[A-Za-z0-9]+(-[A-Za-z0-9]+)+$/.test(typed) ? normCode(typed) : '';
+  document.getElementById('link-pick').style.display = 'none';
+  const box = document.getElementById('link-new');
+  const cats = [...new Set(INVOICE.map(r => r[5]))].sort();
+  const field = 'width:100%;box-sizing:border-box;background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;padding:9px 10px;color:var(--fg);font-size:16px';
+  box.innerHTML = `
+    <div class="modal-sku-label">Add new item</div>
+    <div style="font-size:12px;color:var(--fg-muted);margin-bottom:10px">Barcode <span style="font-family:monospace;color:var(--fg)">${esc(linkCode)}</span> will be linked to it.</div>
+    <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--fg-muted)">
+      <label>SKU (as printed on the label)
+        <input id="ni-sku" style="${field}" value="${esc(sku)}" placeholder="QBFRDM-S25-BK" autocapitalize="characters" autocorrect="off" spellcheck="false" oninput="niAutofill()"></label>
+      <label>Description
+        <input id="ni-desc" style="${field}" placeholder="e.g. Samsung S25/S24 Butterfly Freedom Case - Black"></label>
+      <div style="display:flex;gap:8px">
+        <label style="flex:1">Unit cost $<input id="ni-cost" type="number" inputmode="decimal" step="0.01" min="0" style="${field}"></label>
+        <label style="flex:1">Retail $<input id="ni-retail" type="number" inputmode="decimal" step="0.01" min="0" style="${field}"></label>
+      </div>
+      <label>Category
+        <input id="ni-cat" list="ni-cats" style="${field}" placeholder="Pick or type a category">
+        <datalist id="ni-cats">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist></label>
+      <div id="ni-hint" style="font-size:12px;line-height:1.45"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn secondary" style="flex:1" onclick="document.getElementById('link-new').style.display='none';document.getElementById('link-pick').style.display=''">Back</button>
+      <button class="btn green-btn" style="flex:2" onclick="saveNewItem()">Add &amp; count</button>
+    </div>`;
+  box.style.display = '';
+  niAutofill();
+  setTimeout(() => document.getElementById(sku ? 'ni-desc' : 'ni-sku')?.focus(), 50);
+}
+
+function niAutofill() {
+  const sku = document.getElementById('ni-sku').value;
+  const g = guessFromSku(sku);
+  const set = (id, v) => { const el = document.getElementById(id); if (el && !el.dataset.touched && v !== undefined) el.value = v; };
+  ['ni-cost', 'ni-retail', 'ni-cat', 'ni-desc'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && !el.dataset.bound) { el.dataset.bound = 1; el.addEventListener('input', () => el.dataset.touched = 1); }
+  });
+  set('ni-cost', g.cost !== undefined ? g.cost.toFixed(2) : '');
+  set('ni-retail', g.retail !== undefined ? g.retail.toFixed(2) : '');
+  set('ni-cat', g.cat || '');
+  const hint = document.getElementById('ni-hint');
+  const exists = skuMap[normCode(sku)];
+  hint.innerHTML = exists
+    ? `<span style="color:var(--yellow)">${esc(exists.sku)} is already on the list — saving will just link the barcode to it.</span>`
+    : g.styleDesc ? `Cost and price copied from a similar item:<br><em>${esc(g.styleDesc.slice(0, 90))}</em>` : '';
+}
+
+function saveNewItem() {
+  const sku = normCode(document.getElementById('ni-sku').value);
+  if (!sku) { showToast('Enter the SKU from the label', 'error'); document.getElementById('ni-sku').focus(); return; }
+  if (skuMap[sku]) { linkCodeTo(sku); return; }
+  const desc = document.getElementById('ni-desc').value.trim() || sku;
+  let cost = toNum(document.getElementById('ni-cost').value); if (isNaN(cost) || cost < 0) cost = 0;
+  let retail = toNum(document.getElementById('ni-retail').value);
+  if (isNaN(retail) || retail <= 0) retail = cost > 0 ? Math.max(0.99, Math.ceil(cost * 3) - 0.01) : 0;
+  const cat = document.getElementById('ni-cat').value.trim() || 'Uncategorized';
+  // Received 0: it's stock that was already in the store, not part of an invoice
+  INVOICE.push([sku, desc, 0, +cost.toFixed(2), +retail.toFixed(2), cat, linkCode]);
+  const added = invoiceLog.find(e => e.added);
+  if (added) added.skus++;
+  else invoiceLog.push({ name: 'Added in store (not on invoices)', skus: 1, units: 0, cost: 0, at: new Date().toISOString(), catalog: true, added: true });
+  saveItems();
+  rebuildIndex();
+  closeLinkPicker();
+  showToast(`➕ Added ${sku}`, 'success');
+  const item = skuMap[sku];
+  if (batchMode) { recordBatch(item); renderApp(); openCamera(); }
+  else openModal(item.sku);
 }
 
 // =====================================================================

@@ -1819,8 +1819,22 @@ function openLinkPicker(code) {
   document.getElementById('link-search').value = '';
   document.getElementById('link-pick').style.display = '';
   document.getElementById('link-new').style.display = 'none';
+  const search = document.getElementById('link-search');
   renderLinkList();
   document.getElementById('link-modal').classList.add('open');
+  const job = labelJobs[linkCode];
+  if (job?.pending) {
+    search.placeholder = 'Reading the label…';
+    const c = linkCode;
+    job.promise.then(g => {
+      search.placeholder = 'SKU on the label, e.g. QBFRDM-s25-BK';
+      if (linkCode !== c || !g || search.value) return;
+      if (g.known) { linkCodeTo(g.sku); return; }
+      if (document.getElementById('link-new').style.display === 'none') {
+        search.value = g.sku; renderLinkList(); showNewItemForm(g);
+      }
+    });
+  }
 }
 
 // Compare ignoring case, dashes and spaces: "frdm s25" finds QBFRDM-S25-BK
@@ -1873,10 +1887,27 @@ function guessFromSku(sku) {
     const dev = INVOICE.find(r => normCode(r[0]).split('-')[1] === parts[1]);
     if (dev) out.cat = dev[5];
   }
+  // Description: "For <phone> <style name> - <colour>", e.g.
+  // QBFRDM-S25-BK → "For Samsung S25/S24 Butterfly Freedom … Case Cover - Black"
+  if (out.styleDesc && out.cat && parts.length >= 3) {
+    const styleName = out.styleDesc
+      .replace(/^For\s+(?:Apple\s+)?(?:iPhone|iP|Samsung(?:\s+Galaxy)?|SAM)\s*[\w\/]+(?:\s+(?:Pro Max|PRO MAX|Pro|PRO|Plus|Ultra|FE|Max|Mini))*(?:\s+[\d.]+"?)?\s*/i, '')
+      .replace(/\s+-\s+[^-]+$/, '').trim();
+    const color = colorName(parts[parts.length - 1]);
+    if (styleName && color) out.desc = `For ${out.cat} ${styleName} - ${color}`;
+  }
   return out;
 }
 
-function showNewItemForm() {
+const COLOR_CODES = {
+  BK: 'Black', BLK: 'Black', K: 'Black', PRP: 'Purple', DPRP: 'Dark Purple', LPRP: 'Light Purple', RGOLD: 'Rose Gold',
+  GOLD: 'Gold', CLR: 'Clear', CLRCLR: 'Clear/Clear', RED: 'Red', BLUE: 'Blue', RBL: 'Royal Blue', LBL: 'Light Blue',
+  SLV: 'Silver', SILV: 'Silver', TEAL: 'Teal', PNK: 'Pink', HPNK: 'Hot Pink', LPNK: 'Light Pink', RPNK: 'Rose Pink',
+  WHIT: 'White', WHT: 'White', WHITE: 'White', DCH: 'Dark Cherry', GRAY: 'Gray', GREEN: 'Green', ORG: 'Orange',
+};
+function colorName(code) { return COLOR_CODES[normCode(code)] || ''; }
+
+function showNewItemForm(fromLabel) {
   const typed = (document.getElementById('link-search').value || '').trim();
   const sku = /^[A-Za-z0-9]+(-[A-Za-z0-9]+)+$/.test(typed) ? normCode(typed) : '';
   document.getElementById('link-pick').style.display = 'none';
@@ -1886,6 +1917,7 @@ function showNewItemForm() {
   box.innerHTML = `
     <div class="modal-sku-label">Add new item</div>
     <div style="font-size:12px;color:var(--fg-muted);margin-bottom:10px">Barcode <span style="font-family:monospace;color:var(--fg)">${esc(linkCode)}</span> will be linked to it.</div>
+    ${fromLabel?.sku ? `<div style="font-size:12px;color:var(--green);margin:-4px 0 10px">📷 SKU read from the label. Check it matches before saving.</div>` : ''}
     <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--fg-muted)">
       <label>SKU (as printed on the label)
         <input id="ni-sku" style="${field}" value="${esc(sku)}" placeholder="QBFRDM-S25-BK" autocapitalize="characters" autocorrect="off" spellcheck="false" oninput="niAutofill()"></label>
@@ -1920,6 +1952,7 @@ function niAutofill() {
   set('ni-cost', g.cost !== undefined ? g.cost.toFixed(2) : '');
   set('ni-retail', g.retail !== undefined ? g.retail.toFixed(2) : '');
   set('ni-cat', g.cat || '');
+  set('ni-desc', g.desc || '');
   const hint = document.getElementById('ni-hint');
   const exists = skuMap[normCode(sku)];
   hint.innerHTML = exists
@@ -2124,6 +2157,8 @@ async function openCamera() {
   video.setAttribute('playsinline', '');
   video.srcObject = stream;
 
+  // Warm up the label reader in the background so the first new barcode reads quickly
+  setTimeout(() => { if (cameraActive) getOcrWorker().catch(() => {}); }, 2500);
   try {
     await video.play();
     setStatus(batchMode ? '📦 BATCH — point at barcode' : 'Hold barcode in the red box');
@@ -2160,11 +2195,15 @@ function makeReader() {
   return r;
 }
 
+let lastDecodePoints = null; // where the last barcode sat in the decoded canvas
+
 function decodeCanvas(reader, canvas) {
   try {
     const res = reader.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(canvas))));
     const txt = res ? normCode(res.getText()) : '';
-    return txt.length >= 3 ? txt : null;
+    if (txt.length < 3) return null;
+    try { lastDecodePoints = (res.getResultPoints() || []).map(p => ({ x: p.getX(), y: p.getY() })); } catch (e) { lastDecodePoints = null; }
+    return txt;
   } catch (e) { return null; } // NotFoundException = no barcode in this frame
 }
 
@@ -2201,7 +2240,9 @@ function startZXingScan(video) {
     const threshold = batchMode ? 1 : 2;
     if (matchCount >= threshold && raw !== lastScannedSku) {
       matchCount = 0;
-      handleBarcode(raw);
+      // Barcode position in full-video pixels, for reading the printed SKU above it
+      const pts = (lastDecodePoints || []).map(p => ({ x: sx + p.x / scale, y: sy + p.y / scale }));
+      handleBarcode(raw, { video, pts });
     }
   }
   scanLoopId = requestAnimationFrame(tick);
@@ -2252,7 +2293,7 @@ function recordBatch(item) {
   return q;
 }
 
-function handleBarcode(raw) {
+function handleBarcode(raw, src) {
   if (raw === lastScannedSku) return;
   lastScannedSku = raw;
   const item = lookupCode(raw);
@@ -2278,20 +2319,181 @@ function handleBarcode(raw) {
       setTimeout(() => { stopCamera(); openModal(item.sku); }, 600);
     }
   } else {
-    bar.textContent = '⚠ ' + raw + ' — not on invoices. Tap here to link it';
     bar.style.display = 'block';
     bar.style.background = 'rgba(210,153,34,.95)';
     bar.style.cursor = 'pointer';
     bar.onclick = () => { stopCamera(); openLinkPicker(raw); };
-    setStatus('Unknown barcode — tap the bar to link it');
+    // Snapshot the frame now (the camera keeps moving) and read the SKU printed on the label
+    const shot = src?.video ? snapshotVideo(src.video, src.pts) : null;
+    if (shot) {
+      bar.textContent = '🔎 ' + raw + ' — new barcode, reading the label…';
+      setStatus('Reading the SKU on the label…');
+      readLabelFor(raw, shot).then(g => {
+        if (!cameraActive || lastScannedSku !== raw) return;   // user moved on
+        afterLabelRead(raw, g);
+      });
+    } else {
+      bar.textContent = '⚠ ' + raw + ' — not on invoices. Tap here to link it';
+      setStatus('Unknown barcode — tap the bar to link it');
+    }
     setTimeout(() => {
-      if (!cameraActive || lastScannedSku !== raw) return;
+      if (!cameraActive || lastScannedSku !== raw || labelJobs[raw]?.pending) return;
       lastScannedSku = null;
       bar.style.display = 'none';
       bar.onclick = null;
       setStatus(batchMode ? '📦 BATCH MODE — scan next item' : 'Point camera at a barcode');
-    }, 4000);
+    }, 6000);
   }
+}
+
+// Called when the label has been read for an unknown barcode (live camera or photo)
+function afterLabelRead(code, g) {
+  if (g?.known) {
+    // The SKU on the label is already on the list: link it and carry on as a normal scan
+    barcodeMap[code] = g.sku; saveBarcodes(); rebuildIndex();
+    const item = skuMap[normCode(g.sku)];
+    showToast(`🔗 Read ${item.sku} off the label — linked`, 'success');
+    if (cameraActive) { lastScannedSku = null; handleBarcode(code); }
+    else if (batchMode) { recordBatch(item); renderApp(); }
+    else openModal(item.sku);
+    return;
+  }
+  if (g?.sku) {
+    // New product: go straight to the add form with the SKU filled in
+    stopCamera();
+    openLinkPicker(code);
+    document.getElementById('link-search').value = g.sku;
+    renderLinkList();
+    showNewItemForm(g);
+    return;
+  }
+  const bar = document.getElementById('cam-result-bar');
+  if (cameraActive && bar) {
+    bar.textContent = '⚠ ' + code + ' — couldn\'t read the label. Tap here to link it';
+    setStatus('Unknown barcode — tap the bar to link it');
+  }
+}
+
+// ---------- Reading the printed SKU (on-device text recognition) ----------
+const OCR_CDN = {
+  lib: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
+  workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+  corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',
+  langPath: 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int',
+};
+let ocrWorkerP = null;
+const labelJobs = {}; // barcode -> { pending, result }
+
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = () => rej(new Error('load failed: ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+function getOcrWorker() {
+  if (!ocrWorkerP) {
+    ocrWorkerP = (async () => {
+      if (!window.Tesseract) await loadScript(OCR_CDN.lib);
+      const w = await Tesseract.createWorker('eng', 1, {
+        workerPath: OCR_CDN.workerPath, corePath: OCR_CDN.corePath, langPath: OCR_CDN.langPath,
+      });
+      await w.setParameters({
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-/ ',
+        tessedit_pageseg_mode: '11', // sparse text: labels, not paragraphs
+      });
+      return w;
+    })().catch(e => { ocrWorkerP = null; throw e; });
+  }
+  return ocrWorkerP;
+}
+
+// Copy the current video frame. With the barcode's position, also cut out the
+// label area around it (the SKU is printed just above the bars).
+function snapshotVideo(video, pts) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return null;
+  const full = document.createElement('canvas');
+  const s = Math.min(1, 1600 / Math.max(vw, vh));
+  full.width = Math.round(vw * s); full.height = Math.round(vh * s);
+  full.getContext('2d').drawImage(video, 0, 0, full.width, full.height);
+  const scaled = (pts || []).map(p => ({ x: p.x * s, y: p.y * s }));
+  return { full, region: cropAroundBarcode(full, scaled) };
+}
+
+function cropAroundBarcode(canvas, pts) {
+  if (!pts || pts.length < 2) return null;
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const w = Math.max(40, maxX - minX);
+  const x0 = Math.max(0, minX - 0.45 * w), x1 = Math.min(canvas.width, maxX + 0.45 * w);
+  const y0 = Math.max(0, minY - 1.2 * w), y1 = Math.min(canvas.height, maxY + 0.5 * w);
+  if (x1 - x0 < 20 || y1 - y0 < 20) return null;
+  const out = document.createElement('canvas');
+  const up = Math.max(1, Math.min(3, 1200 / (x1 - x0)));   // enlarge small text
+  out.width = Math.round((x1 - x0) * up); out.height = Math.round((y1 - y0) * up);
+  const ctx = out.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(canvas, x0, y0, x1 - x0, y1 - y0, 0, 0, out.width, out.height);
+  return out;
+}
+
+// OCR confuses O/0, I/1, S/5, B/8 — compare SKUs with those folded together
+function fuzzKey(s) {
+  return squash(s).replace(/O/g, '0').replace(/[IL]/g, '1').replace(/S/g, '5').replace(/B/g, '8').replace(/Z/g, '2').replace(/G/g, '6');
+}
+
+function skuCandidates(text) {
+  const out = new Set();
+  const T = String(text || '').toUpperCase().replace(/[‐-―]/g, '-');
+  (T.match(/[A-Z0-9]{2,14}(?:\s?-\s?[A-Z0-9]{1,14}){1,4}/g) || []).forEach(m => out.add(m.replace(/\s/g, '')));
+  // Dashes sometimes get lost: "QBFRDM S25 BK" — rebuild when the first word is a known style code
+  const styles = new Set(INVOICE.map(r => normCode(r[0]).split('-')[0]));
+  T.split('\n').forEach(line => {
+    const w = line.trim().split(/\s+/).filter(Boolean);
+    for (let i = 0; i < w.length - 1; i++) if (styles.has(w[i])) {
+      out.add(w.slice(i, i + 3).join('-')); out.add(w.slice(i, i + 2).join('-'));
+    }
+  });
+  return [...out].filter(c => /[A-Z]/.test(c) && c.replace(/-/g, '').length >= 5 && !/^\d+(-\d+)*$/.test(c));
+}
+
+function pickSku(text) {
+  const cands = skuCandidates(text);
+  if (!cands.length) return null;
+  const fuzz = {};
+  INVOICE.forEach(r => { fuzz[fuzzKey(r[0])] = r[0]; });
+  for (const c of cands) {                         // already on the list?
+    if (skuMap[normCode(c)]) return { sku: skuMap[normCode(c)].sku, known: true };
+    const f = fuzz[fuzzKey(c)];
+    if (f) return { sku: f, known: true };
+  }
+  const styles = new Set(INVOICE.map(r => normCode(r[0]).split('-')[0]));
+  const score = c => {
+    const seg = c.split('-');
+    return (styles.has(seg[0]) ? 5 : 0) + (seg.length >= 3 ? 2 : 0) + (/\d/.test(c) ? 1 : 0) + Math.min(c.length, 16) / 16;
+  };
+  cands.sort((a, b) => score(b) - score(a));
+  return { sku: cands[0], known: false };
+}
+
+function readLabelFor(code, shot) {
+  if (labelJobs[code]?.result !== undefined) return Promise.resolve(labelJobs[code].result);
+  const job = labelJobs[code] = { pending: true };
+  job.promise = (async () => {
+    try {
+      const w = await getOcrWorker();
+      let best = null;
+      for (const c of [shot.region, shot.full].filter(Boolean)) {
+        const { data } = await w.recognize(c);
+        best = pickSku(data.text);
+        if (best) break;
+      }
+      return best;
+    } catch (e) { return null; }
+  })().then(r => { job.pending = false; job.result = r; return r; });
+  return job.promise;
 }
 
 // ---------- Photo fallback (works where the live camera is blocked) ----------
@@ -2322,7 +2524,7 @@ function decodeImage(img) {
       if (rot === 0) { c.width = w; c.height = h; ctx.drawImage(img, 0, 0, w, h); }
       else { c.width = h; c.height = w; ctx.save(); ctx.translate(h, 0); ctx.rotate(Math.PI / 2); ctx.drawImage(img, 0, 0, w, h); ctx.restore(); }
       const code = decodeCanvas(reader, c);
-      if (code) return code;
+      if (code) return { code, canvas: c, pts: lastDecodePoints };
     }
   }
   return null;
@@ -2335,10 +2537,18 @@ async function decodePhoto(file) {
   let img;
   try { img = await loadImage(file); } catch (e) { showToast('Could not open that photo', 'error'); return; }
   await new Promise(r => setTimeout(r, 30)); // let the toast paint
-  const code = decodeImage(img);
-  if (!code) { showToast('No barcode found — get closer, fill the frame, good light', 'error'); return; }
+  const hit = decodeImage(img);
+  if (!hit) { showToast('No barcode found — get closer, fill the frame, good light', 'error'); return; }
+  const code = hit.code;
   const item = lookupCode(code);
-  if (!item) { openLinkPicker(code); return; }
+  if (!item) {
+    showToast('New barcode — reading the label…');
+    const shot = { full: hit.canvas, region: cropAroundBarcode(hit.canvas, hit.pts) };
+    const g = await readLabelFor(code, shot);
+    if (g) { afterLabelRead(code, g); return; }
+    openLinkPicker(code);
+    return;
+  }
   if (batchMode) {
     const q = recordBatch(item);
     showToast(`✓ ${item.sku} (${q} units) — tap photo again for the next item`, 'success');
